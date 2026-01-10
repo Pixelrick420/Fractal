@@ -1,0 +1,232 @@
+# DATATYPES
+    a) simple
+        1. int : 64 bit signed integer
+        2. float : 64 bit IEEE floating point
+        3. char : 32 bit character (UTF 32 encoding)
+        4. boolean : true or false (1 bit)
+        5. NULL (special type)
+
+    b) iterable
+        1. array : fixed size array that can store any single simple data type
+        2. list : variable size array that can store any single simple data type
+        (strings are basically char arrays or char lists)
+
+    c) complex
+        1. user defined structure : has to be fixed size
+
+
+# MODIFIERS
+    1. const : this type of variable has to be assigned a value during initialization and cant be changed. lists and structures cant be const.
+
+
+# LITERALS
+    a) int
+        1. 0b1001 -> binary
+        2. 0xA -> hexadecimal
+        3. 0o24 -> octal
+        4. 0d12 or 12 -> decimal
+
+    b) float
+        1. 1.2 -> float without exp
+        2. 1.5e6 -> float with exp
+
+    c) char
+        1. 'a' -> single quoted char
+        2. '\n' -> special char
+
+    d) array
+        1. [1, 2, 3, 4, 5] -> int array
+        2. ['a', 'b', 'c'] or "abcd" -> char array (double quote if no [])
+
+    e) list
+        1. same as array but declared as :list
+
+# RULES
+    1. no implicit type casting. if user does not convert int to float before calculation, then error happens.
+        2 / 1.0 -> type error: operands do not match
+        (float) 2 / 1.0 -> ok
+
+        :int a = 1.0 -> type error
+        :int a = (!int) 1.0 -> ok
+
+    2. static + strong typing. All datatypes must be declared and cannot be changed.
+
+    3. all keywords start with !
+        for -> error
+        !for -> keyword signifying a for loop
+
+    4. All datatypes will start with :
+        :int -> integer datatype
+        int -> error
+
+    5. intendation + curly brackets.
+        !if (a > b){
+        print(a);
+        }
+        warning: intendation error
+
+        !if (a > b){
+            print(a);
+        }
+        ok
+
+        also the starting curly brace must be on the same line as condition
+        !if (a > b)
+        {
+            print(a);
+        }
+        warning: improper use of {
+
+        !if (a > b){
+            print(a);
+        }
+        ok
+
+        Users will have to type all code with proper intendation as well as use curly braces. This makes everyones code look identical and more readable.
+
+    5. !start and !end must be used. Only lines of code between those will be considered.
+
+    6. All variables are local. ie, they can only be accessed within the nearest { }
+        !if (condition){
+            :int a = 0;
+        }
+        # no a here
+
+        if variable is declared after start without any nesting, then it is global. The compiler will treat !start as { and !end as }
+
+# COMMENTS
+    1. single line: # <comment here>
+    2. multiline:
+    ###
+            comment
+            here
+    ###
+
+# OPERATORS
+    a) arithmetic unary
+        1. +
+        2. -
+
+    b) arithmetic binary
+        1. +
+        2. -
+        3. *
+        4. /
+        5. %
+
+    c) logical unary
+        1. ~ (not)
+
+    d) logical binary
+        1. &
+        2. |
+        3. ^
+
+    e) assignment
+        1. =
+        2. +=
+        3. *=
+        4. -=
+        5. /=
+        6. %=
+        7. &=
+        8. |=
+        9. ^=
+
+    f) comparison
+        1. >
+        2. <
+        3. >=
+        4. <=
+        5. ~=
+        6. ==
+
+    g) other
+        1. : signifys type
+        2. ! signifys keyword
+        3. -> return type
+        4. . struct member access
+        6. , seperation in arrays lists function params etc
+        7. ' char
+        8. " string
+
+    h) parentheses
+        1. ()  functions, priority and type casting
+        2. []  arrays and lists
+        3. {}  scope define
+        4. <>  type define
+
+
+
+# STANDARD LIBRARY FUNCTIONS
+    a) io
+        1. print(string with placeholders, ..... as many simple data variables as there are placeholders) -> will print formatted string to console
+        2. input(string with placeholders, ..... as many simple data variables as there are placeholders) -> will take user input and match it with the provided string and fill in placeholder variables. Results in error if types dont match
+
+
+    b) array methods
+        1. find
+        2. starts (startswith in python)
+        2. ends (endswith in python)
+
+    c) list methods
+        1. append
+        2. pop
+        3. insert
+        4. find
+        5. delete
+
+    e) tbd (file access needed ig + some sort of turtle like thing for 2d graphics)
+
+
+
+# SAMPLE PROGRAM
+
+!start
+# this is a comment
+
+:int a = 4;
+:float b = 5.0;
+
+:array<int,5> arr = [1, 2, 3, 4, 5];
+:array<char,10> string = "hello 1234";
+:list<int> nums = [1, 2, 3];
+
+!if(a > b){
+    a = (a + 1);
+}
+!else {
+    b = (b + (float) 1);
+}
+
+append(nums, a);
+append(arr, (int) b);
+
+:int c = pop(arr);
+
+
+!for (:int i, 0, n, 1) {     # variable, start, stop, step
+    print("{}, {}, {}", a, b, c);
+    # {} acts as a placeholder for a simple variable(int float char and bool each must have a string form that can be printed).
+    # There is no native method for printing iterables or complex variables (let user make those)
+}
+
+!while (a > b) {
+    a -= 1;
+    print("Hello");
+}
+
+!func hello(:int a, :float b) -> :bool{
+    !return (a > b);
+}
+
+:struct<STRUCTNAME> {
+    :int a;
+    :int b;
+    :array<int,10> arr;
+    :struct<STRUCTNAME> next; # could be self reference
+}
+
+!end
+
+

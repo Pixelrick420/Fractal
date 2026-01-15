@@ -3,12 +3,14 @@
 #![allow(dead_code)]
 
 use lexer::Token;
+
 use std::env;
 use std::fs;
 use std::io::ErrorKind;
 use std::process;
 use std::process::Command;
 
+mod preprocessor;
 mod lexer;
 
 fn main() {
@@ -18,7 +20,7 @@ fn main() {
         eprintln!("Usage : {} <path/to/file.rs>", &args[0]);
         process::exit(1);
     }
-
+    
     let contents = match fs::read_to_string(&args[1]) {
         Ok(data) => data,
         Err(err) => {
@@ -36,8 +38,9 @@ fn main() {
             process::exit(1);
         }
     };
+    let processed_program: &str = &preprocessor::preprocess(&contents);
 
-    let tokens: Vec<Token> = lexer::tokenize(&contents);
+    let tokens: Vec<Token> = lexer::tokenize(&processed_program);
     let n: usize = tokens.len();
     for i in 1..n {
         println!("{:?}", tokens[i]);

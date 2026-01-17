@@ -1,5 +1,7 @@
 !start
+!import "lib/sample_lib.rs";
 # this is a comment
+
 
 :int a = 4;
 :float b = 5.0;

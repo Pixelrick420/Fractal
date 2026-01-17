@@ -39,10 +39,10 @@ fn main() {
         }
     };
     let processed_program: &str = &preprocessor::preprocess(&contents);
-
+    println!("processed {:?}", processed_program);
     let tokens: Vec<Token> = lexer::tokenize(&processed_program);
     let n: usize = tokens.len();
     for i in 1..n {
-        println!("{:?}", tokens[i]);
+        //println!("{:?}", tokens[i]);
     }
 }

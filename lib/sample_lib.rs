@@ -1,0 +1,5 @@
+pub fn main()->int{
+    println!("this is sample library");
+    let sample_var :int = 5;
+    return sample_var;
+}

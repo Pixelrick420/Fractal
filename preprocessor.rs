@@ -1,3 +1,43 @@
+use std::fs;
+use std::io;
+use std::process;
+use std::process::Command;
+use std::path::Path;
+
+fn module_search(module_name: &str) -> io::Result<String> {
+
+    let libs = ["sample_lib"];
+
+
+    if (&module_name[0..1]=="\""){
+        let file_path = &module_name[1..module_name.len()-1];
+        let path = Path::new(file_path);
+
+        if path.exists() && path.is_file(){
+            println!("File exists");
+            return std::fs::read_to_string(file_path);
+            
+            
+        }
+           
+            Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{} not found", module_name),
+        ))
+        
+        
+    }
+    else if libs.contains(&module_name) {
+        std::fs::read_to_string(format!("lib/{}.rs", module_name))
+    } else {
+
+        Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{} not available", module_name),
+        ))
+    }
+}
+
 
 pub fn preprocess(program: &str) -> String {
     let chars: Vec<char> = program.chars().collect();
@@ -21,7 +61,41 @@ pub fn preprocess(program: &str) -> String {
                 }
                 continue;
             }
-        } else {
+        }else if chars[index] == '!'{
+            let mut temp = String::from("!");
+            let word: Vec<char> = vec!['i','m','p','o','r','t'];
+            let mut word_index: usize = 0;
+            index += 1;
+            while index<chars.len()  && word_index < 6 && chars[index] == word[word_index]{
+                temp.push(chars[index]);
+                index += 1;
+                word_index += 1;
+            }
+            if word_index == 6{
+                let mut module_name = String::from("");
+                while index<chars.len() && chars[index].is_whitespace(){
+                    index += 1;
+                }
+                
+                while index<chars.len() && chars[index]!=';'{
+                    module_name.push(chars[index]);
+                    index += 1;
+                }
+              
+                let module_content = module_search(&module_name); 
+                match module_search(&module_name) {
+                Ok(module_content) => contents.push_str(&module_content),
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    process::exit(1);
+                }
+            }
+               
+                
+            }else{
+                contents.push_str(&temp);
+            }
+        }else {
             if index >= chars.len(){
                 break;
             }

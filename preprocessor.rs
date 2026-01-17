@@ -3,6 +3,7 @@ use std::io;
 use std::process;
 use std::process::Command;
 use std::path::Path;
+use std::path::PathBuf;
 
 fn module_search(module_name: &str) -> io::Result<String> {
 
@@ -10,8 +11,23 @@ fn module_search(module_name: &str) -> io::Result<String> {
 
 
     if (&module_name[0..1]=="\""){
-        let file_path = &module_name[1..module_name.len()-1];
-        let path = Path::new(file_path);
+       let mut file_path = PathBuf::from(
+                module_name.trim().trim_matches('"')
+            );
+
+           match file_path.extension().and_then(|e| e.to_str()) {
+            Some("rs")=>{}
+            Some(_)=>{
+                 return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    ("Unsupported file extension"),
+                ))
+            }
+            None=>{
+                file_path.set_extension("rs");
+            }
+           }
+        let path = Path::new(&file_path);
 
         if path.exists() && path.is_file(){
             println!("File exists");

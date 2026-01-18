@@ -5,7 +5,7 @@ use std::process::Command;
 use std::path::Path;
 use std::path::PathBuf;
 
-fn module_search(module_name: &str) -> io::Result<String> {
+fn module_search(module_name: &str) -> io::Result<Vec<char>> {
 
     let libs = ["sample_lib"];
 
@@ -16,22 +16,23 @@ fn module_search(module_name: &str) -> io::Result<String> {
             );
 
            match file_path.extension().and_then(|e| e.to_str()) {
-            Some("rs")=>{}
+            Some("fr")=>{}
             Some(_)=>{
                  return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    ("Unsupported file extension"),
+                    format!("Unsupported file extension {:?}",module_name),
                 ))
             }
             None=>{
-                file_path.set_extension("rs");
+                file_path.set_extension("fr");
             }
            }
         let path = Path::new(&file_path);
 
         if path.exists() && path.is_file(){
-            println!("File exists");
-            return std::fs::read_to_string(file_path);
+            println!("File exists {}",module_name);
+            let contents = fs::read_to_string(file_path)?;
+            return Ok(contents.chars().collect());
             
             
         }
@@ -44,7 +45,8 @@ fn module_search(module_name: &str) -> io::Result<String> {
         
     }
     else if libs.contains(&module_name) {
-        std::fs::read_to_string(format!("lib/{}.rs", module_name))
+        let contents = fs::read_to_string(format!("lib/{}.fr", module_name))?;
+        Ok(contents.chars().collect())
     } else {
 
         Err(io::Error::new(
@@ -54,11 +56,9 @@ fn module_search(module_name: &str) -> io::Result<String> {
     }
 }
 
-
-pub fn preprocess(program: &str) -> String {
-    let chars: Vec<char> = program.chars().collect();
+fn traverse(chars: &mut Vec <char>, visited_modules: &mut Vec<String>, contents: &mut String){
     let mut index: usize = 0;
-    let mut contents = String::from("");
+    
     while index < chars.len() {
         if chars[index] == '#' {
             if index + 2 < chars.len() && chars[index + 1] == '#' && chars[index + 2] == '#' {
@@ -100,11 +100,19 @@ pub fn preprocess(program: &str) -> String {
               
                 let module_content = module_search(&module_name); 
                 match module_search(&module_name) {
-                Ok(module_content) => contents.push_str(&module_content),
+                Ok(mut module_content) => {
+                    if !visited_modules.contains(&module_name){
+                       
+                        visited_modules.push(module_name);
+                        traverse(&mut module_content, visited_modules,contents);
+                    }
+                    
+                },
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     process::exit(1);
                 }
+                
             }
                
                 
@@ -119,5 +127,15 @@ pub fn preprocess(program: &str) -> String {
             index += 1;
         }
     }
+    
+    
+
+}
+pub fn preprocess(program: &str) -> String {
+    let mut chars: Vec<char> = program.chars().collect();
+    let mut contents = String::from("");
+    let mut visited_modules =Vec::new();
+    traverse(&mut chars, &mut visited_modules, &mut contents);
     return contents;
+    
 }

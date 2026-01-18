@@ -1,5 +1,6 @@
 !start
-!import "lib/sample_lib.rs";
+
+!import "lib\sample_lib.fr";
 # this is a comment
 
 

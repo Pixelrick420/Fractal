@@ -302,24 +302,6 @@ pub fn tokenize(program: &str) -> Vec<Token> {
             break;
         }
 
-        if chars[index] == '#' {
-            if index + 2 < chars.len() && chars[index + 1] == '#' && chars[index + 2] == '#' {
-                index += 3;
-                while index + 2 < chars.len() {
-                    if chars[index] == '#' && chars[index + 1] == '#' && chars[index + 2] == '#' {
-                        index += 3;
-                        break;
-                    }
-                    index += 1;
-                }
-                continue;
-            } else {
-                while index < chars.len() && chars[index] != '\n' {
-                    index += 1;
-                }
-                continue;
-            }
-        }
 
         if chars[index] == '!' {
             index += 1;

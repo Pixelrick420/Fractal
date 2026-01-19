@@ -1,5 +1,8 @@
 !start
+
+!import "lib\sample_lib.fr";
 # this is a comment
+
 
 :int a = 4;
 :float b = 5.0;

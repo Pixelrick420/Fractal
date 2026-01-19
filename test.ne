@@ -1,5 +1,4 @@
 !start
-
 !import "lib\sample_lib.fr";
 # this is a comment
 

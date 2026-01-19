@@ -4,8 +4,9 @@ use std::process;
 use std::process::Command;
 use std::path::Path;
 use std::path::PathBuf;
+use std::fmt::format;
 
-fn module_search(module_name: &str) -> io::Result<Vec<char>> {
+fn module_search(module_name: &str, contents: &mut String) -> io::Result<Vec<char>> {
 
     let libs = ["sample_lib"];
 
@@ -31,8 +32,13 @@ fn module_search(module_name: &str) -> io::Result<Vec<char>> {
 
         if path.exists() && path.is_file(){
             println!("File exists {}",module_name);
-            let contents = fs::read_to_string(file_path)?;
-            return Ok(contents.chars().collect());
+            let mut name = String::from("$");
+            name.push_str(module_name.trim().trim_matches('\"'));
+
+            contents.push_str(&name);
+            let file_contents = fs::read_to_string(file_path)?;
+            
+            return Ok(file_contents.chars().collect());
             
             
         }
@@ -97,23 +103,38 @@ fn traverse(chars: &mut Vec <char>, visited_modules: &mut Vec<String>, contents:
                     module_name.push(chars[index]);
                     index += 1;
                 }
-              
-                let module_content = module_search(&module_name); 
-                match module_search(&module_name) {
-                Ok(mut module_content) => {
-                    if !visited_modules.contains(&module_name){
-                       
-                        visited_modules.push(module_name);
-                        traverse(&mut module_content, visited_modules,contents);
-                    }
-                    
-                },
+                if !visited_modules.contains(&module_name){
+                    match module_search(&module_name,contents) {
+                    Ok(mut module_content) => {
+                        
+                        
+                            visited_modules.push(module_name.clone());
+                            traverse(&mut module_content, visited_modules,contents);
+                            let mut name =String::from("$$");
+                            name.push_str(module_name.trim().trim_matches('\"'));
+                            
+                            contents.push_str(&name);
+                            
+                           
+                        
+                        
+                    },
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     process::exit(1);
                 }
                 
             }
+                }
+                else{
+                        {
+                            eprintln!("There is a loop in import statments\n{:?} has been imported before",module_name);
+                            process::exit(1);
+                        }
+                    }
+              
+                //let module_content = module_search(&module_name,&contents); 
+                
                
                 
             }else{

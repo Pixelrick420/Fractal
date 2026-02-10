@@ -1,0 +1,12 @@
+!import "./constants.fr";
+
+:float pi = 3.14159;
+:float e = 2.71828;
+
+!func sqrt(:float x) -> :float {
+    !return x;
+}
+
+!func calculate() -> :float {
+    !return constants.golden_ratio;
+}

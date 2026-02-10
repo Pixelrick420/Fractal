@@ -1,0 +1,6 @@
+:int default_step = 10;
+
+!func adjust(:int value) -> :int {
+    :int limit = 10;
+    !return value;
+}

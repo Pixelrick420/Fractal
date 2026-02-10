@@ -1,0 +1,9 @@
+!import "./helper.fr";
+
+:int max_value = 1000;
+:int min_value = 0;
+
+!func clamp(:int val, :int min, :int max) -> :int {
+    :int result = helper.adjust(val);
+    !return result;
+}

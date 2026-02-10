@@ -1,0 +1,13 @@
+!start
+!import "./math.fr";
+!import "./utils.fr";
+
+:int test = 100;
+
+!func main_function() -> :int {
+    :float result = math.pi;
+    :int val = utils.max_value;
+    !return test;
+}
+
+!end

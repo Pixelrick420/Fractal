@@ -1,5 +1,6 @@
 !start
-!import "lib\sample_lib.fr";
+!import "library.fr"
+!import "../lib/math.fr"
 # this is a comment
 
 

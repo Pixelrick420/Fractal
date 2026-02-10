@@ -11,7 +11,6 @@ use std::str::FromStr;
 
 #[derive(Debug)]
 pub enum TokenType {
-    // keywords
     Start,
     End,
     Exit,
@@ -22,8 +21,9 @@ pub enum TokenType {
     Func,
     Return,
     Struct,
+    Import,
+    Module,
 
-    // datatypes
     TypeInt,
     TypeFloat,
     TypeChar,
@@ -32,7 +32,6 @@ pub enum TokenType {
     TypeList,
     TypeStruct,
 
-    // literals
     SIntLit(i64),
     FloatLit(f64),
     CharLit(char),
@@ -40,23 +39,19 @@ pub enum TokenType {
     BoolLit(bool),
     Null,
 
-    // identifiers
     Identifier(String),
 
-    // arithmetic operators
     Plus,
     Minus,
     Star,
     Slash,
     Percent,
 
-    // logical operators
     Ampersand,
     Pipe,
     Caret,
     Tilde,
 
-    // assignment operators
     Equals,
     PlusEquals,
     MinusEquals,
@@ -67,7 +62,6 @@ pub enum TokenType {
     PipeEquals,
     CaretEquals,
 
-    // comparison operators
     Greater,
     Less,
     GreaterEquals,
@@ -75,12 +69,10 @@ pub enum TokenType {
     EqualsEquals,
     TildeEquals,
 
-    // special operators
     Arrow,
     Dot,
     Comma,
 
-    // delimiters
     LParen,
     RParen,
     LBrace,
@@ -90,9 +82,11 @@ pub enum TokenType {
     LAngle,
     RAngle,
 
-    // other
     EndL,
     NoMatch,
+
+    ModuleStart(String),
+    ModuleEnd(String),
 }
 
 #[derive(Debug)]
@@ -226,6 +220,8 @@ fn keyword_map(s: &str) -> TokenType {
         "func" => TokenType::Func,
         "return" => TokenType::Return,
         "struct" => TokenType::Struct,
+        "import" => TokenType::Import,
+        "module" => TokenType::Module,
         _ => TokenType::NoMatch,
     }
 }
@@ -288,6 +284,37 @@ fn handle_token(buffer: &String) -> Token {
     }
 }
 
+fn parse_module_marker(chars: &Vec<char>, start_index: usize) -> Option<(TokenType, usize)> {
+    let mut index = start_index;
+    if index >= chars.len() || chars[index] != '$' {
+        return None;
+    }
+
+    index += 1;
+    let mut marker = String::new();
+
+    while index < chars.len() && chars[index] != '$' {
+        marker.push(chars[index]);
+        index += 1;
+    }
+
+    if index >= chars.len() {
+        return None;
+    }
+
+    index += 1;
+
+    if marker.starts_with("MODULE_START:") {
+        let module_name = marker.trim_start_matches("MODULE_START:").to_string();
+        return Some((TokenType::ModuleStart(module_name), index));
+    } else if marker.starts_with("MODULE_END:") {
+        let module_name = marker.trim_start_matches("MODULE_END:").to_string();
+        return Some((TokenType::ModuleEnd(module_name), index));
+    }
+
+    None
+}
+
 pub fn tokenize(program: &str) -> Vec<Token> {
     let chars: Vec<char> = program.chars().collect();
     let mut tokens: Vec<Token> = Vec::new();
@@ -302,6 +329,13 @@ pub fn tokenize(program: &str) -> Vec<Token> {
             break;
         }
 
+        if chars[index] == '$' {
+            if let Some((token_type, new_index)) = parse_module_marker(&chars, index) {
+                tokens.push(Token { token_type });
+                index = new_index;
+                continue;
+            }
+        }
 
         if chars[index] == '!' {
             index += 1;
@@ -434,6 +468,7 @@ pub fn tokenize(program: &str) -> Vec<Token> {
             && !is_operator_char(chars[index])
             && chars[index] != '!'
             && chars[index] != ':'
+            && chars[index] != '$'
         {
             buffer.push(chars[index]);
             index += 1;

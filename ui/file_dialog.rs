@@ -76,7 +76,7 @@ impl FileDialog {
                     DirEntry { path, name, is_dir }
                 })
                 .collect();
-            // Directories first, then alphabetical
+
             entries.sort_by(|a, b| {
                 b.is_dir
                     .cmp(&a.is_dir)
@@ -102,7 +102,6 @@ impl FileDialog {
             FileDialogMode::Save => "Save File",
         };
 
-        // Shadow overlay feel — modal window
         let mut open = true;
         egui::Window::new(title)
             .open(&mut open)
@@ -112,7 +111,6 @@ impl FileDialog {
             .min_size([400.0, 300.0])
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
-                // ── Breadcrumb / path bar ─────────────────────────────────
                 ui.horizontal(|ui| {
                     if ui.small_button("⬆ Up").clicked() {
                         if let Some(parent) = self.current_dir.parent().map(|p| p.to_path_buf()) {
@@ -120,7 +118,7 @@ impl FileDialog {
                         }
                     }
                     ui.separator();
-                    // Show path components as clickable breadcrumbs
+
                     let parts: Vec<PathBuf> = {
                         let mut v = Vec::new();
                         let mut p = self.current_dir.clone();
@@ -147,7 +145,6 @@ impl FileDialog {
 
                 ui.separator();
 
-                // ── File list ─────────────────────────────────────────────
                 egui::ScrollArea::vertical()
                     .max_height(280.0)
                     .auto_shrink([false, false])
@@ -164,7 +161,6 @@ impl FileDialog {
                                 if entry.is_dir {
                                     self.navigate_to(entry.path.clone());
                                 } else if self.mode == FileDialogMode::Open {
-                                    // Confirm open immediately
                                     self.result = Some(FileDialogResult {
                                         path: entry.path.clone(),
                                         mode: FileDialogMode::Open,
@@ -182,7 +178,6 @@ impl FileDialog {
 
                 ui.separator();
 
-                // ── Filename input (always visible) ───────────────────────
                 ui.horizontal(|ui| {
                     ui.label("File name:");
                     ui.text_edit_singleline(&mut self.filename_input);
@@ -190,7 +185,6 @@ impl FileDialog {
 
                 ui.add_space(4.0);
 
-                // ── Action buttons ────────────────────────────────────────
                 ui.horizontal(|ui| {
                     let confirm_label = match self.mode {
                         FileDialogMode::Open => "Open",

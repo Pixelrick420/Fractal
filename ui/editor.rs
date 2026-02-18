@@ -11,7 +11,6 @@ impl CodeEditor {
         Self { theme }
     }
 
-    /// Draw the full editor: line-number gutter + syntax-highlighted TextEdit.
     pub fn show(&mut self, ui: &mut egui::Ui, code: &mut String) {
         let line_count = code.lines().count().max(1);
         let width_chars = line_count.to_string().len();
@@ -29,7 +28,6 @@ impl CodeEditor {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.horizontal_top(|ui| {
-                    // Gutter
                     egui::Frame::none()
                         .fill(self.theme.line_numbers_bg)
                         .inner_margin(egui::Margin::symmetric(8.0, 6.0))
@@ -48,7 +46,6 @@ impl CodeEditor {
 
                     ui.add_space(4.0);
 
-                    // Editable area with built-in syntax highlighting
                     let text_edit = egui::TextEdit::multiline(code)
                         .font(egui::TextStyle::Monospace)
                         .code_editor()

@@ -6,7 +6,6 @@ pub struct Token {
     pub color: Color32,
 }
 
-/// Stateless highlighter — cheaply re-created each frame.
 #[derive(Clone, Copy)]
 pub struct Highlighter {
     theme: Theme,
@@ -17,8 +16,6 @@ impl Highlighter {
         Self { theme }
     }
 
-    /// Produce a colored `LayoutJob` from a full source string.
-    /// Used as the `layouter` callback inside `TextEdit`.
     pub fn highlight_to_layout_job(&self, text: &str, font_id: FontId) -> LayoutJob {
         let mut job = LayoutJob::default();
         let mut lines = text.split('\n').peekable();
@@ -34,7 +31,7 @@ impl Highlighter {
                     },
                 );
             }
-            // Restore the newline that split() consumed
+
             if lines.peek().is_some() {
                 job.append(
                     "\n",
@@ -55,7 +52,6 @@ impl Highlighter {
         let chars: Vec<char> = line.chars().collect();
         let mut i = 0;
 
-        // Whole-line comment shortcut
         if line.trim_start().starts_with('#') {
             result.push(Token {
                 text: line.to_string(),
@@ -65,7 +61,6 @@ impl Highlighter {
         }
 
         while i < chars.len() {
-            // Whitespace
             if chars[i].is_whitespace() {
                 let start = i;
                 while i < chars.len() && chars[i].is_whitespace() {
@@ -77,7 +72,7 @@ impl Highlighter {
                 });
                 continue;
             }
-            // Inline comment
+
             if chars[i] == '#' {
                 result.push(Token {
                     text: chars[i..].iter().collect(),
@@ -85,7 +80,7 @@ impl Highlighter {
                 });
                 break;
             }
-            // String literal
+
             if chars[i] == '"' {
                 let start = i;
                 i += 1;
@@ -105,7 +100,7 @@ impl Highlighter {
                 });
                 continue;
             }
-            // Char literal
+
             if chars[i] == '\'' {
                 let start = i;
                 i += 1;
@@ -125,7 +120,7 @@ impl Highlighter {
                 });
                 continue;
             }
-            // !keyword
+
             if chars[i] == '!' {
                 let start = i;
                 i += 1;
@@ -141,7 +136,7 @@ impl Highlighter {
                 result.push(Token { text, color });
                 continue;
             }
-            // :type
+
             if chars[i] == ':' {
                 let start = i;
                 i += 1;
@@ -157,7 +152,7 @@ impl Highlighter {
                 result.push(Token { text, color });
                 continue;
             }
-            // Operators / punctuation
+
             if Self::is_operator_char(chars[i]) {
                 let start = i;
                 while i < chars.len() && Self::is_operator_char(chars[i]) {
@@ -169,7 +164,7 @@ impl Highlighter {
                 });
                 continue;
             }
-            // Numbers
+
             if chars[i].is_numeric() {
                 let start = i;
                 while i < chars.len()
@@ -183,7 +178,7 @@ impl Highlighter {
                 });
                 continue;
             }
-            // Identifiers
+
             if chars[i].is_alphabetic() || chars[i] == '_' {
                 let start = i;
                 while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
@@ -198,7 +193,7 @@ impl Highlighter {
                 result.push(Token { text, color });
                 continue;
             }
-            // Fallback
+
             result.push(Token {
                 text: chars[i].to_string(),
                 color: self.theme.text_default,

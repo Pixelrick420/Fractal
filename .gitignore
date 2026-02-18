@@ -1,3 +1,12 @@
 main.exe
 main.pdb
 trial.fr
+
+target/
+Cargo.lock
+
+*.o
+*.asm
+out.txt
+output
+main

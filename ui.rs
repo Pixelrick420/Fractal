@@ -1,66 +1,55 @@
 use eframe::egui;
 use std::fs;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 mod lexer;
 
-#[derive(Clone, Copy)]
-struct Theme {
-    background: egui::Color32,
-    text_default: egui::Color32,
-    keyword: egui::Color32,
-    type_name: egui::Color32,
-    number: egui::Color32,
-    string: egui::Color32,
-    char_lit: egui::Color32,
-    comment: egui::Color32,
-    operator: egui::Color32,
-    identifier: egui::Color32,
-    boolean: egui::Color32,
-    line_numbers_bg: egui::Color32,
-    line_numbers_fg: egui::Color32,
+mod ui {
+    pub mod editor;
+    pub mod file_dialog;
+    pub mod highlighter;
+    pub mod menu_bar;
+    pub mod terminal;
+    pub mod theme;
 }
 
-impl Default for Theme {
-    fn default() -> Self {
-        Self {
-            background: egui::Color32::from_rgb(30, 30, 30),
-            text_default: egui::Color32::from_rgb(212, 212, 212),
-            keyword: egui::Color32::from_rgb(197, 134, 192),
-            type_name: egui::Color32::from_rgb(78, 201, 176),
-            number: egui::Color32::from_rgb(181, 206, 168),
-            string: egui::Color32::from_rgb(206, 145, 120),
-            char_lit: egui::Color32::from_rgb(209, 105, 105),
-            comment: egui::Color32::from_rgb(106, 153, 85),
-            operator: egui::Color32::from_rgb(212, 212, 212),
-            identifier: egui::Color32::from_rgb(156, 220, 254),
-            boolean: egui::Color32::from_rgb(86, 156, 214),
-            line_numbers_bg: egui::Color32::from_rgb(25, 25, 25),
-            line_numbers_fg: egui::Color32::from_rgb(100, 100, 100),
-        }
-    }
-}
+use ui::editor::CodeEditor;
+use ui::file_dialog::{FileDialog, FileDialogMode};
+use ui::menu_bar::{show_menu_bar, MenuAction, MenuBarState};
+use ui::terminal::Terminal;
+use ui::theme::Theme;
 
 struct FractalEditor {
     code: String,
     current_file: Option<PathBuf>,
     theme: Theme,
-    show_open_dialog: bool,
-    show_save_dialog: bool,
-    file_path_input: String,
+    menu_state: MenuBarState,
+    editor: CodeEditor,
+    terminal: Terminal,
+    file_dialog: FileDialog,
+    is_running: bool,
+    // Channel to receive compiler output on the main thread
+    output_rx: Option<Arc<Mutex<Vec<String>>>>,
     error_message: Option<String>,
     success_message: Option<String>,
 }
 
 impl Default for FractalEditor {
     fn default() -> Self {
+        let theme = Theme::default();
         Self {
             code: String::from("!start\n# Welcome to Fractal Editor\n:int x = 42;\n!end\n"),
             current_file: None,
-            theme: Theme::default(),
-            show_open_dialog: false,
-            show_save_dialog: false,
-            file_path_input: String::new(),
+            editor: CodeEditor::new(theme),
+            terminal: Terminal::new(theme),
+            file_dialog: FileDialog::new(),
+            menu_state: MenuBarState::default(),
+            theme,
+            is_running: false,
+            output_rx: None,
             error_message: None,
             success_message: None,
         }
@@ -72,339 +61,200 @@ impl FractalEditor {
         Self::default()
     }
 
-    fn open_file(&mut self, path: &str) {
+    fn open_file(&mut self, path: &PathBuf) {
         match fs::read_to_string(path) {
             Ok(content) => {
                 self.code = content;
-                self.current_file = Some(PathBuf::from(path));
-                self.success_message = Some(format!("Opened: {}", path));
+                self.current_file = Some(path.clone());
+                self.success_message = Some(format!("Opened: {}", path.display()));
                 self.error_message = None;
-                self.show_open_dialog = false;
             }
             Err(e) => {
-                self.error_message = Some(format!("Failed to open file: {}", e));
+                self.error_message = Some(format!("Failed to open: {}", e));
                 self.success_message = None;
             }
         }
     }
 
-    fn save_file(&mut self, path: &str) {
+    fn save_file(&mut self, path: &PathBuf) {
         match fs::write(path, &self.code) {
             Ok(_) => {
-                self.current_file = Some(PathBuf::from(path));
-                self.success_message = Some(format!("Saved: {}", path));
+                self.current_file = Some(path.clone());
+                self.success_message = Some(format!("Saved: {}", path.display()));
                 self.error_message = None;
-                self.show_save_dialog = false;
             }
             Err(e) => {
-                self.error_message = Some(format!("Failed to save file: {}", e));
+                self.error_message = Some(format!("Failed to save: {}", e));
                 self.success_message = None;
             }
         }
     }
 
-    fn render_highlighted_text(&self, ui: &mut egui::Ui) {
-        let lines: Vec<&str> = self.code.lines().collect();
-        let num_lines = lines.len();
-        let line_num_width = (num_lines.to_string().len() as f32 * 8.0).max(30.0);
+    fn run_code(&mut self, ctx: &egui::Context) {
+        // Save to a temp file first (or use current file if saved)
+        let source_path = if let Some(ref p) = self.current_file {
+            // Auto-save before running
+            let _ = fs::write(p, &self.code);
+            p.clone()
+        } else {
+            // Write to a temp file
+            let tmp = std::env::temp_dir().join("fractal_temp_run.frac");
+            let _ = fs::write(&tmp, &self.code);
+            tmp
+        };
 
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.horizontal_top(|ui| {
-                    ui.vertical(|ui| {
-                        ui.set_width(line_num_width);
-                        ui.style_mut().override_text_style = Some(egui::TextStyle::Monospace);
+        self.terminal.clear();
+        self.terminal.append("▶ Running fractal-compiler…\n\n");
+        self.is_running = true;
 
-                        let frame = egui::Frame::none()
-                            .fill(self.theme.line_numbers_bg)
-                            .inner_margin(egui::Margin::symmetric(8.0, 4.0));
+        // Shared output buffer
+        let buf: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        self.output_rx = Some(buf.clone());
 
-                        frame.show(ui, |ui| {
-                            for (i, _) in lines.iter().enumerate() {
-                                ui.colored_label(
-                                    self.theme.line_numbers_fg,
-                                    format!(
-                                        "{:>width$}",
-                                        i + 1,
-                                        width = num_lines.to_string().len()
-                                    ),
-                                );
-                            }
-                        });
-                    });
+        let ctx_clone = ctx.clone();
+        let path_str = source_path.to_string_lossy().to_string();
 
-                    ui.add_space(2.0);
-                    ui.separator();
-                    ui.add_space(8.0);
+        thread::spawn(move || {
+            // Try to find the compiler binary next to the current exe
+            let exe_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                .unwrap_or_else(|| PathBuf::from("."));
 
-                    ui.vertical(|ui| {
-                        ui.style_mut().override_text_style = Some(egui::TextStyle::Monospace);
+            let compiler = exe_dir.join("fractal-compiler");
+            let compiler_path = if compiler.exists() {
+                compiler
+            } else {
+                PathBuf::from("fractal-compiler") // rely on PATH
+            };
 
-                        for line in lines.iter() {
-                            self.render_line(ui, line);
-                        }
-                    });
-                });
-            });
-    }
-
-    fn render_line(&self, ui: &mut egui::Ui, line: &str) {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-
-            let trimmed = line.trim_start();
-            if trimmed.starts_with("#") {
-                ui.colored_label(self.theme.comment, line);
-                return;
+            match Command::new(&compiler_path)
+                .arg(&path_str)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output()
+            {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                    let mut lines = buf.lock().unwrap();
+                    if !stdout.is_empty() {
+                        lines.push(stdout);
+                    }
+                    if !stderr.is_empty() {
+                        lines.push(stderr);
+                    }
+                    if out.status.success() {
+                        lines.push("\n✓ Exited successfully.\n".to_string());
+                    } else {
+                        let code = out
+                            .status
+                            .code()
+                            .map(|c| c.to_string())
+                            .unwrap_or("?".into());
+                        lines.push(format!("\n✗ Exited with code {}.\n", code));
+                    }
+                }
+                Err(e) => {
+                    let mut lines = buf.lock().unwrap();
+                    lines.push(format!("error: failed to launch compiler: {}\n", e));
+                    lines.push(
+                        "       Is 'fractal-compiler' in your PATH or next to this binary?\n"
+                            .to_string(),
+                    );
+                }
             }
 
-            let tokens = self.tokenize_line(line);
-            for (text, color) in tokens {
-                ui.colored_label(color, text);
-            }
+            // Signal done with a sentinel
+            buf.lock().unwrap().push("\x00DONE\x00".to_string());
+            ctx_clone.request_repaint();
         });
     }
 
-    fn tokenize_line(&self, line: &str) -> Vec<(String, egui::Color32)> {
-        let mut result = Vec::new();
-        let chars: Vec<char> = line.chars().collect();
-        let mut i = 0;
-
-        while i < chars.len() {
-            if chars[i].is_whitespace() {
-                let start = i;
-                while i < chars.len() && chars[i].is_whitespace() {
-                    i += 1;
-                }
-                result.push((chars[start..i].iter().collect(), self.theme.text_default));
-                continue;
-            }
-
-            if chars[i] == '#' {
-                result.push((chars[i..].iter().collect(), self.theme.comment));
-                break;
-            }
-
-            if chars[i] == '"' {
-                let start = i;
-                i += 1;
-                while i < chars.len() && chars[i] != '"' {
-                    if chars[i] == '\\' && i + 1 < chars.len() {
-                        i += 2;
-                    } else {
-                        i += 1;
-                    }
-                }
-                if i < chars.len() {
-                    i += 1;
-                }
-                result.push((chars[start..i].iter().collect(), self.theme.string));
-                continue;
-            }
-
-            if chars[i] == '\'' {
-                let start = i;
-                i += 1;
-                if i < chars.len() {
-                    if chars[i] == '\\' && i + 1 < chars.len() {
-                        i += 2;
-                    } else {
-                        i += 1;
-                    }
-                }
-                if i < chars.len() && chars[i] == '\'' {
-                    i += 1;
-                }
-                result.push((chars[start..i].iter().collect(), self.theme.char_lit));
-                continue;
-            }
-
-            if chars[i] == '!' {
-                let start = i;
-                i += 1;
-                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
-                    i += 1;
-                }
-                let text: String = chars[start..i].iter().collect();
-                let color = if self.is_keyword(&text[1..]) {
-                    self.theme.keyword
+    fn poll_compiler_output(&mut self) {
+        let mut finished = false;
+        if let Some(ref rx) = self.output_rx {
+            let mut lines = rx.lock().unwrap();
+            for line in lines.drain(..) {
+                if line == "\x00DONE\x00" {
+                    finished = true;
                 } else {
-                    self.theme.operator
-                };
-                result.push((text, color));
-                continue;
-            }
-
-            if chars[i] == ':' {
-                let start = i;
-                i += 1;
-                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
-                    i += 1;
+                    self.terminal.append(&line);
                 }
-                let text: String = chars[start..i].iter().collect();
-                let color = if self.is_type(&text[1..]) {
-                    self.theme.type_name
-                } else {
-                    self.theme.operator
-                };
-                result.push((text, color));
-                continue;
             }
-
-            if self.is_operator_char(chars[i]) {
-                let start = i;
-                while i < chars.len() && self.is_operator_char(chars[i]) {
-                    i += 1;
-                }
-                result.push((chars[start..i].iter().collect(), self.theme.operator));
-                continue;
-            }
-
-            if chars[i].is_numeric()
-                || (chars[i] == '0' && i + 1 < chars.len() && "box".contains(chars[i + 1]))
-            {
-                let start = i;
-                while i < chars.len()
-                    && (chars[i].is_alphanumeric()
-                        || chars[i] == '.'
-                        || chars[i] == 'x'
-                        || chars[i] == 'b'
-                        || chars[i] == 'o')
-                {
-                    i += 1;
-                }
-                result.push((chars[start..i].iter().collect(), self.theme.number));
-                continue;
-            }
-
-            if chars[i].is_alphabetic() || chars[i] == '_' {
-                let start = i;
-                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
-                    i += 1;
-                }
-                let text: String = chars[start..i].iter().collect();
-                let color = match text.as_str() {
-                    "true" | "false" => self.theme.boolean,
-                    "NULL" => self.theme.keyword,
-                    _ => self.theme.identifier,
-                };
-                result.push((text, color));
-                continue;
-            }
-
-            result.push((chars[i].to_string(), self.theme.text_default));
-            i += 1;
         }
-
-        result
-    }
-
-    fn is_keyword(&self, s: &str) -> bool {
-        matches!(
-            s,
-            "start"
-                | "end"
-                | "exit"
-                | "if"
-                | "else"
-                | "for"
-                | "while"
-                | "func"
-                | "return"
-                | "struct"
-                | "import"
-                | "module"
-        )
-    }
-
-    fn is_type(&self, s: &str) -> bool {
-        matches!(
-            s,
-            "int" | "float" | "char" | "boolean" | "array" | "list" | "struct"
-        )
-    }
-
-    fn is_operator_char(&self, c: char) -> bool {
-        matches!(
-            c,
-            '+' | '-'
-                | '*'
-                | '/'
-                | '%'
-                | '&'
-                | '|'
-                | '~'
-                | '^'
-                | '='
-                | '>'
-                | '<'
-                | '('
-                | ')'
-                | '{'
-                | '}'
-                | '['
-                | ']'
-                | '.'
-                | ','
-                | ';'
-        )
+        if finished {
+            self.is_running = false;
+            self.output_rx = None;
+        }
     }
 }
 
 impl eframe::App for FractalEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let dark_visuals = egui::Visuals {
+        // Poll background compiler thread
+        self.poll_compiler_output();
+        if self.is_running {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        }
+
+        // Theme
+        ctx.set_visuals(egui::Visuals {
             window_fill: self.theme.background,
             panel_fill: self.theme.background,
             ..egui::Visuals::dark()
-        };
-        ctx.set_visuals(dark_visuals);
-
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("📂 Open").clicked() {
-                        self.show_open_dialog = true;
-                        self.file_path_input.clear();
-                        ui.close_menu();
-                    }
-                    if ui.button("💾 Save").clicked() {
-                        if let Some(path) = self.current_file.clone() {
-                            self.save_file(path.to_str().unwrap_or(""));
-                        } else {
-                            self.show_save_dialog = true;
-                            self.file_path_input.clear();
-                        }
-                        ui.close_menu();
-                    }
-                    if ui.button("💾 Save As").clicked() {
-                        self.show_save_dialog = true;
-                        self.file_path_input.clear();
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("🆕 New").clicked() {
-                        self.code = String::from("!start\n\n!end\n");
-                        self.current_file = None;
-                        ui.close_menu();
-                    }
-                });
-
-                ui.separator();
-
-                if let Some(path) = &self.current_file {
-                    ui.label(format!("📄 {}", path.display()));
-                } else {
-                    ui.label("📄 Untitled");
-                }
-            });
         });
 
+        // ── Menu bar ──────────────────────────────────────────────────────
+        let action = show_menu_bar(
+            ctx,
+            &mut self.menu_state,
+            self.current_file.as_ref(),
+            self.is_running,
+        );
+
+        match action {
+            MenuAction::OpenDialog => {
+                self.file_dialog.open_for_open();
+            }
+            MenuAction::SaveDialog => {
+                let suggested = self
+                    .current_file
+                    .as_ref()
+                    .and_then(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "untitled.frac".to_string());
+                self.file_dialog.open_for_save(&suggested);
+            }
+            MenuAction::SaveCurrent => {
+                if let Some(p) = self.current_file.clone() {
+                    self.save_file(&p);
+                }
+            }
+            MenuAction::New => {
+                self.code = String::from("!start\n\n!end\n");
+                self.current_file = None;
+            }
+            MenuAction::Run => {
+                self.run_code(ctx);
+            }
+            MenuAction::None => {}
+        }
+
+        // ── File dialog ───────────────────────────────────────────────────
+        self.file_dialog.show(ctx);
+        if let Some(result) = self.file_dialog.result.take() {
+            match result.mode {
+                FileDialogMode::Open => self.open_file(&result.path),
+                FileDialogMode::Save => self.save_file(&result.path),
+            }
+        }
+
+        // ── Status bars ───────────────────────────────────────────────────
         if let Some(msg) = self.error_message.clone() {
             egui::TopBottomPanel::bottom("error_panel").show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(255, 100, 100), "❌ Error:");
+                    ui.colored_label(egui::Color32::from_rgb(255, 100, 100), "❌");
                     ui.label(&msg);
                     if ui.button("✖").clicked() {
                         self.error_message = None;
@@ -416,7 +266,7 @@ impl eframe::App for FractalEditor {
         if let Some(msg) = self.success_message.clone() {
             egui::TopBottomPanel::bottom("success_panel").show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(100, 255, 100), "✓ Success:");
+                    ui.colored_label(egui::Color32::from_rgb(100, 255, 100), "✓");
                     ui.label(&msg);
                     if ui.button("✖").clicked() {
                         self.success_message = None;
@@ -425,86 +275,23 @@ impl eframe::App for FractalEditor {
             });
         }
 
+        // ── Terminal ──────────────────────────────────────────────────────
+        self.terminal.show(ctx);
+
+        // ── Main editor ───────────────────────────────────────────────────
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.set_width(ui.available_width() * 0.5);
-                    ui.heading("Editor");
-                    ui.separator();
-
-                    let text_edit = egui::TextEdit::multiline(&mut self.code)
-                        .font(egui::TextStyle::Monospace)
-                        .code_editor()
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(30);
-
-                    ui.add(text_edit);
-                });
-
-                ui.separator();
-
-                ui.vertical(|ui| {
-                    ui.set_width(ui.available_width());
-                    ui.heading("Preview");
-                    ui.separator();
-
-                    let frame = egui::Frame::none()
-                        .fill(self.theme.background)
-                        .inner_margin(egui::Margin::same(8.0));
-
-                    frame.show(ui, |ui| {
-                        self.render_highlighted_text(ui);
-                    });
-                });
-            });
+            self.editor.show(ui, &mut self.code);
         });
-
-        if self.show_open_dialog {
-            egui::Window::new("Open File")
-                .collapsible(false)
-                .resizable(false)
-                .show(ctx, |ui| {
-                    ui.label("Enter file path:");
-                    ui.text_edit_singleline(&mut self.file_path_input);
-                    ui.horizontal(|ui| {
-                        if ui.button("Open").clicked() {
-                            self.open_file(&self.file_path_input.clone());
-                        }
-                        if ui.button("Cancel").clicked() {
-                            self.show_open_dialog = false;
-                        }
-                    });
-                });
-        }
-
-        if self.show_save_dialog {
-            egui::Window::new("Save File")
-                .collapsible(false)
-                .resizable(false)
-                .show(ctx, |ui| {
-                    ui.label("Enter file path:");
-                    ui.text_edit_singleline(&mut self.file_path_input);
-                    ui.horizontal(|ui| {
-                        if ui.button("Save").clicked() {
-                            self.save_file(&self.file_path_input.clone());
-                        }
-                        if ui.button("Cancel").clicked() {
-                            self.show_save_dialog = false;
-                        }
-                    });
-                });
-        }
     }
 }
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1400.0, 800.0])
-            .with_min_inner_size([800.0, 600.0]),
+            .with_inner_size([1200.0, 800.0])
+            .with_min_inner_size([600.0, 400.0]),
         ..Default::default()
     };
-
     eframe::run_native(
         "Fractal Code Editor",
         options,

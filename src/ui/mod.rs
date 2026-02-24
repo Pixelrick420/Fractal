@@ -1,5 +1,7 @@
+pub mod docs;
 pub mod editor;
 pub mod file_dialog;
+pub mod formatter;
 pub mod highlighter;
 pub mod menu_bar;
 pub mod terminal;

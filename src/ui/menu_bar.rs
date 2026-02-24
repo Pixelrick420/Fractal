@@ -10,6 +10,7 @@ pub enum MenuAction {
     SaveCurrent,
     New,
     Run,
+    ToggleDocs,
     None,
 }
 
@@ -18,8 +19,24 @@ pub fn show_menu_bar(
     _state: &mut MenuBarState,
     current_file: Option<&PathBuf>,
     is_running: bool,
+    docs_open: bool,
 ) -> MenuAction {
     let mut action = MenuAction::None;
+
+    ctx.input_mut(|i| {
+        let ctrl = i.modifiers.ctrl || i.modifiers.mac_cmd;
+        let shift = i.modifiers.shift;
+
+        if ctrl && shift && i.key_pressed(egui::Key::S) {
+            action = MenuAction::SaveDialog;
+        } else if ctrl && i.key_pressed(egui::Key::S) {
+            if current_file.is_some() {
+                action = MenuAction::SaveCurrent;
+            } else {
+                action = MenuAction::SaveDialog;
+            }
+        }
+    });
 
     egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
         egui::menu::bar(ui, |ui| {
@@ -28,7 +45,7 @@ pub fn show_menu_bar(
                     action = MenuAction::OpenDialog;
                     ui.close_menu();
                 }
-                if ui.button("💾 Save").clicked() {
+                if ui.button("💾 Save        Ctrl+S").clicked() {
                     if current_file.is_some() {
                         action = MenuAction::SaveCurrent;
                     } else {
@@ -36,7 +53,7 @@ pub fn show_menu_bar(
                     }
                     ui.close_menu();
                 }
-                if ui.button("💾 Save As").clicked() {
+                if ui.button("💾 Save As  Ctrl+Shift+S").clicked() {
                     action = MenuAction::SaveDialog;
                     ui.close_menu();
                 }
@@ -61,6 +78,22 @@ pub fn show_menu_bar(
             }));
             if ui.add_enabled(!is_running, run_btn).clicked() {
                 action = MenuAction::Run;
+            }
+
+            ui.separator();
+
+            let docs_label = if docs_open {
+                "📖 Docs ✓"
+            } else {
+                "📖 Docs"
+            };
+            let docs_btn = egui::Button::new(egui::RichText::new(docs_label).color(if docs_open {
+                egui::Color32::from_rgb(100, 200, 255)
+            } else {
+                egui::Color32::from_rgb(180, 180, 180)
+            }));
+            if ui.add(docs_btn).clicked() {
+                action = MenuAction::ToggleDocs;
             }
 
             ui.separator();

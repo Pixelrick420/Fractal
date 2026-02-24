@@ -5,8 +5,10 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use fractal::ui::docs::DocsPanel;
 use fractal::ui::editor::CodeEditor;
 use fractal::ui::file_dialog::{FileDialog, FileDialogMode};
+use fractal::ui::formatter::format_code;
 use fractal::ui::menu_bar::{show_menu_bar, MenuAction, MenuBarState};
 use fractal::ui::terminal::Terminal;
 use fractal::ui::theme::Theme;
@@ -19,6 +21,8 @@ struct FractalEditor {
     editor: CodeEditor,
     terminal: Terminal,
     file_dialog: FileDialog,
+    docs_panel: DocsPanel,
+    docs_open: bool,
     is_running: bool,
     output_rx: Option<Arc<Mutex<Vec<String>>>>,
     error_message: Option<String>,
@@ -34,6 +38,8 @@ impl Default for FractalEditor {
             editor: CodeEditor::new(theme),
             terminal: Terminal::new(theme),
             file_dialog: FileDialog::new(),
+            docs_panel: DocsPanel::new(theme),
+            docs_open: false,
             menu_state: MenuBarState::default(),
             theme,
             is_running: false,
@@ -64,11 +70,15 @@ impl FractalEditor {
         }
     }
 
+    /// Format then save.
     fn save_file(&mut self, path: &PathBuf) {
+        // Format the code before saving
+        self.code = format_code(&self.code);
+
         match fs::write(path, &self.code) {
             Ok(_) => {
                 self.current_file = Some(path.clone());
-                self.success_message = Some(format!("Saved: {}", path.display()));
+                self.success_message = Some(format!("Saved & formatted: {}", path.display()));
                 self.error_message = None;
             }
             Err(e) => {
@@ -190,6 +200,7 @@ impl eframe::App for FractalEditor {
             &mut self.menu_state,
             self.current_file.as_ref(),
             self.is_running,
+            self.docs_open,
         );
 
         match action {
@@ -213,9 +224,13 @@ impl eframe::App for FractalEditor {
             MenuAction::New => {
                 self.code = String::from("!start\n\n!end\n");
                 self.current_file = None;
+                self.docs_open = false;
             }
             MenuAction::Run => {
                 self.run_code(ctx);
+            }
+            MenuAction::ToggleDocs => {
+                self.docs_open = !self.docs_open;
             }
             MenuAction::None => {}
         }
@@ -255,7 +270,11 @@ impl eframe::App for FractalEditor {
         self.terminal.show(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.editor.show(ui, &mut self.code);
+            if self.docs_open {
+                self.docs_panel.show(ui);
+            } else {
+                self.editor.show(ui, &mut self.code);
+            }
         });
     }
 }

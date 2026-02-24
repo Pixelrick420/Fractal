@@ -1,10 +1,10 @@
 !start
-!import "./constants.fr";
+
 
 :int value = 42;
 
 !func test() -> :float {
-    :float ratio = constants.golden_ratio;
+    :float ratio = value;
     !return ratio;
 }
 

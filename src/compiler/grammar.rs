@@ -61,13 +61,13 @@ fn compute_first(
 ) -> HashMap<String, HashSet<String>> {
 
     let mut first: HashMap<String, HashSet<String>> = HashMap::new();
+    let epsilon = "EPSILON".to_string();
 
-    // Initialize empty sets
+    // initialize
     for nt in grammar.keys() {
         first.insert(nt.clone(), HashSet::new());
     }
 
-    let epsilon = "EPSILON".to_string();
     let mut changed = true;
 
     while changed {
@@ -78,9 +78,17 @@ fn compute_first(
 
                 let mut all_nullable = true;
 
+                // Special case: A → EPSILON
+                if production.len() == 1 && production[0] == epsilon {
+                    if first.get_mut(lhs).unwrap().insert(epsilon.clone()) {
+                        changed = true;
+                    }
+                    continue;
+                }
+
                 for symbol in production {
 
-                    // Terminal
+                    // Terminal (and not EPSILON)
                     if !grammar.contains_key(symbol) {
                         if first.get_mut(lhs).unwrap().insert(symbol.clone()) {
                             changed = true;
@@ -118,75 +126,79 @@ fn compute_first(
     first
 }
 
+
+
 fn compute_follow(
-    grammar: &Grammar,
-    first: &HashMap<Symbol, HashSet<Symbol>>,
-) -> HashMap<Symbol, HashSet<Symbol>> {
+    grammar: &HashMap<String, Vec<Vec<String>>>,
+    first: &HashMap<String, HashSet<String>>,
+    start_symbol: &String,
+) -> HashMap<String, HashSet<String>> {
 
-    let mut follow: HashMap<Symbol, HashSet<Symbol>> = HashMap::new();
+    let mut follow: HashMap<String, HashSet<String>> = HashMap::new();
+    let epsilon = "EPSILON".to_string();
 
-    for nt in grammar.productions.keys() {
+    for nt in grammar.keys() {
         follow.insert(nt.clone(), HashSet::new());
     }
 
-    // Add $ to start symbol
-    follow
-        .get_mut(&grammar.start_symbol)
-        .unwrap()
-        .insert("$".to_string());
+    // Add $
+    follow.get_mut(start_symbol).unwrap().insert("$".to_string());
 
-    let epsilon = "EPSILON".to_string();
     let mut changed = true;
 
     while changed {
         changed = false;
 
-        for (lhs, alternatives) in &grammar.productions {
-            for production in alternatives {
+        for (lhs, productions) in grammar {
+            for production in productions {
+
                 for i in 0..production.len() {
                     let symbol = &production[i];
 
-                    if !is_non_terminal(symbol, grammar) {
+                    if !grammar.contains_key(symbol) {
                         continue;
                     }
 
-                    let mut first_of_beta: HashSet<Symbol> = HashSet::new();
-                    let mut beta_can_be_empty = true;
+                    let mut beta_nullable = true;
+                    let mut first_of_beta = HashSet::new();
 
                     for next_symbol in production.iter().skip(i + 1) {
-                        if !is_non_terminal(next_symbol, grammar) {
+
+                        if !grammar.contains_key(next_symbol) {
                             first_of_beta.insert(next_symbol.clone());
-                            beta_can_be_empty = false;
+                            beta_nullable = false;
                             break;
-                        } else {
-                            let next_first = first.get(next_symbol).unwrap();
+                        }
 
-                            for s in next_first {
-                                if s != &epsilon {
-                                    first_of_beta.insert(s.clone());
-                                }
-                            }
+                        let next_first = first.get(next_symbol).unwrap();
 
-                            if !next_first.contains(&epsilon) {
-                                beta_can_be_empty = false;
-                                break;
+                        for f in next_first {
+                            if f != &epsilon {
+                                first_of_beta.insert(f.clone());
                             }
+                        }
+
+                        if !next_first.contains(&epsilon) {
+                            beta_nullable = false;
+                            break;
                         }
                     }
 
                     // Add FIRST(β) - {ε}
-                    for s in first_of_beta {
-                        if follow.get_mut(symbol).unwrap().insert(s) {
+                    for f in &first_of_beta {
+                        if follow.get_mut(symbol).unwrap().insert(f.clone()) {
                             changed = true;
                         }
                     }
 
-                    // If β ⇒* ε
-                    if beta_can_be_empty {
+                    // If β nullable → add FOLLOW(lhs)
+                    if beta_nullable {
                         let lhs_follow = follow.get(lhs).unwrap().clone();
-                        for s in lhs_follow {
-                            if follow.get_mut(symbol).unwrap().insert(s) {
-                                changed = true;
+                        for f in lhs_follow {
+                            if f != epsilon {
+                                if follow.get_mut(symbol).unwrap().insert(f) {
+                                    changed = true;
+                                }
                             }
                         }
                     }
@@ -197,7 +209,6 @@ fn compute_follow(
 
     follow
 }
-
 fn write_first_follow_to_file(
     first: &std::collections::HashMap<String, std::collections::HashSet<String>>,
     follow: &std::collections::HashMap<String, std::collections::HashSet<String>>,
@@ -278,7 +289,7 @@ FUNCDEF     -> Func IDENT LParen PARAMS RParen Arrow RETTYPE BLK
 RETTYPE     -> DTYPE
              | TypeVoid
 
-STRUCTDEF   -> TypeStruct Less IDENT Greater LBrace FIELDS RBrace
+STRUCTDEF   -> StructKeyword Less IDENT Greater LBrace FIELDS RBrace
 
 FIELDS      -> FIELD EndL FIELDS
              | ε
@@ -292,7 +303,7 @@ STMTS       -> STMT EndL STMTS
 
 
 STMT        -> DECL
-             | ASSIGN
+    
              | EXPR
              | If LParen EXPR RParen BLK ELSEPART
              | For LParen DTYPE IDENT Comma EXPR Comma EXPR Comma EXPR RParen BLK
@@ -308,8 +319,6 @@ DECL        -> DTYPE IDENT DECLTAIL
 
 DECLTAIL    -> Equals EXPR
              | ε
-
-ASSIGN      -> LVALUE ASSIGNOP EXPR
 
 LVALUE      -> IDENT LVALUE_TAIL
 
@@ -348,7 +357,9 @@ ARGS        -> EXPR ARGS_TAIL
 ARGS_TAIL   -> Comma EXPR ARGS_TAIL
              | ε
 
-EXPR        -> LOGOR
+EXPR        -> LOGOR EXPR_TAIL
+EXPR_TAIL   -> ASSIGNOP EXPR
+             | ε
 
 LOGOR       -> LOGAND LOGOR_TAIL
 
@@ -411,7 +422,11 @@ UNOP        -> Minus
 
     let grammar = parse_grammar(productions);
     let first = compute_first(&grammar.productions);
-    let follow = compute_follow(&grammar, &first);
+    let follow = compute_follow(
+    &grammar.productions,
+    &first,
+    &grammar.start_symbol,
+);
 
     println!("FIRST:");
     for (k, v) in &first {
@@ -422,6 +437,140 @@ UNOP        -> Minus
     for (k, v) in &follow {
         println!("{}: {:?}", k, v);
     }
+    detect_ll1_conflicts(&grammar, &first, &follow);
     write_first_follow_to_file(&first, &follow, "first_follow_saved.rs");
+    generate_procedures(&grammar.productions, "generated_parser.rs");
+
 }
 
+
+fn compute_first_of_production(
+    production: &Vec<String>,
+    grammar: &Grammar,
+    first: &HashMap<String, HashSet<String>>,
+) -> (HashSet<String>, bool) {
+    let mut result = HashSet::new();
+    let epsilon = "EPSILON".to_string();
+    let mut nullable = true;
+
+    for symbol in production {
+        if !grammar.productions.contains_key(symbol) {
+            result.insert(symbol.clone());
+            nullable = false;
+            return (result, false);
+        }
+
+        let sym_first = first.get(symbol).unwrap();
+
+        for f in sym_first {
+            if f != &epsilon {
+                result.insert(f.clone());
+            }
+        }
+
+        if !sym_first.contains(&epsilon) {
+            nullable = false;
+            return (result, false);
+        }
+    }
+
+    (result, nullable)
+}
+fn detect_ll1_conflicts(
+    grammar: &Grammar,
+    first: &HashMap<String, HashSet<String>>,
+    follow: &HashMap<String, HashSet<String>>,
+) {
+    println!("\n=== LL(1) Conflict Detection ===");
+
+    for (lhs, productions) in &grammar.productions {
+
+        for i in 0..productions.len() {
+            for j in i + 1..productions.len() {
+
+                let (first_i, nullable_i) =
+                    compute_first_of_production(&productions[i], grammar, first);
+
+                let (first_j, nullable_j) =
+                    compute_first_of_production(&productions[j], grammar, first);
+
+                // FIRST/FIRST conflict
+                let intersection: HashSet<_> =
+                    first_i.intersection(&first_j).cloned().collect();
+                    let epsilon = "EPSILON".to_string();
+
+                let first_i_no_eps: HashSet<_> =
+                    first_i.iter().filter(|x| *x != &epsilon).cloned().collect();
+
+                let first_j_no_eps: HashSet<_> =
+                    first_j.iter().filter(|x| *x != &epsilon).cloned().collect();
+
+                let intersection: HashSet<_> =
+                    first_i_no_eps.intersection(&first_j_no_eps).cloned().collect();
+
+                if !intersection.is_empty() {
+                    println!(
+                        "FIRST/FIRST conflict in {} between productions {:?} and {:?}",
+                        lhs, productions[i], productions[j]
+                    );
+                    println!("Conflict symbols: {:?}\n", intersection);
+                }
+
+                // FIRST/FOLLOW conflict (nullable)
+                if nullable_i {
+                    let follow_lhs = follow.get(lhs).unwrap();
+                    let conflict: HashSet<_> =
+                        first_j.intersection(follow_lhs).cloned().collect();
+
+                    if !conflict.is_empty() {
+                        println!(
+                            "FIRST/FOLLOW conflict in {} (production {:?})",
+                            lhs, productions[i]
+                        );
+                        println!("Conflict symbols: {:?}\n", conflict);
+                    }
+                }
+
+                if nullable_j {
+                    let follow_lhs = follow.get(lhs).unwrap();
+                    let conflict: HashSet<_> =
+                        first_i.intersection(follow_lhs).cloned().collect();
+
+                    if !conflict.is_empty() {
+                        println!(
+                            "FIRST/FOLLOW conflict in {} (production {:?})",
+                            lhs, productions[j]
+                        );
+                        println!("Conflict symbols: {:?}\n", conflict);
+                    }
+                }
+            }
+        }
+    }
+
+    println!("=== Detection Finished ===\n");
+    
+}
+
+
+fn generate_procedures(
+    grammar: &HashMap<String, Vec<Vec<String>>>,
+    output_file: &str,
+) {
+    let mut file = File::create(output_file)
+        .expect("Unable to create file");
+
+    for nt in grammar.keys() {
+
+        let function = format!(
+            "pub fn parse_{}(&mut self) {{\n    // TODO: implement {}\n}}\n\n",
+            nt.to_lowercase(),
+            nt
+        );
+
+        file.write_all(function.as_bytes())
+            .expect("Write failed");
+    }
+
+    println!("Procedures saved to {}", output_file);
+}

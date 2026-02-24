@@ -1,7 +1,8 @@
 main.exe
 main.pdb
 trial.fr
-
+grammar.exe
+grammar.pdb
 target/
 Cargo.lock
 

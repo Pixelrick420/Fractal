@@ -9,7 +9,7 @@ use std::process;
 use std::process::Command;
 
 use fractal::compiler::lexer::Token;
-use fractal::compiler::{lexer, preprocessor, parser};
+use fractal::compiler::{lexer, preprocessor, generated_parser};
 
 fn print_error(msg: &str) {
     eprintln!("\x1b[1;31mError:\x1b[0m {}", msg);
@@ -43,9 +43,13 @@ fn main() {
     let processed_program: String = preprocessor::preprocess(&contents, &args[1]);
     //println!("Processed:\n{}", processed_program);
     let tokens: Vec<Token> = lexer::tokenize(&processed_program);
+
     //println!("\nTokens:");
     //parser::create_tree(tokens);
-    for token in &tokens {
-         println!("{:?}", token);
-     }
+    // for token in &tokens {
+    //      println!("{:?}", token);
+    //  }
+    let mut parser = generated_parser::Parser::new(tokens);
+    let tree = parser.parse_prgm();
+    tree.print(0);
 }

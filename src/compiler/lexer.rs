@@ -9,7 +9,7 @@ use std::io::ErrorKind;
 use std::process;
 use std::str::FromStr;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TokenType {
     Start,
     End,

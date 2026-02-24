@@ -18,9 +18,13 @@ impl Highlighter {
 
     pub fn highlight_to_layout_job(&self, text: &str, font_id: FontId) -> LayoutJob {
         let mut job = LayoutJob::default();
+
+        let mut in_block_comment = false;
+
         let mut lines = text.split('\n').peekable();
         while let Some(line) = lines.next() {
-            for tok in self.tokenize_line(line) {
+            let tokens = self.tokenize_line(line, &mut in_block_comment);
+            for tok in tokens {
                 job.append(
                     &tok.text,
                     0.0,
@@ -47,17 +51,57 @@ impl Highlighter {
         job
     }
 
-    fn tokenize_line(&self, line: &str) -> Vec<Token> {
+    fn tokenize_line(&self, line: &str, in_block_comment: &mut bool) -> Vec<Token> {
         let mut result = Vec::new();
         let chars: Vec<char> = line.chars().collect();
         let mut i = 0;
 
-        if line.trim_start().starts_with('#') {
-            result.push(Token {
-                text: line.to_string(),
-                color: self.theme.comment,
-            });
-            return result;
+        if *in_block_comment {
+            let mut seg = String::new();
+            while i < chars.len() {
+                if i + 2 < chars.len()
+                    && chars[i] == '#'
+                    && chars[i + 1] == '#'
+                    && chars[i + 2] == '#'
+                {
+                    seg.push_str("###");
+                    i += 3;
+                    *in_block_comment = false;
+                    break;
+                } else {
+                    seg.push(chars[i]);
+                    i += 1;
+                }
+            }
+            if !seg.is_empty() {
+                result.push(Token {
+                    text: seg,
+                    color: self.theme.comment,
+                });
+            }
+
+            if *in_block_comment {
+                return result;
+            }
+        }
+
+        {
+            let rest = &line[line
+                .char_indices()
+                .nth(i)
+                .map(|(b, _)| b)
+                .unwrap_or(line.len())..];
+            let trimmed = rest.trim_start();
+            if trimmed.starts_with("###") {
+            } else if trimmed.starts_with('#') && i == chars.iter().take(i).count() {
+                if result.is_empty() {
+                    result.push(Token {
+                        text: line.to_string(),
+                        color: self.theme.comment,
+                    });
+                    return result;
+                }
+            }
         }
 
         while i < chars.len() {
@@ -69,6 +113,35 @@ impl Highlighter {
                 result.push(Token {
                     text: chars[start..i].iter().collect(),
                     color: self.theme.text_default,
+                });
+                continue;
+            }
+
+            if chars[i] == '#' && i + 2 < chars.len() && chars[i + 1] == '#' && chars[i + 2] == '#'
+            {
+                let mut seg = String::from("###");
+                i += 3;
+                *in_block_comment = true;
+
+                while i < chars.len() {
+                    if i + 2 < chars.len()
+                        && chars[i] == '#'
+                        && chars[i + 1] == '#'
+                        && chars[i + 2] == '#'
+                    {
+                        seg.push_str("###");
+                        i += 3;
+                        *in_block_comment = false;
+                        break;
+                    } else {
+                        seg.push(chars[i]);
+                        i += 1;
+                    }
+                }
+
+                result.push(Token {
+                    text: seg,
+                    color: self.theme.comment,
                 });
                 continue;
             }
@@ -200,6 +273,7 @@ impl Highlighter {
             });
             i += 1;
         }
+
         result
     }
 

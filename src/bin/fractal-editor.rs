@@ -79,13 +79,10 @@ impl FractalEditor {
     }
 
     fn run_code(&mut self, ctx: &egui::Context) {
-        // Save to a temp file first (or use current file if saved)
         let source_path = if let Some(ref p) = self.current_file {
-            // Auto-save before running
             let _ = fs::write(p, &self.code);
             p.clone()
         } else {
-            // Write to a temp file
             let tmp = std::env::temp_dir().join("fractal_temp_run.fr");
             let _ = fs::write(&tmp, &self.code);
             tmp
@@ -95,7 +92,6 @@ impl FractalEditor {
         self.terminal.append("▶ Running fractal-compiler…\n\n");
         self.is_running = true;
 
-        // Shared output buffer
         let buf: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         self.output_rx = Some(buf.clone());
 
@@ -103,7 +99,6 @@ impl FractalEditor {
         let path_str = source_path.to_string_lossy().to_string();
 
         thread::spawn(move || {
-            // Try to find the compiler binary next to the current exe
             let exe_dir = std::env::current_exe()
                 .ok()
                 .and_then(|p| p.parent().map(|d| d.to_path_buf()))
@@ -113,7 +108,7 @@ impl FractalEditor {
             let compiler_path = if compiler.exists() {
                 compiler
             } else {
-                PathBuf::from("fractal-compiler") // rely on PATH
+                PathBuf::from("fractal-compiler")
             };
 
             match Command::new(&compiler_path)
@@ -153,7 +148,6 @@ impl FractalEditor {
                 }
             }
 
-            // Signal done with a sentinel
             buf.lock().unwrap().push("\x00DONE\x00".to_string());
             ctx_clone.request_repaint();
         });
@@ -180,20 +174,17 @@ impl FractalEditor {
 
 impl eframe::App for FractalEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Poll background compiler thread
         self.poll_compiler_output();
         if self.is_running {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
 
-        // Theme
         ctx.set_visuals(egui::Visuals {
             window_fill: self.theme.background,
             panel_fill: self.theme.background,
             ..egui::Visuals::dark()
         });
 
-        // ── Menu bar ──────────────────────────────────────────────────────
         let action = show_menu_bar(
             ctx,
             &mut self.menu_state,
@@ -229,7 +220,6 @@ impl eframe::App for FractalEditor {
             MenuAction::None => {}
         }
 
-        // ── File dialog ───────────────────────────────────────────────────
         self.file_dialog.show(ctx);
         if let Some(result) = self.file_dialog.result.take() {
             match result.mode {
@@ -238,7 +228,6 @@ impl eframe::App for FractalEditor {
             }
         }
 
-        // ── Status bars ───────────────────────────────────────────────────
         if let Some(msg) = self.error_message.clone() {
             egui::TopBottomPanel::bottom("error_panel").show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -263,10 +252,8 @@ impl eframe::App for FractalEditor {
             });
         }
 
-        // ── Terminal ──────────────────────────────────────────────────────
         self.terminal.show(ctx);
 
-        // ── Main editor ───────────────────────────────────────────────────
         egui::CentralPanel::default().show(ctx, |ui| {
             self.editor.show(ui, &mut self.code);
         });

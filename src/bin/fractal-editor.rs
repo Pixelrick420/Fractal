@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Instant;
 
 use fractal::ui::docs::DocsPanel;
 use fractal::ui::editor::CodeEditor;
@@ -13,8 +14,12 @@ use fractal::ui::menu_bar::{show_menu_bar, MenuAction, MenuBarState};
 use fractal::ui::terminal::Terminal;
 use fractal::ui::theme::Theme;
 
+const AUTOSAVE_INTERVAL_SECS: u64 = 120;
+
 struct FractalEditor {
     code: String,
+
+    last_saved_code: String,
     current_file: Option<PathBuf>,
     theme: Theme,
     menu_state: MenuBarState,
@@ -27,13 +32,17 @@ struct FractalEditor {
     output_rx: Option<Arc<Mutex<Vec<String>>>>,
     error_message: Option<String>,
     success_message: Option<String>,
+
+    last_autosave: Instant,
 }
 
 impl Default for FractalEditor {
     fn default() -> Self {
         let theme = Theme::default();
+        let initial_code = String::from("!start\n# code here\n!end\n");
         Self {
-            code: String::from("!start\n# code here\n!end\n"),
+            last_saved_code: initial_code.clone(),
+            code: initial_code,
             current_file: None,
             editor: CodeEditor::new(theme),
             terminal: Terminal::new(theme),
@@ -46,6 +55,7 @@ impl Default for FractalEditor {
             output_rx: None,
             error_message: None,
             success_message: None,
+            last_autosave: Instant::now(),
         }
     }
 }
@@ -58,7 +68,8 @@ impl FractalEditor {
     fn open_file(&mut self, path: &PathBuf) {
         match fs::read_to_string(path) {
             Ok(content) => {
-                self.code = content;
+                self.code = content.clone();
+                self.last_saved_code = content;
                 self.current_file = Some(path.clone());
                 self.success_message = Some(format!("Opened: {}", path.display()));
                 self.error_message = None;
@@ -70,13 +81,13 @@ impl FractalEditor {
         }
     }
 
-    /// Format then save.
     fn save_file(&mut self, path: &PathBuf) {
-        // Format the code before saving
         self.code = format_code(&self.code);
 
         match fs::write(path, &self.code) {
             Ok(_) => {
+                self.last_saved_code = self.code.clone();
+                self.last_autosave = Instant::now();
                 self.current_file = Some(path.clone());
                 self.success_message = Some(format!("Saved & formatted: {}", path.display()));
                 self.error_message = None;
@@ -86,6 +97,17 @@ impl FractalEditor {
                 self.success_message = None;
             }
         }
+    }
+
+    fn autosave(&mut self) {
+        if let Some(path) = self.current_file.clone() {
+            self.code = format_code(&self.code);
+            if fs::write(&path, &self.code).is_ok() {
+                self.last_saved_code = self.code.clone();
+            }
+        }
+
+        self.last_autosave = Instant::now();
     }
 
     fn run_code(&mut self, ctx: &egui::Context) {
@@ -185,8 +207,25 @@ impl FractalEditor {
 impl eframe::App for FractalEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_compiler_output();
+
+        ctx.input_mut(|i| {
+            let ctrl = i.modifiers.ctrl || i.modifiers.mac_cmd;
+            if ctrl && i.key_pressed(egui::Key::Backtick) {
+                self.terminal.toggle_minimized();
+            }
+        });
+
+        if self.current_file.is_some()
+            && self.code != self.last_saved_code
+            && self.last_autosave.elapsed().as_secs() >= AUTOSAVE_INTERVAL_SECS
+        {
+            self.autosave();
+        }
+
         if self.is_running {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_secs(10));
         }
 
         ctx.set_visuals(egui::Visuals {
@@ -195,12 +234,17 @@ impl eframe::App for FractalEditor {
             ..egui::Visuals::dark()
         });
 
+        let is_dirty = self.code != self.last_saved_code;
+        let is_new = self.current_file.is_none();
+
         let action = show_menu_bar(
             ctx,
             &mut self.menu_state,
             self.current_file.as_ref(),
             self.is_running,
             self.docs_open,
+            is_dirty,
+            is_new,
         );
 
         match action {
@@ -223,6 +267,7 @@ impl eframe::App for FractalEditor {
             }
             MenuAction::New => {
                 self.code = String::from("!start\n\n!end\n");
+                self.last_saved_code = self.code.clone();
                 self.current_file = None;
                 self.docs_open = false;
             }

@@ -5,14 +5,11 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-
-use fractal::compiler::lexer;
 use fractal::ui::editor::CodeEditor;
 use fractal::ui::file_dialog::{FileDialog, FileDialogMode};
 use fractal::ui::menu_bar::{show_menu_bar, MenuAction, MenuBarState};
 use fractal::ui::terminal::Terminal;
 use fractal::ui::theme::Theme;
-
 
 struct FractalEditor {
     code: String,
@@ -23,7 +20,6 @@ struct FractalEditor {
     terminal: Terminal,
     file_dialog: FileDialog,
     is_running: bool,
-    // Channel to receive compiler output on the main thread
     output_rx: Option<Arc<Mutex<Vec<String>>>>,
     error_message: Option<String>,
     success_message: Option<String>,
@@ -33,7 +29,7 @@ impl Default for FractalEditor {
     fn default() -> Self {
         let theme = Theme::default();
         Self {
-            code: String::from("!start\n# Welcome to Fractal Editor\n:int x = 42;\n!end\n"),
+            code: String::from("!start\n#Code Here\n!end\n"),
             current_file: None,
             editor: CodeEditor::new(theme),
             terminal: Terminal::new(theme),

@@ -54,8 +54,47 @@ impl CodeEditor {
                         .frame(false)
                         .layouter(&mut layouter);
 
-                    ui.add(text_edit);
+                    let mut output = text_edit.show(ui);
+
+                    let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if enter_pressed {
+                        if let Some(cursor_range) = output.cursor_range {
+                            let cursor_pos = cursor_range.primary.ccursor.index;
+                            let indent = indent_for_line_above(code, cursor_pos);
+
+                            if !indent.is_empty() {
+                                use egui::TextBuffer as _;
+                                code.insert_text(&indent, cursor_pos);
+
+                                let new_pos = cursor_pos + indent.chars().count();
+                                let new_ccursor = egui::text::CCursor::new(new_pos);
+                                let new_range = egui::text::CCursorRange::one(new_ccursor);
+                                output.state.cursor.set_char_range(Some(new_range));
+                                output.state.store(ui.ctx(), output.response.id);
+                            }
+                        }
+                    }
                 });
             });
     }
+}
+
+fn indent_for_line_above(text: &str, cursor_pos: usize) -> String {
+    if cursor_pos == 0 {
+        return String::new();
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+
+    let prev_line_end = cursor_pos - 1;
+    let prev_line_start = chars[..prev_line_end]
+        .iter()
+        .rposition(|&c| c == '\n')
+        .map(|p| p + 1)
+        .unwrap_or(0);
+
+    chars[prev_line_start..prev_line_end]
+        .iter()
+        .take_while(|&&c| c == ' ' || c == '\t')
+        .collect()
 }

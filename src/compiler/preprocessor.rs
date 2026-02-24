@@ -1,19 +1,13 @@
-use std::fmt::format;
 use std::fs;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process;
-use std::process::Command;
 
-fn module_search(
-    module_name: &str,
-    contents: &mut String,
-    current_file: &str,
-) -> io::Result<(Vec<char>, String)> {
+fn module_search(module_name: &str, current_file: &str) -> io::Result<(Vec<char>, String)> {
     let libs = ["sample_lib"];
 
-    if (&module_name[0..1] == "\"") {
+    if &module_name[0..1] == "\"" {
         let mut file_path = PathBuf::from(module_name.trim().trim_matches('"'));
 
         match file_path.extension().and_then(|e| e.to_str()) {
@@ -36,12 +30,6 @@ fn module_search(
             .unwrap_or_else(|_| resolved_path.clone());
 
         if canonical_path.exists() && canonical_path.is_file() {
-            let module_name_extracted = canonical_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string();
-
             let file_contents = fs::read_to_string(&canonical_path)?;
             let canonical_str = canonical_path.to_str().unwrap_or("").to_string();
 
@@ -139,7 +127,7 @@ fn traverse(
                     index += 1;
                 }
 
-                match module_search(&module_name, contents, current_file) {
+                match module_search(&module_name, current_file) {
                     Ok((mut module_content, resolved_path)) => {
                         if import_chain.contains(&resolved_path) {
                             print_error(&format!("Circular dependency detected"));

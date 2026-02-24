@@ -1,4 +1,5 @@
 # Fractal
 
 use `cargo run --bin fractal-editor` to run the code editor ui
-use `rustc main.rs && ./main <filename>` to run the compiler
+no more use `rustc main.rs && ./main <filename>` to run the compiler
+cargo run --bin fractal-compiler -- src/fies/filename

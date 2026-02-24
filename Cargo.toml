@@ -1,15 +1,7 @@
 [package]
-name = "fractal-editor"
+name = "fractal"
 version = "0.1.0"
 edition = "2021"
-
-[[bin]]
-name = "fractal-compiler"
-path = "main.rs"
-
-[[bin]]
-name = "fractal-editor"
-path = "ui.rs"
 
 [dependencies]
 eframe = "0.29"

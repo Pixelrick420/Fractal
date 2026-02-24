@@ -1,14 +1,15 @@
 #![allow(unused_parens)]
 #![allow(unused)]
 #![allow(dead_code)]
-use lexer::Token;
+
 use std::env;
 use std::fs;
 use std::io::ErrorKind;
 use std::process;
 use std::process::Command;
-mod lexer;
-mod preprocessor;
+
+use fractal::compiler::lexer::Token;
+use fractal::compiler::{lexer, preprocessor, parser};
 
 fn print_error(msg: &str) {
     eprintln!("\x1b[1;31mError:\x1b[0m {}", msg);
@@ -40,10 +41,11 @@ fn main() {
     };
 
     let processed_program: String = preprocessor::preprocess(&contents, &args[1]);
-    println!("Processed:\n{}", processed_program);
+    //println!("Processed:\n{}", processed_program);
     let tokens: Vec<Token> = lexer::tokenize(&processed_program);
-    println!("\nTokens:");
+    //println!("\nTokens:");
+    //parser::create_tree(tokens);
     for token in &tokens {
-        println!("{:?}", token);
-    }
+         println!("{:?}", token);
+     }
 }

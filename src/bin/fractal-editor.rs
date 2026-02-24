@@ -5,22 +5,14 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-mod lexer;
 
-mod ui {
-    pub mod editor;
-    pub mod file_dialog;
-    pub mod highlighter;
-    pub mod menu_bar;
-    pub mod terminal;
-    pub mod theme;
-}
+use fractal::compiler::lexer;
+use fractal::ui::editor::CodeEditor;
+use fractal::ui::file_dialog::{FileDialog, FileDialogMode};
+use fractal::ui::menu_bar::{show_menu_bar, MenuAction, MenuBarState};
+use fractal::ui::terminal::Terminal;
+use fractal::ui::theme::Theme;
 
-use ui::editor::CodeEditor;
-use ui::file_dialog::{FileDialog, FileDialogMode};
-use ui::menu_bar::{show_menu_bar, MenuAction, MenuBarState};
-use ui::terminal::Terminal;
-use ui::theme::Theme;
 
 struct FractalEditor {
     code: String,
@@ -98,7 +90,7 @@ impl FractalEditor {
             p.clone()
         } else {
             // Write to a temp file
-            let tmp = std::env::temp_dir().join("fractal_temp_run.frac");
+            let tmp = std::env::temp_dir().join("fractal_temp_run.fr");
             let _ = fs::write(&tmp, &self.code);
             tmp
         };
@@ -223,7 +215,7 @@ impl eframe::App for FractalEditor {
                     .as_ref()
                     .and_then(|p| p.file_name())
                     .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "untitled.frac".to_string());
+                    .unwrap_or_else(|| "untitled.fr".to_string());
                 self.file_dialog.open_for_save(&suggested);
             }
             MenuAction::SaveCurrent => {

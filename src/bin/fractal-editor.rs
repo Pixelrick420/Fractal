@@ -29,7 +29,7 @@ impl Default for FractalEditor {
     fn default() -> Self {
         let theme = Theme::default();
         Self {
-            code: String::from("!start\n    # code Here\n!end\n"),
+            code: String::from("!start\n# code here\n!end\n"),
             current_file: None,
             editor: CodeEditor::new(theme),
             terminal: Terminal::new(theme),

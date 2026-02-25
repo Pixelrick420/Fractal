@@ -1,4 +1,13 @@
 !start
-    # code here
+    !import"math";
     :int x = 0;
+    :int y = 1;
+    :int n = 100;
+    !while (n > 0) {
+        n -= 1;
+        :int z = x + y;
+        x = y;
+        y = z;
+        print(z);
+    }
 !end

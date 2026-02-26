@@ -2,15 +2,16 @@
 #![allow(unused)]
 #![allow(dead_code)]
 
-use std::collections::HashSet;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     Start,
     End,
+
     Exit,
     If,
+    Elif,
     Else,
     For,
     While,
@@ -21,6 +22,10 @@ pub enum TokenType {
     Module,
     Break,
     Continue,
+
+    And,
+    Or,
+    Not,
 
     TypeInt,
     TypeFloat,
@@ -50,15 +55,13 @@ pub enum TokenType {
     Caret,
     Tilde,
 
-    AndAnd,
-    OrOr,
-
     Equals,
     PlusEquals,
     MinusEquals,
     StarEquals,
     SlashEquals,
     PercentEquals,
+
     AmpersandEquals,
     PipeEquals,
     CaretEquals,
@@ -83,6 +86,7 @@ pub enum TokenType {
     RBracket,
 
     EndL,
+
     NoMatch,
 
     ModuleStart(String),
@@ -171,8 +175,6 @@ fn operator_map(s: &str) -> TokenType {
         "|" => TokenType::Pipe,
         "^" => TokenType::Caret,
         "~" => TokenType::Tilde,
-        "&&" => TokenType::AndAnd,
-        "||" => TokenType::OrOr,
         "=" => TokenType::Equals,
         "+=" => TokenType::PlusEquals,
         "-=" => TokenType::MinusEquals,
@@ -208,6 +210,7 @@ fn keyword_map(s: &str) -> TokenType {
         "end" => TokenType::End,
         "exit" => TokenType::Exit,
         "if" => TokenType::If,
+        "elif" => TokenType::Elif,
         "else" => TokenType::Else,
         "for" => TokenType::For,
         "while" => TokenType::While,
@@ -218,6 +221,9 @@ fn keyword_map(s: &str) -> TokenType {
         "module" => TokenType::Module,
         "break" => TokenType::Break,
         "continue" => TokenType::Continue,
+        "and" => TokenType::And,
+        "or" => TokenType::Or,
+        "not" => TokenType::Not,
         _ => TokenType::NoMatch,
     }
 }
@@ -450,7 +456,6 @@ pub fn tokenize(program: &str) -> Vec<Token> {
                     continue;
                 }
             }
-
             let one = chars[index].to_string();
             let result = operator_map(&one);
             if !matches!(result, TokenType::NoMatch) {
@@ -461,14 +466,34 @@ pub fn tokenize(program: &str) -> Vec<Token> {
         }
 
         let mut buffer = String::new();
-        while index < chars.len()
-            && !chars[index].is_whitespace()
-            && !is_operator_char(chars[index])
-            && chars[index] != '!'
-            && chars[index] != ':'
-            && chars[index] != '$'
-        {
-            buffer.push(chars[index]);
+        while index < chars.len() {
+            let c = chars[index];
+            if c.is_whitespace() || c == '!' || c == ':' || c == '$' {
+                break;
+            }
+
+            if c == '.' {
+                let buf_is_numeric = buffer
+                    .chars()
+                    .next()
+                    .map(|ch| ch.is_ascii_digit())
+                    .unwrap_or(false);
+                let next_is_digit = chars
+                    .get(index + 1)
+                    .map(|&nc| nc.is_ascii_digit())
+                    .unwrap_or(false);
+                if buf_is_numeric && next_is_digit {
+                    buffer.push(c);
+                    index += 1;
+                    continue;
+                } else {
+                    break;
+                }
+            }
+            if is_operator_char(c) {
+                break;
+            }
+            buffer.push(c);
             index += 1;
         }
         if !buffer.is_empty() {

@@ -9,7 +9,7 @@ use std::process;
 use std::process::Command;
 
 use fractal::compiler::lexer::Token;
-use fractal::compiler::parser::pretty_print;
+use fractal::compiler::parser::pretty_print_root;
 use fractal::compiler::parser::ParseError;
 use fractal::compiler::parser::ParseNode;
 use fractal::compiler::{lexer, parser, preprocessor};
@@ -51,8 +51,8 @@ fn main() {
         println!("{:?}", token);
     }
 
-    // match parser::parse(tokens) {
-    //     Ok(node) => pretty_print(&node, 0),
-    //     Err(err) => eprintln!("Parse error: {:?}", err),
-    // }
+    match parser::parse(tokens) {
+        Ok(node) => pretty_print_root(&node),
+        Err(err) => eprintln!("Parse error: {:?}", err),
+    }
 }

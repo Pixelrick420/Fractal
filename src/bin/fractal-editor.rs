@@ -17,6 +17,10 @@ use fractal::ui::theme::Theme;
 const AUTOSAVE_INTERVAL_SECS: u64 = 120;
 
 struct FractalEditor {
+    // match parser::parse(tokens) {
+    //     Ok(node) => pretty_print(&node, 0),
+    //     Err(err) => eprintln!("Parse error: {:?}", err),
+    // }
     code: String,
 
     last_saved_code: String,
@@ -332,7 +336,7 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
     eframe::run_native(
-        "Fractal Code Editor",
+        "Fractal IDLE",
         options,
         Box::new(|cc| Ok(Box::new(FractalEditor::new(cc)))),
     )

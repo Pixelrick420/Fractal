@@ -12,10 +12,10 @@
         a = (a + 1);
     }
     !else {
-        b = (b + (float) 1);
+        b = (b + :float(1));
     }
 
-    a = :int(math : :pi);
+    a = :int(math::pi);
     append(nums, a);
     append(arr, (int) b);
 
@@ -34,11 +34,11 @@
         !return (a > b);
     }
 
-    :struct<STRUCTNAME> {
+    :struct<Node> {
         :int a;
         :int b;
         :array<int, 10> arr;
-        :struct<STRUCTNAME> next; # could be self reference
+        :struct<Node> next;
     }
 
 !end

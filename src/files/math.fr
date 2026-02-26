@@ -9,5 +9,5 @@
 }
 
 !func calculate() -> :float {
-    !return constants.golden_ratio;
+    !return constants::golden_ratio;
 }

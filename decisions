@@ -183,10 +183,12 @@
 # SAMPLE PROGRAM
 
 !start
+!import "math";
 # this is a comment
 
 :int a = 4;
 :float b = 5.0;
+:int b = math::pi;
 
 :array<int,5> arr = [1, 2, 3, 4, 5];
 :array<char,10> string = "hello 1234";
@@ -228,5 +230,3 @@ append(arr, (int) b);
 }
 
 !end
-
-

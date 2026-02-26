@@ -32,7 +32,6 @@ fn module_search(module_name: &str, current_file: &str) -> io::Result<(Vec<char>
         if canonical_path.exists() && canonical_path.is_file() {
             let file_contents = fs::read_to_string(&canonical_path)?;
             let canonical_str = canonical_path.to_str().unwrap_or("").to_string();
-
             return Ok((file_contents.chars().collect(), canonical_str));
         }
 
@@ -64,7 +63,7 @@ fn print_error(msg: &str) {
     eprintln!("\x1b[1;31mError:\x1b[0m {}", msg);
 }
 
-fn print_import_chain(chain: &Vec<String>) {
+fn print_import_chain(chain: &[String]) {
     eprintln!("\x1b[1;33mImport chain:\x1b[0m");
     for (i, file) in chain.iter().enumerate() {
         eprintln!(
@@ -82,11 +81,14 @@ fn print_import_chain(chain: &Vec<String>) {
 fn traverse(
     chars: &mut Vec<char>,
     visited_modules: &mut Vec<String>,
-    contents: &mut String,
     current_file: &str,
     import_chain: &mut Vec<String>,
-) {
+    is_root: bool,
+) -> (String, String) {
     let mut index: usize = 0;
+
+    let mut module_blocks = String::new();
+    let mut own_body = String::new();
 
     while index < chars.len() {
         if chars[index] == '#' {
@@ -106,31 +108,39 @@ fn traverse(
                 }
                 continue;
             }
-        } else if chars[index] == '!' {
-            let mut temp = String::from("!");
-            let word: Vec<char> = vec!['i', 'm', 'p', 'o', 'r', 't'];
+        }
+
+        if chars[index] == '!' {
+            let import_word: [char; 6] = ['i', 'm', 'p', 'o', 'r', 't'];
             let mut word_index: usize = 0;
+            let mut temp = String::from("!");
             index += 1;
-            while index < chars.len() && word_index < 6 && chars[index] == word[word_index] {
+
+            while index < chars.len() && word_index < 6 && chars[index] == import_word[word_index] {
                 temp.push(chars[index]);
                 index += 1;
                 word_index += 1;
             }
+
             if word_index == 6 {
-                let mut module_name = String::from("");
                 while index < chars.len() && chars[index].is_whitespace() {
                     index += 1;
                 }
 
+                let mut module_name = String::new();
                 while index < chars.len() && chars[index] != ';' {
                     module_name.push(chars[index]);
+                    index += 1;
+                }
+
+                if index < chars.len() {
                     index += 1;
                 }
 
                 match module_search(&module_name, current_file) {
                     Ok((mut module_content, resolved_path)) => {
                         if import_chain.contains(&resolved_path) {
-                            print_error(&format!("Circular dependency detected"));
+                            print_error("Circular dependency detected");
                             print_import_chain(import_chain);
                             eprintln!("  \x1b[1;31m└─ {} (circular)\x1b[0m", resolved_path);
                             process::exit(1);
@@ -140,22 +150,31 @@ fn traverse(
                             visited_modules.push(resolved_path.clone());
 
                             let extracted_name = get_module_name_from_path(&module_name);
-                            let start_marker = format!("$MODULE_START:{}$\n", extracted_name);
-                            let end_marker = format!("$MODULE_END:{}$", extracted_name);
-
-                            contents.push_str(&start_marker);
 
                             import_chain.push(resolved_path.clone());
-                            traverse(
+                            let (child_module_blocks, child_own_body) = traverse(
                                 &mut module_content,
                                 visited_modules,
-                                contents,
                                 &resolved_path,
                                 import_chain,
+                                false,
                             );
                             import_chain.pop();
 
-                            contents.push_str(&end_marker);
+                            let mut this_import_blocks = String::new();
+                            this_import_blocks.push_str(&child_module_blocks);
+                            this_import_blocks
+                                .push_str(&format!("$MODULE_START:{}$\n", extracted_name));
+                            this_import_blocks.push_str(&child_own_body);
+                            this_import_blocks
+                                .push_str(&format!("$MODULE_END:{}$;\n", extracted_name));
+
+                            module_blocks.push_str(&this_import_blocks);
+                        }
+
+                        if is_root {
+                            own_body.push_str(&module_blocks);
+                            module_blocks.clear();
                         }
                     }
                     Err(e) => {
@@ -164,29 +183,30 @@ fn traverse(
                     }
                 }
             } else {
-                contents.push_str(&temp);
+                own_body.push_str(&temp);
             }
-        } else {
-            if index >= chars.len() {
-                break;
-            }
-            contents.push(chars[index]);
-            index += 1;
+            continue;
         }
+
+        own_body.push(chars[index]);
+        index += 1;
     }
+
+    (module_blocks, own_body)
 }
 
 pub fn preprocess(program: &str, source_file: &str) -> String {
     let mut chars: Vec<char> = program.chars().collect();
-    let mut contents = String::from("");
-    let mut visited_modules = Vec::new();
+    let mut visited_modules: Vec<String> = Vec::new();
     let mut import_chain = vec![source_file.to_string()];
-    traverse(
+
+    let (_empty, output) = traverse(
         &mut chars,
         &mut visited_modules,
-        &mut contents,
         source_file,
         &mut import_chain,
+        true,
     );
-    return contents;
+
+    output
 }

@@ -11,3 +11,5 @@ Cargo.lock
 out.txt
 output
 main
+
+src/files

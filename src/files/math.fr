@@ -1,7 +1,8 @@
-!import "./constants.fr";
+!import"./constants.fr";
 
 :float pi = 3.14159;
 :float e = 2.71828;
+:float phi = 1.61;
 
 !func sqrt(:float x) -> :float {
     !return x;

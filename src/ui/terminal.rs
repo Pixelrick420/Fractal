@@ -27,9 +27,12 @@ impl Terminal {
         self.output.clear();
     }
 
+    pub fn toggle_minimized(&mut self) {
+        self.minimized = !self.minimized;
+    }
+
     pub fn show(&mut self, ctx: &egui::Context) {
         let header_height = 28.0;
-
         egui::TopBottomPanel::bottom("terminal_panel")
             .resizable(!self.minimized)
             .min_height(if self.minimized { header_height } else { 80.0 })
@@ -41,7 +44,7 @@ impl Terminal {
             })
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    let icon = if self.minimized { "▲" } else { "▼" };
+                    let icon = "■";
                     if ui.small_button(icon).clicked() {
                         self.minimized = !self.minimized;
                     }
@@ -74,7 +77,6 @@ impl Terminal {
                             .show(ui, |ui| {
                                 ui.style_mut().override_text_style =
                                     Some(egui::TextStyle::Monospace);
-
                                 if self.output.is_empty() {
                                     ui.colored_label(
                                         egui::Color32::from_rgb(80, 80, 80),

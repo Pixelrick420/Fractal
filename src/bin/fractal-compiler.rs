@@ -9,11 +9,11 @@ use std::process;
 use std::process::Command;
 
 use fractal::compiler::lexer::Token;
-<<<<<<< HEAD
-use fractal::compiler::{lexer, preprocessor, generated_parser};
-=======
+use fractal::compiler::parser::pretty_print;
+use fractal::compiler::parser::ParseError;
+use fractal::compiler::parser::ParseNode;
 use fractal::compiler::{lexer, parser, preprocessor};
->>>>>>> ae479cafb2678254eeb706343b06168c6a683a0b
+
 
 fn print_error(msg: &str) {
     eprintln!("\x1b[1;31mError:\x1b[0m {}", msg);
@@ -45,21 +45,15 @@ fn main() {
     };
 
     let processed_program: String = preprocessor::preprocess(&contents, &args[1]);
-    //println!("Processed:\n{}", processed_program);
+    println!("Processed:\n{}", processed_program);
     let tokens: Vec<Token> = lexer::tokenize(&processed_program);
 
-    //println!("\nTokens:");
-    //parser::create_tree(tokens);
-<<<<<<< HEAD
-    // for token in &tokens {
-    //      println!("{:?}", token);
-    //  }
-    let mut parser = generated_parser::Parser::new(tokens);
-    let tree = parser.parse_prgm();
-    tree.print(0);
-=======
     for token in &tokens {
         println!("{:?}", token);
     }
->>>>>>> ae479cafb2678254eeb706343b06168c6a683a0b
+
+    // match parser::parse(tokens) {
+    //     Ok(node) => pretty_print(&node, 0),
+    //     Err(err) => eprintln!("Parse error: {:?}", err),
+    // }
 }

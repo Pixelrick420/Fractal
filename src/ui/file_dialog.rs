@@ -36,7 +36,7 @@ impl FileDialog {
         let mut dialog = Self {
             visible: false,
             mode: FileDialogMode::Open,
-            current_dir: cwd.clone(),
+            current_dir: cwd,
             entries: Vec::new(),
             selected: None,
             filename_input: String::new(),
@@ -76,7 +76,6 @@ impl FileDialog {
                     DirEntry { path, name, is_dir }
                 })
                 .collect();
-
             entries.sort_by(|a, b| {
                 b.is_dir
                     .cmp(&a.is_dir)
@@ -103,6 +102,7 @@ impl FileDialog {
         };
 
         let mut open = true;
+
         egui::Window::new(title)
             .open(&mut open)
             .collapsible(false)
@@ -111,9 +111,12 @@ impl FileDialog {
             .min_size([400.0, 300.0])
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
+                // ── Breadcrumb navigation ──────────────────────────────────
                 ui.horizontal(|ui| {
                     if ui.small_button("⬆ Up").clicked() {
-                        if let Some(parent) = self.current_dir.parent().map(|p| p.to_path_buf()) {
+                        if let Some(parent) =
+                            self.current_dir.parent().map(|p| p.to_path_buf())
+                        {
                             self.navigate_to(parent);
                         }
                     }
@@ -124,9 +127,7 @@ impl FileDialog {
                         let mut p = self.current_dir.clone();
                         loop {
                             v.push(p.clone());
-                            if !p.pop() {
-                                break;
-                            }
+                            if !p.pop() { break; }
                         }
                         v.reverse();
                         v
@@ -154,7 +155,6 @@ impl FileDialog {
                             let icon = if entry.is_dir { "📁" } else { "📄" };
                             let label = format!("{}  {}", icon, entry.name);
                             let selected = self.selected.as_ref() == Some(&entry.path);
-
                             let resp = ui.selectable_label(selected, &label);
 
                             if resp.double_clicked() {
@@ -180,22 +180,28 @@ impl FileDialog {
 
                 ui.horizontal(|ui| {
                     ui.label("File name:");
-                    ui.text_edit_singleline(&mut self.filename_input);
+                    ui.add_sized(
+                        [ui.available_width(), 20.0],
+                        egui::TextEdit::singleline(&mut self.filename_input),
+                    );
                 });
 
                 ui.add_space(4.0);
 
                 ui.horizontal(|ui| {
                     let confirm_label = match self.mode {
-                        FileDialogMode::Open => "Open",
-                        FileDialogMode::Save => "Save",
+                        FileDialogMode::Open => "  Open  ",
+                        FileDialogMode::Save => "  Save  ",
                     };
 
                     let can_confirm = match self.mode {
                         FileDialogMode::Open => {
                             self.selected.as_ref().map(|p| p.is_file()).unwrap_or(false)
                                 || (!self.filename_input.is_empty()
-                                    && self.current_dir.join(&self.filename_input).is_file())
+                                    && self
+                                        .current_dir
+                                        .join(&self.filename_input)
+                                        .is_file())
                         }
                         FileDialogMode::Save => !self.filename_input.is_empty(),
                     };
@@ -205,20 +211,17 @@ impl FileDialog {
                         .clicked()
                     {
                         let path = if self.mode == FileDialogMode::Open {
-                            self.selected
-                                .clone()
-                                .unwrap_or_else(|| self.current_dir.join(&self.filename_input))
+                            self.selected.clone().unwrap_or_else(|| {
+                                self.current_dir.join(&self.filename_input)
+                            })
                         } else {
                             self.current_dir.join(&self.filename_input)
                         };
-                        self.result = Some(FileDialogResult {
-                            path,
-                            mode: self.mode,
-                        });
+                        self.result = Some(FileDialogResult { path, mode: self.mode });
                         self.visible = false;
                     }
 
-                    if ui.button("Cancel").clicked() {
+                    if ui.button("  Cancel  ").clicked() {
                         self.visible = false;
                     }
                 });

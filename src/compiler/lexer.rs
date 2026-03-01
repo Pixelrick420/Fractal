@@ -3,13 +3,9 @@
 #![allow(dead_code)]
 
 use std::collections::HashSet;
-use std::env;
-use std::fs;
-use std::io::ErrorKind;
-use std::process;
 use std::str::FromStr;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     Start,
     End,
@@ -23,6 +19,8 @@ pub enum TokenType {
     Struct,
     Import,
     Module,
+    Break,
+    Continue,
 
     TypeInt,
     TypeFloat,
@@ -52,6 +50,9 @@ pub enum TokenType {
     Caret,
     Tilde,
 
+    AndAnd,
+    OrOr,
+
     Equals,
     PlusEquals,
     MinusEquals,
@@ -72,6 +73,7 @@ pub enum TokenType {
     Arrow,
     Dot,
     Comma,
+    ColonColon,
 
     LParen,
     RParen,
@@ -79,8 +81,6 @@ pub enum TokenType {
     RBrace,
     LBracket,
     RBracket,
-    LAngle,
-    RAngle,
 
     EndL,
     NoMatch,
@@ -89,13 +89,13 @@ pub enum TokenType {
     ModuleEnd(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
     pub token_type: TokenType,
 }
 
 fn is_operator_char(c: char) -> bool {
-    return matches!(
+    matches!(
         c,
         '+' | '-'
             | '*'
@@ -117,25 +117,19 @@ fn is_operator_char(c: char) -> bool {
             | '.'
             | ','
             | ';'
-    );
+    )
 }
 
 fn is_identifier(s: &str) -> bool {
     if s.is_empty() {
         return false;
     }
-    let chars = s.as_bytes();
-    if !((chars[0] as char).is_alphabetic() || (chars[0] as char) == '_') {
+    let mut chars = s.chars();
+    let first = chars.next().unwrap();
+    if !first.is_alphabetic() && first != '_' {
         return false;
     }
-
-    for c in chars {
-        let cur: char = (*c as char);
-        if !(cur.is_alphanumeric() || cur == '_') {
-            return false;
-        }
-    }
-    return true;
+    chars.all(|c| c.is_alphanumeric() || c == '_')
 }
 
 fn parse_number_literal(s: &str) -> TokenType {
@@ -159,12 +153,9 @@ fn parse_number_literal(s: &str) -> TokenType {
         if let Ok(val) = s.parse::<f64>() {
             return TokenType::FloatLit(val);
         }
-    } else {
-        if let Ok(val) = s.parse::<i64>() {
-            return TokenType::SIntLit(val);
-        }
+    } else if let Ok(val) = s.parse::<i64>() {
+        return TokenType::SIntLit(val);
     }
-
     TokenType::NoMatch
 }
 
@@ -180,6 +171,8 @@ fn operator_map(s: &str) -> TokenType {
         "|" => TokenType::Pipe,
         "^" => TokenType::Caret,
         "~" => TokenType::Tilde,
+        "&&" => TokenType::AndAnd,
+        "||" => TokenType::OrOr,
         "=" => TokenType::Equals,
         "+=" => TokenType::PlusEquals,
         "-=" => TokenType::MinusEquals,
@@ -204,6 +197,7 @@ fn operator_map(s: &str) -> TokenType {
         "->" => TokenType::Arrow,
         "." => TokenType::Dot,
         "," => TokenType::Comma,
+        "::" => TokenType::ColonColon,
         _ => TokenType::NoMatch,
     }
 }
@@ -222,6 +216,8 @@ fn keyword_map(s: &str) -> TokenType {
         "struct" => TokenType::Struct,
         "import" => TokenType::Import,
         "module" => TokenType::Module,
+        "break" => TokenType::Break,
+        "continue" => TokenType::Continue,
         _ => TokenType::NoMatch,
     }
 }
@@ -239,8 +235,8 @@ fn type_map(s: &str) -> TokenType {
     }
 }
 
-fn handle_token(buffer: &String) -> Token {
-    match buffer.as_str() {
+fn handle_token(buffer: &str) -> Token {
+    match buffer {
         "true" => {
             return Token {
                 token_type: TokenType::BoolLit(true),
@@ -259,23 +255,19 @@ fn handle_token(buffer: &String) -> Token {
         _ => {}
     }
 
-    let operator_result = operator_map(&buffer);
-    if !matches!(operator_result, TokenType::NoMatch) {
-        return Token {
-            token_type: operator_result,
-        };
+    let op = operator_map(buffer);
+    if !matches!(op, TokenType::NoMatch) {
+        return Token { token_type: op };
     }
 
-    let number_result = parse_number_literal(&buffer);
-    if !matches!(number_result, TokenType::NoMatch) {
-        return Token {
-            token_type: number_result,
-        };
+    let num = parse_number_literal(buffer);
+    if !matches!(num, TokenType::NoMatch) {
+        return Token { token_type: num };
     }
 
-    if is_identifier(&buffer) {
+    if is_identifier(buffer) {
         return Token {
-            token_type: TokenType::Identifier(buffer.clone()),
+            token_type: TokenType::Identifier(buffer.to_string()),
         };
     }
 
@@ -284,34 +276,29 @@ fn handle_token(buffer: &String) -> Token {
     }
 }
 
-fn parse_module_marker(chars: &Vec<char>, start_index: usize) -> Option<(TokenType, usize)> {
-    let mut index = start_index;
-    if index >= chars.len() || chars[index] != '$' {
+fn parse_module_marker(chars: &[char], start_index: usize) -> Option<(TokenType, usize)> {
+    let mut i = start_index;
+    if i >= chars.len() || chars[i] != '$' {
         return None;
     }
+    i += 1;
 
-    index += 1;
     let mut marker = String::new();
-
-    while index < chars.len() && chars[index] != '$' {
-        marker.push(chars[index]);
-        index += 1;
+    while i < chars.len() && chars[i] != '$' {
+        marker.push(chars[i]);
+        i += 1;
     }
-
-    if index >= chars.len() {
+    if i >= chars.len() {
         return None;
     }
+    i += 1;
 
-    index += 1;
-
-    if marker.starts_with("MODULE_START:") {
-        let module_name = marker.trim_start_matches("MODULE_START:").to_string();
-        return Some((TokenType::ModuleStart(module_name), index));
-    } else if marker.starts_with("MODULE_END:") {
-        let module_name = marker.trim_start_matches("MODULE_END:").to_string();
-        return Some((TokenType::ModuleEnd(module_name), index));
+    if let Some(name) = marker.strip_prefix("MODULE_START:") {
+        return Some((TokenType::ModuleStart(name.to_string()), i));
     }
-
+    if let Some(name) = marker.strip_prefix("MODULE_END:") {
+        return Some((TokenType::ModuleEnd(name.to_string()), i));
+    }
     None
 }
 
@@ -320,21 +307,34 @@ pub fn tokenize(program: &str) -> Vec<Token> {
     let mut tokens: Vec<Token> = Vec::new();
     let mut index: usize = 0;
 
+    macro_rules! peek {
+        ($offset:expr) => {
+            chars.get(index + $offset).copied()
+        };
+    }
+
     while index < chars.len() {
         while index < chars.len() && chars[index].is_whitespace() {
             index += 1;
         }
-
         if index >= chars.len() {
             break;
         }
 
         if chars[index] == '$' {
-            if let Some((token_type, new_index)) = parse_module_marker(&chars, index) {
-                tokens.push(Token { token_type });
+            if let Some((tt, new_index)) = parse_module_marker(&chars, index) {
+                tokens.push(Token { token_type: tt });
                 index = new_index;
                 continue;
             }
+        }
+
+        if chars[index] == ':' && peek!(1) == Some(':') {
+            tokens.push(Token {
+                token_type: TokenType::ColonColon,
+            });
+            index += 2;
+            continue;
         }
 
         if chars[index] == '!' {
@@ -347,15 +347,14 @@ pub fn tokenize(program: &str) -> Vec<Token> {
                 buffer.push(chars[index]);
                 index += 1;
             }
-
             let result = keyword_map(&buffer);
-            if !matches!(result, TokenType::NoMatch) {
-                tokens.push(Token { token_type: result });
-            } else {
-                tokens.push(Token {
-                    token_type: TokenType::NoMatch,
-                });
-            }
+            tokens.push(Token {
+                token_type: if matches!(result, TokenType::NoMatch) {
+                    TokenType::NoMatch
+                } else {
+                    result
+                },
+            });
             continue;
         }
 
@@ -365,38 +364,38 @@ pub fn tokenize(program: &str) -> Vec<Token> {
             while index < chars.len()
                 && !chars[index].is_whitespace()
                 && !is_operator_char(chars[index])
+                && chars[index] != '<'
             {
                 buffer.push(chars[index]);
                 index += 1;
             }
-
             let result = type_map(&buffer);
-            if !matches!(result, TokenType::NoMatch) {
-                tokens.push(Token { token_type: result });
-            } else {
-                tokens.push(Token {
-                    token_type: TokenType::NoMatch,
-                });
-            }
+            tokens.push(Token {
+                token_type: if matches!(result, TokenType::NoMatch) {
+                    TokenType::NoMatch
+                } else {
+                    result
+                },
+            });
             continue;
         }
 
         if chars[index] == '"' {
             index += 1;
-            let mut string_buf = String::new();
+            let mut buf = String::new();
             while index < chars.len() && chars[index] != '"' {
                 if chars[index] == '\\' && index + 1 < chars.len() {
                     index += 1;
-                    match chars[index] {
-                        'n' => string_buf.push('\n'),
-                        't' => string_buf.push('\t'),
-                        'r' => string_buf.push('\r'),
-                        '\\' => string_buf.push('\\'),
-                        '"' => string_buf.push('"'),
-                        _ => string_buf.push(chars[index]),
-                    }
+                    buf.push(match chars[index] {
+                        'n' => '\n',
+                        't' => '\t',
+                        'r' => '\r',
+                        '\\' => '\\',
+                        '"' => '"',
+                        c => c,
+                    });
                 } else {
-                    string_buf.push(chars[index]);
+                    buf.push(chars[index]);
                 }
                 index += 1;
             }
@@ -404,30 +403,34 @@ pub fn tokenize(program: &str) -> Vec<Token> {
                 index += 1;
             }
             tokens.push(Token {
-                token_type: TokenType::StringLit(string_buf),
+                token_type: TokenType::StringLit(buf),
             });
             continue;
         }
 
         if chars[index] == '\'' {
             index += 1;
-            let mut char_val = '\0';
-            if index < chars.len() {
+            let char_val = if index < chars.len() {
                 if chars[index] == '\\' && index + 1 < chars.len() {
                     index += 1;
-                    char_val = match chars[index] {
+                    let c = match chars[index] {
                         'n' => '\n',
                         't' => '\t',
                         'r' => '\r',
                         '\\' => '\\',
                         '\'' => '\'',
-                        _ => chars[index],
+                        c => c,
                     };
+                    index += 1;
+                    c
                 } else {
-                    char_val = chars[index];
+                    let c = chars[index];
+                    index += 1;
+                    c
                 }
-                index += 1;
-            }
+            } else {
+                '\0'
+            };
             if index < chars.len() && chars[index] == '\'' {
                 index += 1;
             }
@@ -438,12 +441,9 @@ pub fn tokenize(program: &str) -> Vec<Token> {
         }
 
         if is_operator_char(chars[index]) {
-            let mut op_buf = String::new();
-            op_buf.push(chars[index]);
-
             if index + 1 < chars.len() {
-                let two_char = format!("{}{}", chars[index], chars[index + 1]);
-                let result = operator_map(&two_char);
+                let two = format!("{}{}", chars[index], chars[index + 1]);
+                let result = operator_map(&two);
                 if !matches!(result, TokenType::NoMatch) {
                     tokens.push(Token { token_type: result });
                     index += 2;
@@ -451,13 +451,11 @@ pub fn tokenize(program: &str) -> Vec<Token> {
                 }
             }
 
-            let result = operator_map(&op_buf);
+            let one = chars[index].to_string();
+            let result = operator_map(&one);
             if !matches!(result, TokenType::NoMatch) {
                 tokens.push(Token { token_type: result });
-                index += 1;
-                continue;
             }
-
             index += 1;
             continue;
         }
@@ -473,11 +471,10 @@ pub fn tokenize(program: &str) -> Vec<Token> {
             buffer.push(chars[index]);
             index += 1;
         }
-
         if !buffer.is_empty() {
             tokens.push(handle_token(&buffer));
         }
     }
 
-    return tokens;
+    tokens
 }

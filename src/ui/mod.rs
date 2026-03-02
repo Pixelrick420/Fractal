@@ -6,3 +6,5 @@ pub mod highlighter;
 pub mod menu_bar;
 pub mod terminal;
 pub mod theme;
+pub mod close_confirm;
+pub mod tab;

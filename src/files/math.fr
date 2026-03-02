@@ -1,13 +1,15 @@
-!import"./constants.fr";
+!start
+    !import "./constants.fr";
 
-:float pi = 3.14159;
-:float e = 2.71828;
-:float phi = 1.61;
+    :float pi = 3.14159;
+    :float e = 2.71828;
+    :float phi = 1.61;
 
-!func sqrt(:float x) -> :float {
-    !return x;
-}
+    !func sqrt(:float x) -> :float {
+        !return x;
+    }
 
-!func calculate() -> :float {
-    !return constants::golden_ratio;
-}
+    !func calculate() -> :float {
+        !return constants::golden_ratio;
+    }
+!end

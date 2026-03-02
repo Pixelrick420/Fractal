@@ -20,8 +20,6 @@ pub fn show_menu_bar(
     current_file: Option<&PathBuf>,
     is_running: bool,
     docs_open: bool,
-    is_dirty: bool,
-    is_new: bool,
 ) -> MenuAction {
     let mut action = MenuAction::None;
 
@@ -92,8 +90,6 @@ pub fn show_menu_bar(
             if ui.add(docs_btn).clicked() {
                 action = MenuAction::ToggleDocs;
             }
-
-        
         });
     });
 

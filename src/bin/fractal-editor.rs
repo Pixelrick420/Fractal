@@ -1,13 +1,6 @@
 use eframe::egui;
-use std::fs;
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Instant;
 use fractal::ui::close_confirm::{
-    CloseConfirmAction, CloseConfirmDialog,
-    QuitConfirmAction, QuitConfirmDialog,
+    CloseConfirmAction, CloseConfirmDialog, QuitConfirmAction, QuitConfirmDialog,
 };
 use fractal::ui::docs::DocsPanel;
 use fractal::ui::file_dialog::{FileDialog, FileDialogMode};
@@ -15,6 +8,12 @@ use fractal::ui::formatter::format_code;
 use fractal::ui::menu_bar::{show_menu_bar, MenuAction, MenuBarState};
 use fractal::ui::terminal::Terminal;
 use fractal::ui::theme::Theme;
+use std::fs;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Instant;
 
 use fractal::ui::tab::Tab;
 
@@ -71,9 +70,11 @@ impl FractalEditor {
     }
 
     fn open_file(&mut self, path: &PathBuf) {
-        if let Some(i) = self.tabs.iter().position(|t| {
-            t.current_file.as_deref() == Some(path.as_path())
-        }) {
+        if let Some(i) = self
+            .tabs
+            .iter()
+            .position(|t| t.current_file.as_deref() == Some(path.as_path()))
+        {
             self.active_tab = i;
             return;
         }
@@ -82,7 +83,8 @@ impl FractalEditor {
                 if self.tabs.len() == 1 && self.tabs[0].is_pristine_new() {
                     self.tabs[0] = Tab::from_file(path.clone(), content, self.theme);
                 } else {
-                    self.tabs.push(Tab::from_file(path.clone(), content, self.theme));
+                    self.tabs
+                        .push(Tab::from_file(path.clone(), content, self.theme));
                     self.active_tab = self.tabs.len() - 1;
                 }
                 self.success_message = Some(format!("Opened: {}", path.display()));
@@ -140,7 +142,8 @@ impl FractalEditor {
 
     fn request_close_tab(&mut self, index: usize) {
         if self.tabs[index].is_dirty() {
-            self.close_confirm.open(index, self.tabs[index].display_name());
+            self.close_confirm
+                .open(index, self.tabs[index].display_name());
         } else {
             self.close_tab(index);
         }
@@ -149,7 +152,10 @@ impl FractalEditor {
     fn run_code(&mut self, ctx: &egui::Context) {
         let tab = &mut self.tabs[self.active_tab];
         let source_path = match &tab.current_file {
-            Some(p) => { let _ = fs::write(p, &tab.code); p.clone() }
+            Some(p) => {
+                let _ = fs::write(p, &tab.code);
+                p.clone()
+            }
             None => {
                 let tmp = std::env::temp_dir().join("fractal_temp_run.fr");
                 let _ = fs::write(&tmp, &tab.code);
@@ -187,13 +193,20 @@ impl FractalEditor {
                     let mut lines = buf.lock().unwrap();
                     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                    if !stdout.is_empty() { lines.push(stdout); }
-                    if !stderr.is_empty() { lines.push(stderr); }
+                    if !stdout.is_empty() {
+                        lines.push(stdout);
+                    }
+                    if !stderr.is_empty() {
+                        lines.push(stderr);
+                    }
                     if out.status.success() {
                         lines.push("\n✓ Exited successfully.\n".to_string());
                     } else {
-                        let code = out.status.code()
-                            .map(|c| c.to_string()).unwrap_or("?".into());
+                        let code = out
+                            .status
+                            .code()
+                            .map(|c| c.to_string())
+                            .unwrap_or("?".into());
                         lines.push(format!("\n✗ Exited with code {code}.\n"));
                     }
                 }
@@ -215,8 +228,11 @@ impl FractalEditor {
         let mut done = false;
         if let Some(rx) = &self.tabs[self.active_tab].output_rx {
             for line in rx.lock().unwrap().drain(..) {
-                if line == "\x00DONE\x00" { done = true; }
-                else { self.terminal.append(&line); }
+                if line == "\x00DONE\x00" {
+                    done = true;
+                } else {
+                    self.terminal.append(&line);
+                }
             }
         }
         if done {
@@ -239,11 +255,7 @@ impl FractalEditor {
                     let name = self.tabs[i].display_name();
                     let dirty = self.tabs[i].is_dirty();
 
-                    let label_text = if dirty {
-                        format!("● {name}")
-                    } else {
-                        name
-                    };
+                    let label_text = if dirty { format!("● {name}") } else { name };
 
                     let bg = if is_active {
                         egui::Color32::from_rgb(90, 90, 100)
@@ -262,12 +274,15 @@ impl FractalEditor {
                         .inner_margin(egui::Margin::symmetric(8.0, 4.0))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                if ui.add(
-                                    egui::Label::new(
-                                        egui::RichText::new(&label_text).color(text_color)
+                                if ui
+                                    .add(
+                                        egui::Label::new(
+                                            egui::RichText::new(&label_text).color(text_color),
+                                        )
+                                        .sense(egui::Sense::click()),
                                     )
-                                    .sense(egui::Sense::click()),
-                                ).clicked() {
+                                    .clicked()
+                                {
                                     self.active_tab = i;
                                 }
 
@@ -339,7 +354,9 @@ impl FractalEditor {
                 ui.horizontal(|ui| {
                     ui.colored_label(egui::Color32::from_rgb(255, 100, 100), "❌");
                     ui.label(&msg);
-                    if ui.button("✖").clicked() { self.error_message = None; }
+                    if ui.button("✖").clicked() {
+                        self.error_message = None;
+                    }
                 });
             });
         } else if let Some(msg) = self.success_message.clone() {
@@ -347,7 +364,9 @@ impl FractalEditor {
                 ui.horizontal(|ui| {
                     ui.colored_label(egui::Color32::from_rgb(100, 255, 100), "✓");
                     ui.label(&msg);
-                    if ui.button("✖").clicked() { self.success_message = None; }
+                    if ui.button("✖").clicked() {
+                        self.success_message = None;
+                    }
                 });
             });
         }
@@ -362,7 +381,9 @@ impl eframe::App for FractalEditor {
 
         let close_requested = ctx.input(|i| i.viewport().close_requested());
         if close_requested && !self.allow_quit {
-            let dirty: Vec<String> = self.tabs.iter()
+            let dirty: Vec<String> = self
+                .tabs
+                .iter()
                 .filter(|t| t.is_dirty())
                 .map(|t| t.display_name())
                 .collect();
@@ -407,15 +428,14 @@ impl eframe::App for FractalEditor {
             tab.current_file.as_ref(),
             tab.is_running,
             self.docs_open,
-            tab.is_dirty(),
-            tab.current_file.is_none(),
         );
 
         match action {
             MenuAction::OpenDialog => self.file_dialog.open_for_open(),
             MenuAction::SaveDialog => {
                 let name = self.tabs[self.active_tab]
-                    .current_file.as_ref()
+                    .current_file
+                    .as_ref()
                     .and_then(|p| p.file_name())
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| "untitled.fr".to_string());

@@ -12,6 +12,10 @@ impl CodeEditor {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, code: &mut String) {
+        self.show_with_id(ui, code, 0);
+    }
+
+    pub fn show_with_id(&mut self, ui: &mut egui::Ui, code: &mut String, tab_id: usize) {
         let line_count = code.lines().count().max(1);
         let width_chars = line_count.to_string().len();
         let line_num_width = (width_chars as f32 * 9.0 + 24.0).max(44.0);
@@ -47,6 +51,7 @@ impl CodeEditor {
                     ui.add_space(4.0);
 
                     let text_edit = egui::TextEdit::multiline(code)
+                        .id(egui::Id::new("code_editor").with(tab_id))
                         .font(egui::TextStyle::Monospace)
                         .code_editor()
                         .desired_width(f32::INFINITY)

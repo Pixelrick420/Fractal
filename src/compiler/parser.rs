@@ -174,6 +174,10 @@ pub enum ParseNode {
     TypeStruct {
         name: String,
     },
+    Index {
+        target: Box<ParseNode>,
+        index: Box<ParseNode>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -1043,6 +1047,14 @@ impl Parser {
                         self.expect(&TokenType::RParen)?;
                         Ok(ParseNode::Call { name, args })
                     }
+                    Some(TokenType::LBracket) => {        
+                        let idx = self.parse_expression()?;
+                        self.expect(&TokenType::RBracket)?;
+                        Ok(ParseNode::Index {
+                            target: Box::new(ParseNode::Identifier(name)),
+                            index: Box::new(idx),
+                        })
+                    }
                     _ => Ok(ParseNode::Identifier(name)),
                 }
             }
@@ -1083,13 +1095,20 @@ impl Parser {
         let mut args = Vec::new();
         if matches!(
             self.peek(),
-            Some(TokenType::RParen) | Some(TokenType::RBracket)
+            Some(TokenType::RParen) | Some(TokenType::RBracket) | None
         ) {
             return Ok(args);
         }
         args.push(self.parse_expression()?);
         while matches!(self.peek(), Some(TokenType::Comma)) {
             self.advance();
+            // handle trailing comma gracefully
+            if matches!(
+                self.peek(),
+                Some(TokenType::RParen) | Some(TokenType::RBracket) | None
+            ) {
+                break;
+            }
             args.push(self.parse_expression()?);
         }
         Ok(args)
@@ -1200,6 +1219,7 @@ fn node_label(node: &ParseNode) -> String {
         ParseNode::TypeArray { elem, size } => format!("TypeArray<{},{}>", elem, size),
         ParseNode::TypeList { elem } => format!("TypeList<{}>", elem),
         ParseNode::TypeStruct { name } => format!("TypeStruct<{}>", name),
+        ParseNode::Index { .. } => "Index".into(),
     }
 }
 
@@ -1367,6 +1387,10 @@ fn print_node_children(node: &ParseNode, prefix: &str) {
                 let fp = print_section_header(name, prefix, is_last);
                 print_node(val, &fp, true);
             }
+        }
+        ParseNode::Index { target, index } => {
+            print_node(target, prefix, false);
+            print_node(index, prefix, true);
         }
 
         _ => {}

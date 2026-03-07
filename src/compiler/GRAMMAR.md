@@ -1,194 +1,215 @@
-<!--PRGM -> BLK
-
-BLK -> { STMTS }
-| STMTS
-
-STMTS -> STMT ; STMTS
-| STMT ;
-
-STMT -> IDENTIFIER ( ARGS )
-| IF ( EXPRESSION ) BLK ELSEPART
-| DECL
-| DATATYPE IDENTIFIER ( PARAMS ) BLK
-| FOR ( DECL , EXPRESSION , EXPRESSION ) BLK
-| WHILE ( EXPRESSION ) BLK
-| BRK
-| CONT
-| RET EXPRESSION
-| ASSIGN
-
-ELSEPART -> ELSE BLK
-| EPSILON
-
-ASSIGN -> IDENTIFIER = EXPRESSION
-
-DECL -> DATATYPE IDENTIFIER
-| DATATYPE IDENTIFIER = EXPRESSION
-
-ARGS -> EXPRESSION , ARGS
-| EXPRESSION
-| EPSILON
-
-PARAMS -> DECL , PARAMS
-| DECL
-| EPSILON
-
-EXPRESSION -> ADDEXPR
-
-ADDEXPR -> MULEXPR ( ( + | - ) MULEXPR )\*
-
-MULEXPR -> UNARYEXPR ( ( _ | / | % ) UNARYEXPR )_
-
-UNARYEXPR -> UNOP UNARYEXPR
-| CASTEXPR
-
-CASTEXPR -> ( DATATYPE ) UNARYEXPR
-| PRIMARY
-
-PRIMARY -> ( EXPRESSION )
-| IDENTIFIER ( ARGS )
-| IDENTIFIER
-| LITR-->
-
-PRGM -> Start ITEM_LIST End
+```
+PRGM      -> Start ITEM_LIST End
 
 ITEM_LIST -> ITEM ITEM_LIST
-| ε
+           | ε
 
 ITEM -> MODULE
-| STRUCTDEF
-| FUNCDEF
-| STMT EndL
+      | FUNCDEF
+      | STRUCTDEF_OR_DECL EndL
+      | STMT EndL
 
-MODULE -> ModuleStart ITEM_LIST ModuleEnd
+MODULE -> ModuleStart ITEM_LIST ModuleEnd EndL?
 
-FUNCDEF -> Func IDENTIFIER LParen PARAMS RParen Arrow DATATYPE BLK
+FUNCDEF -> Func Identifier LParen PARAMS RParen Arrow DATATYPE BLK
 
-STRUCTDEF -> struct Less IDENTIFIER Greater STRUCTTAIL
+PARAMS      -> PARAM PARAMS_TAIL
+             | ε
+PARAMS_TAIL -> Comma PARAM PARAMS_TAIL
+             | ε
+PARAM       -> DATATYPE Identifier
 
-STRUCTTAIL -> LBrace FIELDS RBrace | IDENTIFIER STRUCTDECL
+STRUCTDEF_OR_DECL -> TypeStruct Less Identifier Greater STRUCT_TAIL
+STRUCT_TAIL       -> LBrace FIELDS RBrace
+                   | Identifier STRUCTDECL_TAIL
+STRUCTDECL_TAIL   -> Equals EXPRESSION
+                   | ε
+FIELDS -> FIELD FIELDS
+        | ε
+FIELD  -> DATATYPE Identifier EndL
 
-STRUCTDECL -> EndL | EQUALS BLK
-
-FIELDS -> FIELD EndL FIELDS
-| ε
-
-FIELD -> DATATYPE IDENTIFIER
-
-BLK -> LBrace STMTS RBrace
-
-STMTS -> STMT EndL STMTS
-| ε
+BLK   -> LBrace STMTS RBrace
+STMTS -> STMT EndL? STMTS
+       | ε
 
 STMT -> DECL
-| ASSIGN
-| EXPRESSION
-| If LParen EXPRESSION RParen BLK ELSEPART
-| For LParen DATATYPE IDENTIFIER Comma EXPRESSION Comma EXPRESSION Comma EXPRESSION RParen BLK
-| While LParen EXPRESSION RParen BLK
-| Return EXPRESSION
-| Break
-| Continue
+      | ASSIGN
+      | STRUCTDEF_OR_DECL
+      | If LParen EXPRESSION RParen BLK ELSEPART
+      | For LParen DATATYPE Identifier Comma EXPRESSION Comma EXPRESSION Comma EXPRESSION RParen BLK
+      | While LParen EXPRESSION RParen BLK
+      | Return EXPRESSION
+      | Exit EXPRESSION
+      | Break
+      | Continue
+      | EXPRESSION
 
-ELSEPART -> Else BLK
-| ε
+ELSEPART -> Elif LParen EXPRESSION RParen BLK ELSEPART
+          | Else BLK
+          | ε
 
-DECL -> DATATYPE IDENTIFIER DECLTAIL
+DECL      -> DATATYPE Identifier DECL_TAIL
+DECL_TAIL -> Equals EXPRESSION
+           | ε
 
-DECLTAIL -> Equals EXPRESSION | EndL
+ASSIGN      -> LVALUE ASSIGNOP EXPRESSION
+LVALUE      -> Identifier LVALUE_TAIL
+LVALUE_TAIL -> ColonColon Identifier
+             | ε
 
-ASSIGN -> LVALUE ASSIGNOP EXPRESSION
-
-LVALUE -> IDENTIFIER LVALUE_TAIL
-
-LVALUE_TAIL -> Dot IDENTIFIER LVALUE_TAIL
-| ε
-
-ASSIGNOP -> Equals
-| PlusEquals
-| MinusEquals
-| StarEquals
-| SlashEquals
-| PercentEquals
-| AmpersandEquals
-| PipeEquals
-| CaretEquals
+ASSIGNOP -> Equals | PlusEquals | MinusEquals | StarEquals | SlashEquals
+          | PercentEquals | AmpersandEquals | PipeEquals | CaretEquals
 
 DATATYPE -> TypeInt
-| TypeFloat
-| TypeChar
-| TypeBoolean
-| TypeArray Less IDENTIFIER Comma SIntLit Greater
-| TypeList Less IDENTIFIER Greater
-| struct Less IDENTIFIER Greater
-
-PARAMS -> PARAM PARAMS_TAIL
-| ε
-
-PARAM -> DATATYPE IDENTIFIER
-
-PARAMS_TAIL -> Comma PARAM PARAMS_TAIL
-| ε
-
-ARGS -> EXPRESSION ARGS_TAIL
-| ε
-
-ARGS_TAIL -> Comma EXPRESSION ARGS_TAIL
-| ε
+          | TypeFloat
+          | TypeChar
+          | TypeBoolean
+          | TypeArray Less Identifier Comma SIntLit Greater
+          | TypeList Less Identifier Greater
+          | TypeStruct Less Identifier Greater
 
 EXPRESSION -> LOGOR
 
-LOGOR -> LOGAND LOGOR_TAIL
+LOGOR       -> LOGAND LOGOR_TAIL
+LOGOR_TAIL  -> Or LOGAND LOGOR_TAIL
+             | ε
 
-LOGOR_TAIL -> OrOr LOGAND LOGOR_TAIL
-| ε
-LOGAND -> CMP LOGAND_TAIL
+LOGAND      -> LOGNOT LOGAND_TAIL
+LOGAND_TAIL -> And LOGNOT LOGAND_TAIL
+             | ε
 
-LOGAND_TAIL -> AndAnd CMP LOGAND_TAIL
-| ε
-CMP -> ADD CMP_TAIL
+LOGNOT -> Not LOGNOT
+        | CMP
 
-CMP_TAIL -> CMPOP ADD CMP_TAIL
-| ε
-ADD -> MUL ADD_TAIL
+CMP   -> BITOR CMPOP BITOR
+       | BITOR
+CMPOP -> Greater | Less | GreaterEquals | LessEquals | EqualsEquals | TildeEquals
 
-ADD_TAIL -> Plus MUL ADD_TAIL
-| Minus MUL ADD_TAIL
-| ε
-MUL -> UNARY MUL_TAIL
+BITOR       -> BITXOR BITOR_TAIL
+BITOR_TAIL  -> Pipe BITXOR BITOR_TAIL
+             | ε
 
-MUL_TAIL -> Star UNARY MUL_TAIL
-| Slash UNARY MUL_TAIL
-| Percent UNARY MUL_TAIL
-| ε
-UNARY -> UNOP UNARY
-| POSTFIX
+BITXOR      -> BITAND BITXOR_TAIL
+BITXOR_TAIL -> Caret BITAND BITXOR_TAIL
+             | ε
 
-POSTFIX -> PRIMARY POSTFIX_TAIL
-POSTFIX_TAIL -> Dot IDENTIFIER CALL_OPT POSTFIX_TAIL
-| As DATATYPE POSTFIX_TAIL
-| ε
+BITAND      -> ADD BITAND_TAIL
+BITAND_TAIL -> Ampersand ADD BITAND_TAIL
+             | ε
 
-CALL_OPT -> LParen ARGS RParen
-| ε
+ADD      -> MUL ADD_TAIL
+ADD_TAIL -> Plus  MUL ADD_TAIL
+          | Minus MUL ADD_TAIL
+          | ε
+
+MUL      -> UNARY MUL_TAIL
+MUL_TAIL -> Star    UNARY MUL_TAIL
+          | Slash   UNARY MUL_TAIL
+          | Percent UNARY MUL_TAIL
+          | ε
+
+UNARY -> Minus UNARY
+       | Tilde UNARY
+       | CAST
+       | PRIMARY
+
+CAST -> DATATYPE LParen EXPRESSION RParen
+
 PRIMARY -> LParen EXPRESSION RParen
-| IDENTIFIER PRIMARY_TAIL
-| SIntLit
-| FloatLit
-| StringLit
-| CharLit
-| BoolLit
-| Null
-PRIMARY_TAIL -> LParen ARGS RParen
-| ε
+         | LBracket ARGS RBracket
+         | LBrace STRUCT_LIT_FIELDS RBrace
+         | Identifier PRIMARY_TAIL
+         | SIntLit
+         | FloatLit
+         | CharLit
+         | StringLit
+         | BoolLit
+         | Null
 
-CMPOP -> Greater
-| Less
-| GreaterEquals
-| LessEquals
-| EqualsEquals
-| TildeEquals
+PRIMARY_TAIL   -> ColonColon Identifier QUALIFIED_TAIL
+               | LParen ARGS RParen
+               | ε
+QUALIFIED_TAIL -> LParen ARGS RParen
+               | ε
 
-UNOP -> Minus
-| Tilde
-| Ampersand
+STRUCT_LIT_FIELDS -> Identifier Equals EXPRESSION STRUCT_LIT_TAIL
+                   | ε
+STRUCT_LIT_TAIL   -> Comma Identifier Equals EXPRESSION STRUCT_LIT_TAIL
+                   | ε
+
+ARGS      -> EXPRESSION ARGS_TAIL
+           | ε
+ARGS_TAIL -> Comma EXPRESSION ARGS_TAIL
+           | ε
+```
+
+| Token      | Lexeme       |
+|------------|--------------|
+| `Start`    | `!start`     |
+| `End`      | `!end`       |
+| `Func`     | `!func`      |
+| `If`       | `!if`        |
+| `Elif`     | `!elif`      |
+| `Else`     | `!else`      |
+| `For`      | `!for`       |
+| `While`    | `!while`     |
+| `Return`   | `!return`    |
+| `Exit`     | `!exit`      |
+| `Break`    | `!break`     |
+| `Continue` | `!continue`  |
+| `And`      | `!and`       |
+| `Or`       | `!or`        |
+| `Not`      | `!not`       |
+| `Struct`   | `!struct`    |
+| `Import`   | `!import`    |
+| `Module`   | `!module`    |
+| `TypeInt`     | `:int`      |
+| `TypeFloat`   | `:float`    |
+| `TypeChar`    | `:char`     |
+| `TypeBoolean` | `:boolean`  |
+| `TypeArray`   | `:array`    |
+| `TypeList`    | `:list`     |
+| `TypeStruct`  | `:struct`   |
+| `SIntLit(i64)`     | decimal `42`, hex `0xFF`, binary `0b1010`, octal `0o77`, prefixed decimal `0d42` |
+| `FloatLit(f64)`    | `3.14`, `2.0e-5`                                   |
+| `CharLit(char)`    | `'a'`, `'\n'`                                      |
+| `StringLit(String)`| `"hello\n"`                                        |
+| `BoolLit(bool)`    | `true`, `false`                                    |
+| `Null`             | `NULL`                                             |
+| `Plus`             | `+`    |
+| `Minus`            | `-`    |
+| `Star`             | `*`    |
+| `Slash`            | `/`    |
+| `Percent`          | `%`    |
+| `Ampersand`        | `&`    |
+| `Pipe`             | `\|`   |
+| `Caret`            | `^`    |
+| `Tilde`            | `~`    |
+| `Equals`           | `=`    |
+| `PlusEquals`       | `+=`   |
+| `MinusEquals`      | `-=`   |
+| `StarEquals`       | `*=`   |
+| `SlashEquals`      | `/=`   |
+| `PercentEquals`    | `%=`   |
+| `AmpersandEquals`  | `&=`   |
+| `PipeEquals`       | `\|=`  |
+| `CaretEquals`      | `^=`   |
+| `Greater`          | `>`    |
+| `Less`             | `<`    |
+| `GreaterEquals`    | `>=`   |
+| `LessEquals`       | `<=`   |
+| `EqualsEquals`     | `==`   |
+| `TildeEquals`      | `~=`   |
+| `Arrow`            | `->`   |
+| `Dot`              | `.`    |
+| `Comma`            | `,`    |
+| `ColonColon`       | `::`   |
+| `LParen`           | `(`    |
+| `RParen`           | `)`    |
+| `LBrace`           | `{`    |
+| `RBrace`           | `}`    |
+| `LBracket`         | `[`    |
+| `RBracket`         | `]`    |
+| `EndL`             | `;`    |
+| `ModuleStart(name)`| `$MODULE_START:n$` |
+| `ModuleEnd(name)`  | `$MODULE_END:n$`   |

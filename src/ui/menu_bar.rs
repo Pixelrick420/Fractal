@@ -17,6 +17,10 @@ pub enum MenuAction {
     None,
 }
 
+const BTN_W: f32 = 72.0;
+const BTN_H: f32 = 28.0;
+const BTN_ROUNDING: f32 = 5.0;
+
 pub fn show_menu_bar(
     ctx: &egui::Context,
     _state: &mut MenuBarState,
@@ -53,8 +57,8 @@ pub fn show_menu_bar(
             egui::Frame::none()
                 .fill(t.tab_bar_bg)
                 .inner_margin(egui::Margin {
-                    left: 10.0,
-                    right: 10.0,
+                    left: 12.0,
+                    right: 12.0,
                     top: 0.0,
                     bottom: 0.0,
                 }),
@@ -81,41 +85,32 @@ pub fn show_menu_bar(
                 s.visuals.widgets.open.bg_stroke = egui::Stroke::NONE;
             }
 
-            ui.set_min_height(36.0);
+            ui.set_min_height(40.0);
             ui.horizontal_centered(|ui| {
                 ui.label(egui::RichText::new(ic::APP_LOGO).size(17.0).color(t.accent));
-                ui.add_space(8.0);
+                ui.add_space(10.0);
+
+                let (div_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(1.0, 18.0), egui::Sense::hover());
+                ui.painter()
+                    .rect_filled(div_rect, egui::Rounding::ZERO, t.border);
+                ui.add_space(10.0);
 
                 let file_id = ui.make_persistent_id("menu_file_popup");
-                let file_size = egui::vec2(40.0, 26.0);
-                let (file_rect, _) = ui.allocate_exact_size(file_size, egui::Sense::hover());
+                let (file_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(BTN_W, BTN_H), egui::Sense::hover());
                 let file_clicked = ui
                     .interact(file_rect, file_id.with("btn"), egui::Sense::click())
                     .clicked();
                 let file_hovered = ui.rect_contains_pointer(file_rect);
                 let popup_open = ui.memory(|m| m.is_popup_open(file_id));
+                let file_active = file_hovered || popup_open;
 
                 if file_clicked {
                     ui.memory_mut(|m| m.toggle_popup(file_id));
                 }
-                if file_hovered || popup_open {
-                    ui.painter().rect_filled(
-                        file_rect,
-                        egui::Rounding::same(4.0),
-                        t.button_hover_bg,
-                    );
-                }
-                ui.painter().text(
-                    file_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "File",
-                    egui::FontId::proportional(12.5),
-                    if file_hovered || popup_open {
-                        t.tab_active_fg
-                    } else {
-                        t.tab_inactive_fg
-                    },
-                );
+
+                paint_menu_button(ui, file_rect, "File", ic::FILE_OPEN, file_active, false, t);
 
                 egui::popup::popup_below_widget(
                     ui,
@@ -130,7 +125,8 @@ pub fn show_menu_bar(
                         s.visuals.widgets.noninteractive.bg_fill = t.menu_bg;
                         s.visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
                         s.visuals.widgets.hovered.bg_fill = t.menu_hover_bg;
-                        ui.set_min_width(220.0);
+                        ui.set_min_width(230.0);
+                        ui.add_space(4.0);
 
                         if icon_menu_item(ui, ic::FILE_OPEN, "Open…", "Ctrl+O", t) {
                             action = MenuAction::OpenDialog;
@@ -148,55 +144,44 @@ pub fn show_menu_bar(
                             action = MenuAction::SaveDialog;
                             ui.memory_mut(|m| m.close_popup());
                         }
-                        ui.separator();
+
+                        styled_separator(ui, t);
+
                         if icon_menu_item(ui, ic::FILE_NEW, "New File", "Ctrl+N", t) {
                             action = MenuAction::New;
                             ui.memory_mut(|m| m.close_popup());
                         }
-                        ui.separator();
+
+                        styled_separator(ui, t);
+
                         let docs_label = if docs_open { "Close Docs" } else { "Open Docs" };
                         if icon_menu_item(ui, ic::DOCS, docs_label, "Ctrl+D", t) {
                             action = MenuAction::ToggleDocs;
                             ui.memory_mut(|m| m.close_popup());
                         }
+                        ui.add_space(4.0);
                     },
                 );
+
                 ui.add_space(4.0);
 
                 let run_label = if is_running { "Running…" } else { "Run" };
                 let run_icon = if is_running { ic::RUNNING } else { ic::RUN };
-
                 let run_id = egui::Id::new("menu_run_btn");
-                let run_size = egui::vec2(80.0, 26.0);
-                let (run_rect, _) = ui.allocate_exact_size(run_size, egui::Sense::hover());
+                let (run_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(BTN_W, BTN_H), egui::Sense::hover());
                 let run_hovered = ui.rect_contains_pointer(run_rect) && !is_running;
 
-                if run_hovered {
-                    ui.painter().rect_filled(
-                        run_rect,
-                        egui::Rounding::same(4.0),
-                        t.button_hover_bg,
-                    );
-                }
-                let run_fg = if is_running {
-                    egui::Color32::from_rgba_premultiplied(
-                        t.tab_inactive_fg.r(),
-                        t.tab_inactive_fg.g(),
-                        t.tab_inactive_fg.b(),
-                        120,
-                    )
-                } else if run_hovered {
-                    t.tab_active_fg
-                } else {
-                    t.tab_inactive_fg
-                };
-                ui.painter().text(
-                    run_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    format!("{run_icon}  {run_label}"),
-                    egui::FontId::proportional(12.5),
-                    run_fg,
+                paint_run_button(
+                    ui,
+                    run_rect,
+                    run_icon,
+                    run_label,
+                    is_running,
+                    run_hovered,
+                    t,
                 );
+
                 let run_resp = ui.interact(run_rect, run_id, egui::Sense::click());
                 if run_resp.clicked() && !is_running {
                     action = MenuAction::Run;
@@ -204,30 +189,22 @@ pub fn show_menu_bar(
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let gear_id = egui::Id::new("menu_gear_btn");
-                    let gear_size = egui::vec2(28.0, 26.0);
-                    let (gear_rect, _) = ui.allocate_exact_size(gear_size, egui::Sense::hover());
+                    let (gear_rect, _) =
+                        ui.allocate_exact_size(egui::vec2(BTN_W, BTN_H), egui::Sense::hover());
                     let gear_hovered = ui.rect_contains_pointer(gear_rect);
 
-                    if gear_hovered {
-                        ui.painter().rect_filled(
-                            gear_rect,
-                            egui::Rounding::same(4.0),
-                            t.button_hover_bg,
-                        );
-                    }
-                    ui.painter().text(
-                        gear_rect.center(),
-                        egui::Align2::CENTER_CENTER,
+                    paint_menu_button(
+                        ui,
+                        gear_rect,
+                        "Settings",
                         ic::SETTINGS,
-                        egui::FontId::proportional(15.0),
-                        if gear_hovered {
-                            t.tab_active_fg
-                        } else {
-                            t.tab_inactive_fg
-                        },
+                        gear_hovered,
+                        false,
+                        t,
                     );
+
                     let gear_resp = ui.interact(gear_rect, gear_id, egui::Sense::click());
-                    if gear_resp.on_hover_text("Settings").clicked() {
+                    if gear_resp.clicked() {
                         action = MenuAction::OpenSettings;
                     }
                 });
@@ -243,38 +220,162 @@ pub fn show_menu_bar(
     action
 }
 
-fn icon_menu_item(ui: &mut egui::Ui, icon: &str, label: &str, shortcut: &str, t: &Theme) -> bool {
-    let mut clicked = false;
-    let resp = ui.add(
-        egui::Button::new(
-            egui::RichText::new(format!("{icon}   {label}"))
-                .size(13.0)
-                .color(t.menu_fg),
-        )
-        .fill(egui::Color32::TRANSPARENT)
-        .stroke(egui::Stroke::NONE)
-        .min_size(egui::vec2(180.0, 26.0)),
-    );
+fn paint_menu_button(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    label: &str,
+    icon: &str,
+    active: bool,
+    _disabled: bool,
+    t: &Theme,
+) {
+    if active {
+        ui.painter()
+            .rect_filled(rect, egui::Rounding::same(BTN_ROUNDING), t.button_hover_bg);
+    }
 
-    if !shortcut.is_empty() {
-        let r = resp.rect;
-        ui.painter().text(
-            egui::pos2(r.right() - 6.0, r.center().y),
-            egui::Align2::RIGHT_CENTER,
-            shortcut,
-            egui::FontId::proportional(11.0),
-            t.tab_inactive_fg,
+    if active {
+        ui.painter().rect_stroke(
+            rect,
+            egui::Rounding::same(BTN_ROUNDING),
+            egui::Stroke::new(
+                1.0,
+                egui::Color32::from_rgba_premultiplied(
+                    t.border.r(),
+                    t.border.g(),
+                    t.border.b(),
+                    180,
+                ),
+            ),
         );
     }
 
-    if resp.hovered() {
-        ui.painter()
-            .rect_filled(resp.rect, egui::Rounding::same(4.0), t.menu_hover_bg);
+    let fg = if active {
+        t.tab_active_fg
+    } else {
+        t.tab_inactive_fg
+    };
+
+    let text = format!("{icon}  {label}");
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text,
+        egui::FontId::proportional(12.5),
+        fg,
+    );
+}
+
+fn paint_run_button(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    icon: &str,
+    label: &str,
+    is_running: bool,
+    hovered: bool,
+    t: &Theme,
+) {
+    let rounding = egui::Rounding::same(BTN_ROUNDING);
+
+    if is_running {
+        ui.painter().rect_filled(
+            rect,
+            rounding,
+            egui::Color32::from_rgba_premultiplied(t.accent.r(), t.accent.g(), t.accent.b(), 30),
+        );
+        ui.painter().rect_stroke(
+            rect,
+            rounding,
+            egui::Stroke::new(
+                1.0,
+                egui::Color32::from_rgba_premultiplied(
+                    t.accent.r(),
+                    t.accent.g(),
+                    t.accent.b(),
+                    60,
+                ),
+            ),
+        );
+    } else if hovered {
+        ui.painter().rect_filled(rect, rounding, t.accent);
     }
 
-    if resp.clicked() {
-        clicked = true;
-        ui.close_menu();
+    let fg = if is_running {
+        egui::Color32::from_rgba_premultiplied(
+            t.tab_inactive_fg.r(),
+            t.tab_inactive_fg.g(),
+            t.tab_inactive_fg.b(),
+            110,
+        )
+    } else if hovered {
+        t.tab_bar_bg
+    } else {
+        t.accent
+    };
+
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        format!("{icon}  {label}"),
+        egui::FontId::proportional(12.5),
+        fg,
+    );
+}
+
+fn styled_separator(ui: &mut egui::Ui, t: &Theme) {
+    ui.add_space(2.0);
+    let (sep_rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+    ui.painter()
+        .rect_filled(sep_rect, egui::Rounding::ZERO, t.border);
+    ui.add_space(2.0);
+}
+
+fn icon_menu_item(ui: &mut egui::Ui, icon: &str, label: &str, shortcut: &str, t: &Theme) -> bool {
+    let desired_size = egui::vec2(ui.available_width(), 28.0);
+    let (rect, resp) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+
+    let hovered = resp.hovered();
+
+    if hovered {
+        ui.painter()
+            .rect_filled(rect, egui::Rounding::same(4.0), t.accent);
     }
-    clicked
+
+    let text_fg = if hovered { t.tab_bar_bg } else { t.menu_fg };
+    let icon_label = format!("{icon}   {label}");
+    ui.painter().text(
+        egui::pos2(rect.left() + 10.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        icon_label,
+        egui::FontId::proportional(13.0),
+        text_fg,
+    );
+
+    if !shortcut.is_empty() {
+        let shortcut_fg = if hovered {
+            egui::Color32::from_rgba_premultiplied(
+                t.tab_bar_bg.r(),
+                t.tab_bar_bg.g(),
+                t.tab_bar_bg.b(),
+                180,
+            )
+        } else {
+            egui::Color32::from_rgba_premultiplied(
+                t.tab_inactive_fg.r(),
+                t.tab_inactive_fg.g(),
+                t.tab_inactive_fg.b(),
+                160,
+            )
+        };
+        ui.painter().text(
+            egui::pos2(rect.right() - 10.0, rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            shortcut,
+            egui::FontId::proportional(11.0),
+            shortcut_fg,
+        );
+    }
+
+    resp.clicked()
 }

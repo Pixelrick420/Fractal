@@ -78,6 +78,40 @@ fn print_import_chain(chain: &[String]) {
     }
 }
 
+/// Strip the `!start` ... `!end` wrapper from a module's source text.
+/// Returns the inner content (everything between `!start` and `!end`).
+fn strip_start_end(chars: &[char]) -> Vec<char> {
+    let text: String = chars.iter().collect();
+
+    // Find and remove !start (with optional surrounding whitespace / newlines)
+    let after_start = if let Some(pos) = text.find("!start") {
+        let end = pos + "!start".len();
+        // skip a single newline immediately after !start if present
+        if text[end..].starts_with('\n') {
+            &text[end + 1..]
+        } else {
+            &text[end..]
+        }
+    } else {
+        &text
+    };
+
+    // Find and remove !end
+    let before_end = if let Some(pos) = after_start.rfind("!end") {
+        // trim a trailing newline before !end if present
+        let chunk = &after_start[..pos];
+        if chunk.ends_with('\n') {
+            &chunk[..chunk.len() - 1]
+        } else {
+            chunk
+        }
+    } else {
+        after_start
+    };
+
+    before_end.chars().collect()
+}
+
 fn traverse(
     chars: &mut Vec<char>,
     visited_modules: &mut Vec<String>,
@@ -138,7 +172,7 @@ fn traverse(
                 }
 
                 match module_search(&module_name, current_file) {
-                    Ok((mut module_content, resolved_path)) => {
+                    Ok((module_raw, resolved_path)) => {
                         if import_chain.contains(&resolved_path) {
                             print_error("Circular dependency detected");
                             print_import_chain(import_chain);
@@ -148,6 +182,9 @@ fn traverse(
 
                         if !visited_modules.contains(&resolved_path) {
                             visited_modules.push(resolved_path.clone());
+
+                            // Strip !start / !end from the imported module before processing
+                            let mut module_content = strip_start_end(&module_raw);
 
                             let extracted_name = get_module_name_from_path(&module_name);
 

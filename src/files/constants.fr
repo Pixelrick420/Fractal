@@ -1,3 +1,5 @@
+!start
 :float golden_ratio = 1.618;
 :float euler_constant = 0.577;
 :int max_iterations = 10000;
+!end

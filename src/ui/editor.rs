@@ -1,5 +1,6 @@
-use super::highlighter::Highlighter;
-use super::theme::Theme;
+use crate::ui::highlighter::Highlighter;
+use crate::ui::icons as ic;
+use crate::ui::theme::Theme;
 use eframe::egui;
 
 pub struct CodeEditor {
@@ -10,45 +11,68 @@ impl CodeEditor {
     pub fn new(theme: Theme) -> Self {
         Self { theme }
     }
-
-    pub fn show(&mut self, ui: &mut egui::Ui, code: &mut String) {
-        self.show_with_id(ui, code, 0);
+    pub fn update_theme(&mut self, theme: Theme) {
+        self.theme = theme;
     }
 
-    pub fn show_with_id(&mut self, ui: &mut egui::Ui, code: &mut String, tab_id: usize) {
+    pub fn show_with_id(
+        &mut self,
+        ui: &mut egui::Ui,
+        code: &mut String,
+        tab_id: usize,
+        font_size: f32,
+        show_line_numbers: bool,
+    ) {
+        ui.painter().rect_filled(
+            ui.available_rect_before_wrap(),
+            egui::Rounding::ZERO,
+            self.theme.editor_bg,
+        );
+
         let line_count = code.lines().count().max(1);
         let width_chars = line_count.to_string().len();
-        let line_num_width = (width_chars as f32 * 9.0 + 24.0).max(44.0);
+        let line_num_width = if show_line_numbers {
+            (width_chars as f32 * 9.0 + 24.0).max(44.0)
+        } else {
+            0.0
+        };
 
-        let highlighter = Highlighter::new(self.theme);
+        let theme = self.theme;
+        let highlighter = Highlighter::new(theme);
         let mut layouter = move |ui: &egui::Ui, text: &str, wrap_width: f32| {
-            let font_id = egui::FontId::monospace(14.0);
+            let font_id = egui::FontId::monospace(font_size);
             let mut job = highlighter.highlight_to_layout_job(text, font_id);
             job.wrap.max_width = wrap_width;
             ui.fonts(|f| f.layout_job(job))
         };
 
-        egui::ScrollArea::vertical()
+        egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.horizontal_top(|ui| {
-                    egui::Frame::none()
-                        .fill(self.theme.line_numbers_bg)
-                        .inner_margin(egui::Margin::symmetric(8.0, 6.0))
-                        .show(ui, |ui| {
-                            ui.set_width(line_num_width);
-                            ui.style_mut().override_text_style = Some(egui::TextStyle::Monospace);
-                            ui.vertical(|ui| {
-                                for n in 1..=line_count {
-                                    ui.colored_label(
-                                        self.theme.line_numbers_fg,
-                                        format!("{:>width$}", n, width = width_chars),
-                                    );
-                                }
+                    if show_line_numbers {
+                        egui::Frame::none()
+                            .fill(self.theme.line_numbers_bg)
+                            .inner_margin(egui::Margin::symmetric(8.0, 8.0))
+                            .show(ui, |ui| {
+                                ui.set_width(line_num_width);
+                                ui.style_mut().override_text_style =
+                                    Some(egui::TextStyle::Monospace);
+                                ui.vertical(|ui| {
+                                    for n in 1..=line_count {
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "{:>width$}",
+                                                n,
+                                                width = width_chars
+                                            ))
+                                            .size(font_size - 1.0)
+                                            .color(self.theme.line_numbers_fg),
+                                        );
+                                    }
+                                });
                             });
-                        });
-
-                    ui.add_space(4.0);
+                    }
 
                     let text_edit = egui::TextEdit::multiline(code)
                         .id(egui::Id::new("code_editor").with(tab_id))
@@ -61,20 +85,18 @@ impl CodeEditor {
 
                     let mut output = text_edit.show(ui);
 
-                    let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    if enter_pressed {
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         if let Some(cursor_range) = output.cursor_range {
-                            let cursor_pos = cursor_range.primary.ccursor.index;
-                            let indent = indent_for_line_above(code, cursor_pos);
-
+                            let pos = cursor_range.primary.ccursor.index;
+                            let indent = indent_for_line_above(code, pos);
                             if !indent.is_empty() {
                                 use egui::TextBuffer as _;
-                                code.insert_text(&indent, cursor_pos);
-
-                                let new_pos = cursor_pos + indent.chars().count();
+                                code.insert_text(&indent, pos);
+                                let new_pos = pos + indent.chars().count();
                                 let new_ccursor = egui::text::CCursor::new(new_pos);
-                                let new_range = egui::text::CCursorRange::one(new_ccursor);
-                                output.state.cursor.set_char_range(Some(new_range));
+                                output.state.cursor.set_char_range(Some(
+                                    egui::text::CCursorRange::one(new_ccursor),
+                                ));
                                 output.state.store(ui.ctx(), output.response.id);
                             }
                         }
@@ -84,21 +106,127 @@ impl CodeEditor {
     }
 }
 
+pub enum EmptyStateAction {
+    None,
+    Open,
+    New,
+}
+
+pub fn show_empty_state(ui: &mut egui::Ui, t: &Theme) -> EmptyStateAction {
+    let mut action = EmptyStateAction::None;
+
+    ui.painter().rect_filled(
+        ui.available_rect_before_wrap(),
+        egui::Rounding::ZERO,
+        t.editor_bg,
+    );
+
+    let avail = ui.available_size();
+    let cx = avail.x * 0.5;
+    let cy = avail.y * 0.5;
+    let content_w = 320.0_f32.min(avail.x - 64.0);
+
+    let card_rect = egui::Rect::from_center_size(
+        ui.min_rect().min + egui::vec2(cx, cy),
+        egui::vec2(content_w, 260.0),
+    );
+    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(card_rect), |ui| {
+        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+            ui.label(egui::RichText::new(ic::EMPTY_STATE).size(48.0).color(
+                egui::Color32::from_rgba_premultiplied(
+                    t.empty_fg.r(),
+                    t.empty_fg.g(),
+                    t.empty_fg.b(),
+                    160,
+                ),
+            ));
+            ui.add_space(14.0);
+            ui.label(
+                egui::RichText::new("No files open")
+                    .size(18.0)
+                    .color(t.empty_fg)
+                    .strong(),
+            );
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new("Open a file or create a new one to get started.")
+                    .size(12.5)
+                    .color(egui::Color32::from_rgba_premultiplied(
+                        t.empty_fg.r(),
+                        t.empty_fg.g(),
+                        t.empty_fg.b(),
+                        160,
+                    )),
+            );
+            ui.add_space(24.0);
+
+            ui.horizontal(|ui| {
+                let pad = (content_w - 244.0).max(0.0) * 0.5;
+                ui.add_space(pad);
+
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(format!("{}  Open File", ic::OPEN_FILE))
+                                .size(13.0)
+                                .color(egui::Color32::WHITE),
+                        )
+                        .fill(t.accent)
+                        .rounding(egui::Rounding::same(6.0))
+                        .min_size(egui::vec2(114.0, 34.0)),
+                    )
+                    .clicked()
+                {
+                    action = EmptyStateAction::Open;
+                }
+
+                ui.add_space(10.0);
+
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(format!("{}  New File", ic::NEW_FILE))
+                                .size(13.0)
+                                .color(t.accent),
+                        )
+                        .fill(egui::Color32::TRANSPARENT)
+                        .stroke(egui::Stroke::new(1.0, t.accent))
+                        .rounding(egui::Rounding::same(6.0))
+                        .min_size(egui::vec2(114.0, 34.0)),
+                    )
+                    .clicked()
+                {
+                    action = EmptyStateAction::New;
+                }
+            });
+
+            ui.add_space(16.0);
+            ui.label(egui::RichText::new("Ctrl+O  ·  Ctrl+N").size(11.0).color(
+                egui::Color32::from_rgba_premultiplied(
+                    t.empty_fg.r(),
+                    t.empty_fg.g(),
+                    t.empty_fg.b(),
+                    100,
+                ),
+            ));
+        });
+    });
+
+    action
+}
+
 fn indent_for_line_above(text: &str, cursor_pos: usize) -> String {
     if cursor_pos == 0 {
         return String::new();
     }
-
     let chars: Vec<char> = text.chars().collect();
-
-    let prev_line_end = cursor_pos - 1;
-    let prev_line_start = chars[..prev_line_end]
+    let prev_end = cursor_pos - 1;
+    let prev_start = chars[..prev_end]
         .iter()
         .rposition(|&c| c == '\n')
         .map(|p| p + 1)
         .unwrap_or(0);
-
-    chars[prev_line_start..prev_line_end]
+    chars[prev_start..prev_end]
         .iter()
         .take_while(|&&c| c == ' ' || c == '\t')
         .collect()

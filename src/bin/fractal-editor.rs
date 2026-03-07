@@ -2,12 +2,16 @@ use eframe::egui;
 use fractal::ui::close_confirm::{
     CloseConfirmAction, CloseConfirmDialog, QuitConfirmAction, QuitConfirmDialog,
 };
-use fractal::ui::docs::DocsPanel;
+use fractal::ui::docs::DocsWindow;
+use fractal::ui::editor::{show_empty_state, EmptyStateAction};
 use fractal::ui::file_dialog::{FileDialog, FileDialogMode};
 use fractal::ui::formatter::format_code;
+use fractal::ui::icons::{self as ic, setup_fonts};
 use fractal::ui::menu_bar::{show_menu_bar, MenuAction, MenuBarState};
+use fractal::ui::tab::{show_tab_bar, Tab, TabBarAction};
 use fractal::ui::terminal::Terminal;
-use fractal::ui::theme::Theme;
+use fractal::ui::theme::{Theme, ThemeVariant};
+use fractal::ui::user_profile::{SettingsPanel, UserProfile};
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -15,58 +19,74 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
-use fractal::ui::tab::Tab;
-
 const AUTOSAVE_INTERVAL_SECS: u64 = 120;
 
-// ── FractalEditor ─────────────────────────────────────────────────────────────
-
 struct FractalEditor {
+    profile: UserProfile,
+    theme: Theme,
+
     tabs: Vec<Tab>,
     active_tab: usize,
-    theme: Theme,
+
     menu_state: MenuBarState,
     terminal: Terminal,
     file_dialog: FileDialog,
-    docs_panel: DocsPanel,
-    docs_open: bool,
+    docs_window: DocsWindow,
     close_confirm: CloseConfirmDialog,
     quit_confirm: QuitConfirmDialog,
+    settings_panel: SettingsPanel,
+
     pending_close_after_save: Option<usize>,
+    pending_run_after_save: bool,
     allow_quit: bool,
+
     error_message: Option<String>,
     success_message: Option<String>,
     last_autosave: Instant,
 }
 
-impl Default for FractalEditor {
-    fn default() -> Self {
-        let theme = Theme::default();
+impl FractalEditor {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        setup_fonts(&cc.egui_ctx);
+        let profile = UserProfile::load();
+        let theme = Theme::from_variant(profile.theme);
+        let mut file_dialog = FileDialog::new();
+        file_dialog.update_theme(theme);
         Self {
-            tabs: vec![Tab::new(theme)],
-            active_tab: 0,
+            theme,
             terminal: Terminal::new(theme),
-            file_dialog: FileDialog::new(),
-            docs_panel: DocsPanel::new(theme),
-            docs_open: false,
+            file_dialog,
+            docs_window: DocsWindow::new(theme),
             menu_state: MenuBarState::default(),
             close_confirm: CloseConfirmDialog::new(),
             quit_confirm: QuitConfirmDialog::new(),
+            settings_panel: {
+                let mut sp = SettingsPanel::new();
+                sp.update_theme(theme);
+                sp
+            },
             pending_close_after_save: None,
+            pending_run_after_save: false,
             allow_quit: false,
-            theme,
             error_message: None,
             success_message: None,
             last_autosave: Instant::now(),
+            tabs: vec![Tab::new(theme)],
+            active_tab: 0,
+            profile,
         }
     }
-}
 
-// ── File / tab operations ─────────────────────────────────────────────────────
-
-impl FractalEditor {
-    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        Self::default()
+    fn apply_theme(&mut self, variant: ThemeVariant) {
+        self.profile.theme = variant;
+        self.theme = Theme::from_variant(variant);
+        for tab in &mut self.tabs {
+            tab.editor.update_theme(self.theme);
+        }
+        self.terminal.update_theme(self.theme);
+        self.docs_window.update_theme(self.theme);
+        self.settings_panel.update_theme(self.theme);
+        self.file_dialog.update_theme(self.theme);
     }
 
     fn open_file(&mut self, path: &PathBuf) {
@@ -82,6 +102,7 @@ impl FractalEditor {
             Ok(content) => {
                 if self.tabs.len() == 1 && self.tabs[0].is_pristine_new() {
                     self.tabs[0] = Tab::from_file(path.clone(), content, self.theme);
+                    self.active_tab = 0;
                 } else {
                     self.tabs
                         .push(Tab::from_file(path.clone(), content, self.theme));
@@ -90,9 +111,7 @@ impl FractalEditor {
                 self.success_message = Some(format!("Opened: {}", path.display()));
                 self.error_message = None;
             }
-            Err(e) => {
-                self.error_message = Some(format!("Failed to open: {e}"));
-            }
+            Err(e) => self.error_message = Some(format!("Failed to open: {e}")),
         }
     }
 
@@ -104,7 +123,7 @@ impl FractalEditor {
                 tab.last_saved_code = tab.code.clone();
                 tab.current_file = Some(path.clone());
                 self.last_autosave = Instant::now();
-                self.success_message = Some(format!("Saved & formatted: {}", path.display()));
+                self.success_message = Some(format!("Saved: {}", path.display()));
                 self.error_message = None;
                 if let Some(idx) = self.pending_close_after_save.take() {
                     self.close_tab(idx);
@@ -129,14 +148,12 @@ impl FractalEditor {
     }
 
     fn close_tab(&mut self, index: usize) {
-        if self.tabs.len() <= 1 {
-            self.tabs[0] = Tab::new(self.theme);
-            self.active_tab = 0;
+        if self.tabs.is_empty() {
             return;
         }
         self.tabs.remove(index);
-        if self.active_tab >= self.tabs.len() {
-            self.active_tab = self.tabs.len() - 1;
+        if self.active_tab >= self.tabs.len() && self.active_tab > 0 {
+            self.active_tab = self.tabs.len().saturating_sub(1);
         }
     }
 
@@ -150,18 +167,17 @@ impl FractalEditor {
     }
 
     fn run_code(&mut self, ctx: &egui::Context) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        if self.tabs[self.active_tab].current_file.is_none() {
+            self.pending_run_after_save = true;
+            self.file_dialog.open_for_save("untitled.fr");
+            return;
+        }
         let tab = &mut self.tabs[self.active_tab];
-        let source_path = match &tab.current_file {
-            Some(p) => {
-                let _ = fs::write(p, &tab.code);
-                p.clone()
-            }
-            None => {
-                let tmp = std::env::temp_dir().join("fractal_temp_run.fr");
-                let _ = fs::write(&tmp, &tab.code);
-                tmp
-            }
-        };
+        let source_path = tab.current_file.clone().unwrap();
+        let _ = fs::write(&source_path, &tab.code);
         self.terminal.clear();
         self.terminal.append("▶ Running fractal-compiler…\n\n");
         tab.is_running = true;
@@ -206,7 +222,7 @@ impl FractalEditor {
                             .status
                             .code()
                             .map(|c| c.to_string())
-                            .unwrap_or("?".into());
+                            .unwrap_or_else(|| "?".into());
                         lines.push(format!("\n✗ Exited with code {code}.\n"));
                     }
                 }
@@ -214,8 +230,7 @@ impl FractalEditor {
                     let mut lines = buf.lock().unwrap();
                     lines.push(format!("error: failed to launch compiler: {e}\n"));
                     lines.push(
-                        "  Is 'fractal-compiler' in your PATH or next to this binary?\n"
-                            .to_string(),
+                        "  Is 'fractal-compiler' in PATH or next to this binary?\n".to_string(),
                     );
                 }
             }
@@ -225,94 +240,28 @@ impl FractalEditor {
     }
 
     fn poll_compiler_output(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let tab = &mut self.tabs[self.active_tab];
+        if !tab.is_running {
+            return;
+        }
+        let Some(rx) = tab.output_rx.clone() else {
+            return;
+        };
         let mut done = false;
-        if let Some(rx) = &self.tabs[self.active_tab].output_rx {
-            for line in rx.lock().unwrap().drain(..) {
-                if line == "\x00DONE\x00" {
-                    done = true;
-                } else {
-                    self.terminal.append(&line);
-                }
+        for line in rx.lock().unwrap().drain(..) {
+            if line == "\x00DONE\x00" {
+                done = true;
+            } else {
+                self.terminal.append(&line);
             }
         }
         if done {
             self.tabs[self.active_tab].is_running = false;
             self.tabs[self.active_tab].output_rx = None;
         }
-    }
-}
-
-// ── UI helpers ────────────────────────────────────────────────────────────────
-
-impl FractalEditor {
-    fn show_tab_bar(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("tab_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                let mut close_req: Option<usize> = None;
-
-                for i in 0..self.tabs.len() {
-                    let is_active = i == self.active_tab;
-                    let name = self.tabs[i].display_name();
-                    let dirty = self.tabs[i].is_dirty();
-
-                    let label_text = if dirty { format!("● {name}") } else { name };
-
-                    let bg = if is_active {
-                        egui::Color32::from_rgb(90, 90, 100)
-                    } else {
-                        egui::Color32::from_rgb(38, 38, 48)
-                    };
-
-                    let text_color = if is_active {
-                        egui::Color32::from_rgb(230, 230, 230)
-                    } else {
-                        egui::Color32::from_rgb(160, 160, 160)
-                    };
-
-                    egui::Frame::none()
-                        .fill(bg)
-                        .inner_margin(egui::Margin::symmetric(8.0, 4.0))
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                if ui
-                                    .add(
-                                        egui::Label::new(
-                                            egui::RichText::new(&label_text).color(text_color),
-                                        )
-                                        .sense(egui::Sense::click()),
-                                    )
-                                    .clicked()
-                                {
-                                    self.active_tab = i;
-                                }
-
-                                let close_btn = egui::Button::new(
-                                    egui::RichText::new("×")
-                                        .size(14.0)
-                                        .color(egui::Color32::from_rgb(160, 160, 160)),
-                                )
-                                .frame(false)
-                                .min_size(egui::vec2(16.0, 16.0));
-
-                                if ui.add(close_btn).on_hover_text("Close tab").clicked() {
-                                    close_req = Some(i);
-                                }
-                            });
-                        });
-
-                    ui.add_space(1.0);
-                }
-
-                if ui.small_button(" + ").on_hover_text("New tab").clicked() {
-                    self.tabs.push(Tab::new(self.theme));
-                    self.active_tab = self.tabs.len() - 1;
-                }
-
-                if let Some(idx) = close_req {
-                    self.request_close_tab(idx);
-                }
-            });
-        });
     }
 
     fn handle_close_confirm(&mut self, ctx: &egui::Context) {
@@ -349,33 +298,110 @@ impl FractalEditor {
     }
 
     fn show_status_bar(&mut self, ctx: &egui::Context) {
-        if let Some(msg) = self.error_message.clone() {
-            egui::TopBottomPanel::bottom("error_panel").show(ctx, |ui| {
+        let t = self.theme;
+        egui::TopBottomPanel::bottom("status_bar")
+            .frame(
+                egui::Frame::none()
+                    .fill(t.status_bar_bg)
+                    .inner_margin(egui::Margin::symmetric(12.0, 4.0)),
+            )
+            .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(255, 100, 100), "❌");
-                    ui.label(&msg);
-                    if ui.button("✖").clicked() {
-                        self.error_message = None;
+                    if let Some(msg) = self.error_message.clone() {
+                        ui.label(
+                            egui::RichText::new(ic::ERROR)
+                                .size(12.0)
+                                .color(t.terminal_error),
+                        );
+                        ui.label(egui::RichText::new(&msg).size(11.0).color(t.terminal_error));
+                        let xr = ui.add(
+                            egui::Button::new(
+                                egui::RichText::new(ic::TAB_CLOSE)
+                                    .size(11.0)
+                                    .color(t.status_bar_fg),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
+                        );
+                        if xr.hovered() {
+                            ui.painter().rect_filled(
+                                xr.rect.expand(2.0),
+                                egui::Rounding::same(3.0),
+                                t.button_hover_bg,
+                            );
+                        }
+                        if xr.clicked() {
+                            self.error_message = None;
+                        }
+                    } else if let Some(msg) = self.success_message.clone() {
+                        ui.label(
+                            egui::RichText::new(ic::SUCCESS)
+                                .size(12.0)
+                                .color(egui::Color32::from_rgb(80, 188, 100)),
+                        );
+                        ui.label(egui::RichText::new(&msg).size(11.0).color(t.status_bar_fg));
+                        let xr = ui.add(
+                            egui::Button::new(
+                                egui::RichText::new(ic::TAB_CLOSE)
+                                    .size(11.0)
+                                    .color(t.status_bar_fg),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
+                        );
+                        if xr.hovered() {
+                            ui.painter().rect_filled(
+                                xr.rect.expand(2.0),
+                                egui::Rounding::same(3.0),
+                                t.button_hover_bg,
+                            );
+                        }
+                        if xr.clicked() {
+                            self.success_message = None;
+                        }
+                    } else if let Some(tab) = self.tabs.get(self.active_tab) {
+                        let path = tab
+                            .current_file
+                            .as_ref()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "Untitled".to_string());
+                        ui.label(egui::RichText::new(&path).size(11.0).color(t.status_bar_fg));
+                        if tab.is_dirty() {
+                            ui.label(
+                                egui::RichText::new(ic::UNSAVED)
+                                    .size(12.0)
+                                    .color(t.tab_dirty_dot),
+                            );
+                        }
                     }
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            egui::RichText::new(t.variant.label())
+                                .size(11.0)
+                                .color(t.status_bar_fg),
+                        );
+                        ui.separator();
+                        let n = self.tabs.len();
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{n} tab{}",
+                                if n == 1 { "" } else { "s" }
+                            ))
+                            .size(11.0)
+                            .color(t.status_bar_fg),
+                        );
+                    });
                 });
             });
-        } else if let Some(msg) = self.success_message.clone() {
-            egui::TopBottomPanel::bottom("success_panel").show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(100, 255, 100), "✓");
-                    ui.label(&msg);
-                    if ui.button("✖").clicked() {
-                        self.success_message = None;
-                    }
-                });
-            });
-        }
     }
 }
 
-// ── eframe::App ───────────────────────────────────────────────────────────────
-
 impl eframe::App for FractalEditor {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.profile.save();
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_compiler_output();
 
@@ -401,100 +427,219 @@ impl eframe::App for FractalEditor {
             }
         });
 
-        let needs_autosave = self.tabs[self.active_tab].current_file.is_some()
-            && self.tabs[self.active_tab].is_dirty()
-            && self.last_autosave.elapsed().as_secs() >= AUTOSAVE_INTERVAL_SECS;
+        let needs_autosave = self
+            .tabs
+            .get(self.active_tab)
+            .map(|t| {
+                t.current_file.is_some()
+                    && t.is_dirty()
+                    && self.last_autosave.elapsed().as_secs() >= AUTOSAVE_INTERVAL_SECS
+            })
+            .unwrap_or(false);
         if needs_autosave {
             self.autosave();
         }
 
-        if self.tabs[self.active_tab].is_running {
+        let is_running = self
+            .tabs
+            .get(self.active_tab)
+            .map(|t| t.is_running)
+            .unwrap_or(false);
+        if is_running {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         } else {
             ctx.request_repaint_after(std::time::Duration::from_secs(10));
         }
 
-        ctx.set_visuals(egui::Visuals {
-            window_fill: self.theme.background,
-            panel_fill: self.theme.background,
-            ..egui::Visuals::dark()
-        });
+        apply_egui_style(ctx, &self.theme);
 
-        // ── Menu bar ──────────────────────────────────────────────────────
-        let tab = &self.tabs[self.active_tab];
+        let current_file = self
+            .tabs
+            .get(self.active_tab)
+            .and_then(|t| t.current_file.as_ref())
+            .cloned();
+        let docs_open = self.docs_window.open;
+
         let action = show_menu_bar(
             ctx,
             &mut self.menu_state,
-            tab.current_file.as_ref(),
-            tab.is_running,
-            self.docs_open,
+            current_file.as_ref(),
+            is_running,
+            docs_open,
+            &self.theme,
         );
 
         match action {
             MenuAction::OpenDialog => self.file_dialog.open_for_open(),
             MenuAction::SaveDialog => {
-                let name = self.tabs[self.active_tab]
-                    .current_file
-                    .as_ref()
-                    .and_then(|p| p.file_name())
-                    .map(|n| n.to_string_lossy().to_string())
+                let name = self
+                    .tabs
+                    .get(self.active_tab)
+                    .map(|t| t.display_name())
                     .unwrap_or_else(|| "untitled.fr".to_string());
                 self.file_dialog.open_for_save(&name);
             }
             MenuAction::SaveCurrent => {
-                if let Some(p) = self.tabs[self.active_tab].current_file.clone() {
-                    self.save_file(&p);
+                if let Some(path) = self
+                    .tabs
+                    .get(self.active_tab)
+                    .and_then(|t| t.current_file.clone())
+                {
+                    self.save_file(&path);
                 }
             }
             MenuAction::New => {
                 self.tabs.push(Tab::new(self.theme));
                 self.active_tab = self.tabs.len() - 1;
-                self.docs_open = false;
+
+                self.docs_window.open = false;
             }
             MenuAction::Run => self.run_code(ctx),
-            MenuAction::ToggleDocs => self.docs_open = !self.docs_open,
+            MenuAction::ToggleDocs => self.docs_window.open = !self.docs_window.open,
+            MenuAction::OpenSettings => self.settings_panel.open(),
             MenuAction::None => {}
         }
 
-        // ── Panels ────────────────────────────────────────────────────────
-        self.show_tab_bar(ctx);
+        if !self.tabs.is_empty() {
+            match show_tab_bar(ctx, &self.tabs, self.active_tab, &self.theme) {
+                TabBarAction::Activate(i) => {
+                    self.active_tab = i;
+
+                    self.docs_window.open = false;
+                }
+                TabBarAction::Close(i) => self.request_close_tab(i),
+                TabBarAction::New => {
+                    self.tabs.push(Tab::new(self.theme));
+                    self.active_tab = self.tabs.len() - 1;
+                    self.docs_window.open = false;
+                }
+                TabBarAction::None => {}
+            }
+        }
+
         self.handle_close_confirm(ctx);
         self.handle_quit_confirm(ctx);
 
         self.file_dialog.show(ctx);
         if let Some(result) = self.file_dialog.result.take() {
             match result.mode {
-                FileDialogMode::Open => self.open_file(&result.path),
-                FileDialogMode::Save => self.save_file(&result.path),
+                FileDialogMode::Open => {
+                    self.open_file(&result.path);
+                    self.docs_window.open = false;
+                }
+                FileDialogMode::Save => {
+                    let run_after = self.pending_run_after_save;
+                    self.pending_run_after_save = false;
+                    self.save_file(&result.path);
+                    if run_after {
+                        self.run_code(ctx);
+                    }
+                }
             }
+        }
+
+        if self.settings_panel.show(ctx, &mut self.profile) {
+            let v = self.profile.theme;
+            self.apply_theme(v);
         }
 
         self.show_status_bar(ctx);
         self.terminal.show(ctx);
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if self.docs_open {
-                self.docs_panel.show(ui);
-            } else {
-                let tab = &mut self.tabs[self.active_tab];
-                // FIX: pass the tab's stable unique ID so egui gives each tab
-                // its own TextEdit undo/redo history. Without this, all tabs
-                // share the same undo stack because TextEdit::id is derived
-                // from the widget's position/label, which is identical every
-                // frame for every tab.
-                tab.editor.show_with_id(ui, &mut tab.code, tab.id);
-            }
-        });
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none().fill(self.theme.editor_bg))
+            .show(ctx, |ui| {
+                if self.docs_window.open {
+                    self.docs_window.show(ui);
+                } else if self.tabs.is_empty() {
+                    match show_empty_state(ui, &self.theme) {
+                        EmptyStateAction::Open => self.file_dialog.open_for_open(),
+                        EmptyStateAction::New => {
+                            self.tabs.push(Tab::new(self.theme));
+                            self.active_tab = 0;
+                        }
+                        EmptyStateAction::None => {}
+                    }
+                } else if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                    let fs = self.profile.font_size;
+                    let ln = self.profile.show_line_numbers;
+                    tab.editor.show_with_id(ui, &mut tab.code, tab.id, fs, ln);
+                }
+            });
     }
 }
 
-// ── main ──────────────────────────────────────────────────────────────────────
+fn apply_egui_style(ctx: &egui::Context, t: &Theme) {
+    let mut s = (*ctx.style()).clone();
+
+    s.visuals.window_fill = t.panel_bg;
+    s.visuals.panel_fill = t.panel_bg;
+    s.visuals.extreme_bg_color = t.editor_bg;
+    s.visuals.faint_bg_color = t.button_bg;
+    s.visuals.code_bg_color = t.editor_bg;
+    s.visuals.window_stroke = egui::Stroke::new(1.0, t.border);
+    s.visuals.window_rounding = egui::Rounding::same(8.0);
+    s.visuals.menu_rounding = egui::Rounding::same(6.0);
+    s.visuals.window_shadow = egui::Shadow {
+        offset: egui::vec2(0.0, 6.0),
+        blur: 20.0,
+        spread: 0.0,
+        color: egui::Color32::from_black_alpha(96),
+    };
+
+    s.visuals.widgets.noninteractive.bg_fill = t.panel_bg;
+    s.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, t.border);
+    s.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.5, t.tab_active_fg);
+    s.visuals.widgets.noninteractive.rounding = egui::Rounding::same(4.0);
+
+    s.visuals.widgets.inactive.bg_fill = t.button_bg;
+    s.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, t.border);
+    s.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.5, t.button_fg);
+    s.visuals.widgets.inactive.rounding = egui::Rounding::same(5.0);
+    s.visuals.widgets.inactive.expansion = 0.0;
+
+    s.visuals.widgets.hovered.bg_fill = t.button_hover_bg;
+    s.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, t.accent);
+    s.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, t.tab_active_fg);
+    s.visuals.widgets.hovered.rounding = egui::Rounding::same(5.0);
+    s.visuals.widgets.hovered.expansion = 1.0;
+
+    s.visuals.widgets.active.bg_fill = t.accent;
+    s.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, t.accent);
+    s.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
+    s.visuals.widgets.active.rounding = egui::Rounding::same(5.0);
+    s.visuals.widgets.active.expansion = 1.0;
+
+    s.visuals.widgets.open.bg_fill = t.button_hover_bg;
+    s.visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0, t.accent);
+    s.visuals.widgets.open.fg_stroke = egui::Stroke::new(1.5, t.tab_active_fg);
+    s.visuals.widgets.open.rounding = egui::Rounding::same(5.0);
+
+    s.visuals.selection.bg_fill = t.selection;
+    s.visuals.selection.stroke = egui::Stroke::new(1.0, t.accent);
+    s.visuals.text_cursor = egui::style::TextCursorStyle {
+        stroke: egui::Stroke::new(2.0, t.accent),
+        ..Default::default()
+    };
+
+    s.visuals.hyperlink_color = t.accent;
+
+    s.spacing.item_spacing = egui::vec2(8.0, 6.0);
+    s.spacing.button_padding = egui::vec2(10.0, 6.0);
+    s.spacing.window_margin = egui::Margin::same(14.0);
+    s.spacing.menu_margin = egui::Margin::same(4.0);
+
+    s.visuals.override_text_color = Some(t.tab_active_fg);
+
+    ctx.set_style(s);
+}
 
 fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
-        "Fractal IDLE",
+        "Fractal Editor",
         eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
+                .with_title("Fractal Editor")
                 .with_inner_size([1200.0, 800.0])
                 .with_min_inner_size([600.0, 400.0]),
             ..Default::default()

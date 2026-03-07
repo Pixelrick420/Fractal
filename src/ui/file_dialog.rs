@@ -1,3 +1,4 @@
+use crate::ui::theme::Theme;
 use eframe::egui;
 use std::fs;
 use std::path::PathBuf;
@@ -16,6 +17,7 @@ pub struct FileDialog {
     selected: Option<PathBuf>,
     filename_input: String,
     pub result: Option<FileDialogResult>,
+    theme: Theme,
 }
 
 pub struct FileDialogResult {
@@ -41,9 +43,14 @@ impl FileDialog {
             selected: None,
             filename_input: String::new(),
             result: None,
+            theme: Theme::default(),
         };
         dialog.refresh_entries();
         dialog
+    }
+
+    pub fn update_theme(&mut self, t: Theme) {
+        self.theme = t;
     }
 
     pub fn open_for_open(&mut self) {
@@ -97,6 +104,39 @@ impl FileDialog {
             return;
         }
 
+        let t = self.theme;
+
+        ctx.style_mut(|s| {
+            s.visuals.window_fill = t.panel_bg;
+            s.visuals.panel_fill = t.panel_bg;
+            s.visuals.override_text_color = Some(t.menu_fg);
+            s.visuals.window_stroke = egui::Stroke::new(1.0, t.border);
+
+            s.visuals.widgets.noninteractive.bg_fill = t.panel_bg;
+            s.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, t.menu_fg);
+            s.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, t.border);
+
+            s.visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
+            s.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, t.menu_fg);
+            s.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, t.border);
+
+            s.visuals.widgets.hovered.bg_fill = t.button_hover_bg;
+            s.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, t.tab_active_fg);
+            s.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, t.accent);
+
+            s.visuals.widgets.active.bg_fill = t.accent;
+            s.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
+            s.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, t.accent);
+
+            s.visuals.widgets.open.bg_fill = t.button_hover_bg;
+            s.visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0, t.accent);
+
+            s.visuals.extreme_bg_color = t.button_bg;
+            s.visuals.faint_bg_color = t.panel_bg;
+            s.visuals.selection.bg_fill = t.selection;
+            s.visuals.selection.stroke = egui::Stroke::new(1.0, t.accent);
+        });
+
         let title = match self.mode {
             FileDialogMode::Open => "Open File",
             FileDialogMode::Save => "Save File",
@@ -112,7 +152,16 @@ impl FileDialog {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.small_button("⬆ Up").clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("⬆  Up").size(12.5).color(t.menu_fg),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::new(1.0, t.border)),
+                        )
+                        .clicked()
+                    {
                         if let Some(parent) = self.current_dir.parent().map(|p| p.to_path_buf()) {
                             self.navigate_to(parent);
                         }
@@ -136,10 +185,19 @@ impl FileDialog {
                             .file_name()
                             .map(|n| n.to_string_lossy().to_string())
                             .unwrap_or_else(|| part.to_string_lossy().to_string());
-                        if ui.small_button(&name).clicked() {
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new(&name).size(12.5).color(t.menu_fg),
+                                )
+                                .fill(egui::Color32::TRANSPARENT)
+                                .stroke(egui::Stroke::NONE),
+                            )
+                            .clicked()
+                        {
                             self.navigate_to(part.clone());
                         }
-                        ui.label("/");
+                        ui.label(egui::RichText::new("/").size(12.5).color(t.tab_inactive_fg));
                     }
                 });
 
@@ -179,8 +237,14 @@ impl FileDialog {
                 ui.separator();
 
                 ui.horizontal(|ui| {
-                    ui.label("File name:");
-                    ui.text_edit_singleline(&mut self.filename_input);
+                    ui.label(
+                        egui::RichText::new("File name:")
+                            .size(13.0)
+                            .color(t.menu_fg),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.filename_input).text_color(t.menu_fg),
+                    );
                 });
 
                 ui.add_space(4.0);
@@ -201,7 +265,16 @@ impl FileDialog {
                     };
 
                     if ui
-                        .add_enabled(can_confirm, egui::Button::new(confirm_label))
+                        .add_enabled(
+                            can_confirm,
+                            egui::Button::new(
+                                egui::RichText::new(confirm_label)
+                                    .size(13.0)
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(t.accent)
+                            .stroke(egui::Stroke::NONE),
+                        )
                         .clicked()
                     {
                         let path = if self.mode == FileDialogMode::Open {
@@ -218,7 +291,16 @@ impl FileDialog {
                         self.visible = false;
                     }
 
-                    if ui.button("Cancel").clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("Cancel").size(13.0).color(t.menu_fg),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::new(1.0, t.border)),
+                        )
+                        .clicked()
+                    {
                         self.visible = false;
                     }
                 });

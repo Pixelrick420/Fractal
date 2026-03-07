@@ -1,10 +1,12 @@
+pub mod close_confirm;
 pub mod docs;
 pub mod editor;
 pub mod file_dialog;
 pub mod formatter;
 pub mod highlighter;
+pub mod icons;
 pub mod menu_bar;
+pub mod tab;
 pub mod terminal;
 pub mod theme;
-pub mod close_confirm;
-pub mod tab;
+pub mod user_profile;

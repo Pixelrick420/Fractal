@@ -1,19 +1,12 @@
+use crate::ui::icons as ic;
 use eframe::egui;
 
-// ── Action returned each frame ────────────────────────────────────────────────
-
 pub enum CloseConfirmAction {
-    /// Save this tab index, then close it.
     Save(usize),
-    /// Close this tab without saving.
     Discard(usize),
-    /// User cancelled — do nothing.
     Cancel,
-    /// Dialog not visible or no decision yet.
     Pending,
 }
-
-// ── Single-tab close dialog ───────────────────────────────────────────────────
 
 pub struct CloseConfirmDialog {
     pub visible: bool,
@@ -23,7 +16,11 @@ pub struct CloseConfirmDialog {
 
 impl CloseConfirmDialog {
     pub fn new() -> Self {
-        Self { visible: false, tab_index: 0, tab_name: String::new() }
+        Self {
+            visible: false,
+            tab_index: 0,
+            tab_name: String::new(),
+        }
     }
 
     pub fn open(&mut self, tab_index: usize, tab_name: String) {
@@ -36,57 +33,77 @@ impl CloseConfirmDialog {
         if !self.visible {
             return CloseConfirmAction::Pending;
         }
-
         let mut action = CloseConfirmAction::Pending;
-        let mut window_open = true;
+        let mut open = true;
 
         egui::Window::new("Unsaved Changes")
-            .open(&mut window_open)
+            .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .movable(true)
+            .default_size([320.0, 130.0])
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.add_space(6.0);
-                ui.label(format!("\"{}\" has unsaved changes.", self.tab_name));
-                ui.label("What would you like to do?");
+                ui.label(
+                    egui::RichText::new(format!("\"{}\" has unsaved changes.", self.tab_name))
+                        .size(13.0),
+                );
                 ui.add_space(14.0);
                 ui.horizontal(|ui| {
-                    if ui.button("  💾 Save  ").clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(format!("{}  Save", ic::SAVE_ACTION))
+                                    .size(13.0),
+                            )
+                            .min_size(egui::vec2(84.0, 28.0)),
+                        )
+                        .clicked()
+                    {
                         action = CloseConfirmAction::Save(self.tab_index);
                     }
                     ui.add_space(4.0);
-                    if ui.button("  🗑 Discard  ").clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(format!("{}  Discard", ic::DISCARD)).size(13.0),
+                            )
+                            .min_size(egui::vec2(84.0, 28.0)),
+                        )
+                        .clicked()
+                    {
                         action = CloseConfirmAction::Discard(self.tab_index);
                     }
                     ui.add_space(4.0);
-                    if ui.button("  Cancel  ").clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(format!("{}  Cancel", ic::CANCEL)).size(13.0),
+                            )
+                            .min_size(egui::vec2(76.0, 28.0)),
+                        )
+                        .clicked()
+                    {
                         action = CloseConfirmAction::Cancel;
                     }
                 });
                 ui.add_space(4.0);
             });
 
-        if !window_open {
+        if !open {
             action = CloseConfirmAction::Cancel;
         }
-
         if !matches!(action, CloseConfirmAction::Pending) {
             self.visible = false;
         }
-
         action
     }
 }
 
-// ── Quit-with-dirty-tabs dialog ─────────────────────────────────────────────
-
 pub enum QuitConfirmAction {
-    /// Quit without saving — shut down immediately.
     Discard,
-    /// User chose to keep working — close the popup.
     Keep,
-    /// Dialog not visible or no decision yet.
     Pending,
 }
 
@@ -97,7 +114,10 @@ pub struct QuitConfirmDialog {
 
 impl QuitConfirmDialog {
     pub fn new() -> Self {
-        Self { visible: false, dirty_names: Vec::new() }
+        Self {
+            visible: false,
+            dirty_names: Vec::new(),
+        }
     }
 
     pub fn open(&mut self, dirty_names: Vec<String>) {
@@ -109,59 +129,62 @@ impl QuitConfirmDialog {
         if !self.visible {
             return QuitConfirmAction::Pending;
         }
-
         let mut action = QuitConfirmAction::Pending;
-        let mut window_open = true;
+        let mut open = true;
 
         egui::Window::new("Unsaved Changes")
-            .open(&mut window_open)
+            .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .movable(true)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.add_space(6.0);
-
                 if self.dirty_names.len() == 1 {
-                    ui.label(format!(
-                        "\"{}\" has unsaved changes.",
-                        self.dirty_names[0]
-                    ));
+                    ui.label(format!("\"{}\" has unsaved changes.", self.dirty_names[0]));
                 } else {
                     ui.label("The following files have unsaved changes:");
                     ui.add_space(4.0);
                     for name in &self.dirty_names {
-                        ui.label(format!("  • {name}"));
+                        ui.label(format!("  {name}"));
                     }
                 }
-
                 ui.add_space(14.0);
-
                 ui.horizontal(|ui| {
-                    if ui.button("  ✏ Continue Work  ").clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("  Continue editing  ").size(13.0),
+                            )
+                            .min_size(egui::vec2(130.0, 28.0)),
+                        )
+                        .clicked()
+                    {
                         action = QuitConfirmAction::Keep;
                     }
                     ui.add_space(4.0);
-                    if ui.button("  🗑 Discard Changes  ").clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(format!("{}  Discard & quit", ic::DISCARD))
+                                    .size(13.0),
+                            )
+                            .min_size(egui::vec2(130.0, 28.0)),
+                        )
+                        .clicked()
+                    {
                         action = QuitConfirmAction::Discard;
-                    }
-                    ui.add_space(4.0);
-                    if ui.button("  Cancel  ").clicked() {
-                        action = QuitConfirmAction::Keep;
                     }
                 });
                 ui.add_space(4.0);
             });
 
-        // Title-bar X also keeps working.
-        if !window_open {
+        if !open {
             action = QuitConfirmAction::Keep;
         }
-
         if !matches!(action, QuitConfirmAction::Pending) {
             self.visible = false;
         }
-
         action
     }
 }

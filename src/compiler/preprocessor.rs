@@ -4,8 +4,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process;
 
-fn module_search(module_name: &str, current_file: &str  ) -> io::Result<(Vec<char>, String)> {
-     let lib_dir = "";
+fn module_search(module_name: &str, current_file: &str) -> io::Result<(Vec<char>, String)> {
+    let lib_dir = "";
 
     if &module_name[0..1] == "\"" {
         let mut file_path = PathBuf::from(module_name.trim().trim_matches('"'));
@@ -80,15 +80,12 @@ fn print_import_chain(chain: &[String]) {
     }
 }
 
-/// Strip the `!start` ... `!end` wrapper from a module's source text.
-/// Returns the inner content (everything between `!start` and `!end`).
 fn strip_start_end(chars: &[char]) -> Vec<char> {
     let text: String = chars.iter().collect();
 
-    // Find and remove !start (with optional surrounding whitespace / newlines)
     let after_start = if let Some(pos) = text.find("!start") {
         let end = pos + "!start".len();
-        // skip a single newline immediately after !start if present
+
         if text[end..].starts_with('\n') {
             &text[end + 1..]
         } else {
@@ -98,9 +95,7 @@ fn strip_start_end(chars: &[char]) -> Vec<char> {
         &text
     };
 
-    // Find and remove !end
     let before_end = if let Some(pos) = after_start.rfind("!end") {
-        // trim a trailing newline before !end if present
         let chunk = &after_start[..pos];
         if chunk.ends_with('\n') {
             &chunk[..chunk.len() - 1]
@@ -173,7 +168,7 @@ fn traverse(
                     index += 1;
                 }
 
-                match module_search(&module_name, current_file,) {
+                match module_search(&module_name, current_file) {
                     Ok((module_raw, resolved_path)) => {
                         if import_chain.contains(&resolved_path) {
                             print_error("Circular dependency detected");
@@ -185,7 +180,6 @@ fn traverse(
                         if !visited_modules.contains(&resolved_path) {
                             visited_modules.push(resolved_path.clone());
 
-                            // Strip !start / !end from the imported module before processing
                             let mut module_content = strip_start_end(&module_raw);
 
                             let extracted_name = get_module_name_from_path(&module_name);

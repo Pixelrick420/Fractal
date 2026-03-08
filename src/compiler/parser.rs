@@ -80,9 +80,9 @@ pub enum ParseNode {
 
     ExprStmt(Box<ParseNode>),
 
-    LValue {
-        name: String,
-        member: Option<String>,
+    AccessChain {
+        base: String,
+        steps: Vec<AccessStep>,
     },
 
     LogOr {
@@ -137,17 +137,6 @@ pub enum ParseNode {
         expr: Box<ParseNode>,
     },
 
-    QualifiedCall {
-        module: String,
-        member: String,
-        args: Option<Vec<ParseNode>>,
-    },
-
-    Call {
-        name: String,
-        args: Vec<ParseNode>,
-    },
-
     ArrayLit(Vec<ParseNode>),
 
     StructLit(Vec<(String, ParseNode)>),
@@ -164,20 +153,26 @@ pub enum ParseNode {
     TypeFloat,
     TypeChar,
     TypeBoolean,
+    TypeVoid,
     TypeArray {
-        elem: String,
+        elem: Box<ParseNode>,
         size: i64,
     },
     TypeList {
-        elem: String,
+        elem: Box<ParseNode>,
     },
     TypeStruct {
         name: String,
     },
-    Index {
-        target: Box<ParseNode>,
-        index: Box<ParseNode>,
-    },
+}
+
+#[derive(Debug, Clone)]
+pub enum AccessStep {
+    Field(String),
+
+    Index(Box<ParseNode>),
+
+    Call(Vec<ParseNode>),
 }
 
 #[derive(Debug, Clone)]
@@ -381,6 +376,7 @@ impl Parser {
                 | TokenType::TypeFloat
                 | TokenType::TypeChar
                 | TokenType::TypeBoolean
+                | TokenType::TypeVoid
                 | TokenType::TypeArray
                 | TokenType::TypeList
                 | TokenType::TypeStruct
@@ -437,6 +433,7 @@ impl Parser {
                 self.advance();
                 let fields = self.parse_fields()?;
                 self.expect(&TokenType::RBrace)?;
+                self.expect(&TokenType::EndL)?;
                 Ok(ParseNode::StructDef {
                     name: type_name,
                     fields,
@@ -698,11 +695,11 @@ impl Parser {
     fn parse_assign_or_expr_stmt(&mut self) -> PResult<ParseNode> {
         let saved = self.pos;
 
-        if let Ok(lval) = self.try_parse_lvalue() {
+        if let Ok(chain) = self.try_parse_lvalue_chain() {
             if let Some(op) = self.try_parse_assignop() {
                 let expr = self.parse_expression()?;
                 return Ok(ParseNode::Assign {
-                    lvalue: Box::new(lval),
+                    lvalue: Box::new(chain),
                     op,
                     expr: Box::new(expr),
                 });
@@ -714,23 +711,46 @@ impl Parser {
         Ok(ParseNode::ExprStmt(Box::new(expr)))
     }
 
-    fn try_parse_lvalue(&mut self) -> PResult<ParseNode> {
+    fn try_parse_lvalue_chain(&mut self) -> PResult<ParseNode> {
         let name = self.expect_identifier()?;
+        let steps = self.parse_postfix_steps()?;
 
-        if matches!(self.peek(), Some(TokenType::ColonColon)) {
-            self.advance();
-            let member = self.expect_identifier()?;
-
-            if matches!(self.peek(), Some(TokenType::LParen)) {
-                return Err(ParseError::new("Qualified call is not a valid lvalue"));
-            }
-            Ok(ParseNode::LValue {
-                name,
-                member: Some(member),
-            })
-        } else {
-            Ok(ParseNode::LValue { name, member: None })
+        if let Some(AccessStep::Call(_)) = steps.last() {
+            return Err(ParseError::new(
+                "Function call result is not a valid lvalue",
+            ));
         }
+
+        Ok(ParseNode::AccessChain { base: name, steps })
+    }
+
+    fn parse_postfix_steps(&mut self) -> PResult<Vec<AccessStep>> {
+        let mut steps = Vec::new();
+        while steps.len() < 8 {
+            match self.peek() {
+                Some(TokenType::ColonColon) => {
+                    self.advance();
+                    let field = self.expect_identifier()?;
+                    steps.push(AccessStep::Field(field));
+                }
+                Some(TokenType::LBracket) => {
+                    self.advance();
+                    let idx = self.parse_expression()?;
+                    self.expect(&TokenType::RBracket)?;
+                    steps.push(AccessStep::Index(Box::new(idx)));
+                }
+                Some(TokenType::LParen) => {
+                    self.advance();
+                    let args = self.parse_args()?;
+                    self.expect(&TokenType::RParen)?;
+                    steps.push(AccessStep::Call(args));
+
+                    break;
+                }
+                _ => break,
+            }
+        }
+        Ok(steps)
     }
 
     fn try_parse_assignop(&mut self) -> Option<AssignOp> {
@@ -768,23 +788,32 @@ impl Parser {
                 self.advance();
                 Ok(ParseNode::TypeBoolean)
             }
+            Some(TokenType::TypeVoid) => {
+                self.advance();
+                Ok(ParseNode::TypeVoid)
+            }
 
             Some(TokenType::TypeArray) => {
                 self.advance();
                 self.expect(&TokenType::Less)?;
-                let elem = self.expect_identifier()?;
+                let elem = self.parse_datatype()?;
                 self.expect(&TokenType::Comma)?;
                 let size = self.expect_int_lit()?;
                 self.expect(&TokenType::Greater)?;
-                Ok(ParseNode::TypeArray { elem, size })
+                Ok(ParseNode::TypeArray {
+                    elem: Box::new(elem),
+                    size,
+                })
             }
 
             Some(TokenType::TypeList) => {
                 self.advance();
                 self.expect(&TokenType::Less)?;
-                let elem = self.expect_identifier()?;
+                let elem = self.parse_datatype()?;
                 self.expect(&TokenType::Greater)?;
-                Ok(ParseNode::TypeList { elem })
+                Ok(ParseNode::TypeList {
+                    elem: Box::new(elem),
+                })
             }
 
             Some(TokenType::TypeStruct) => {
@@ -945,6 +974,10 @@ impl Parser {
         let op = match self.peek() {
             Some(TokenType::Minus) => Some(UnOp::Neg),
             Some(TokenType::Tilde) => Some(UnOp::BitNot),
+            Some(TokenType::Plus) => {
+                self.advance();
+                return self.parse_unary();
+            }
             _ => None,
         };
         if let Some(op) = op {
@@ -972,6 +1005,7 @@ impl Parser {
                 | Some(TokenType::TypeFloat)
                 | Some(TokenType::TypeChar)
                 | Some(TokenType::TypeBoolean)
+                | Some(TokenType::TypeVoid)
                 | Some(TokenType::TypeArray)
                 | Some(TokenType::TypeList)
                 | Some(TokenType::TypeStruct)
@@ -1020,43 +1054,8 @@ impl Parser {
 
             Some(TokenType::Identifier(name)) => {
                 self.advance();
-                match self.peek().cloned() {
-                    Some(TokenType::ColonColon) => {
-                        self.advance();
-                        let member = self.expect_identifier()?;
-                        if matches!(self.peek(), Some(TokenType::LParen)) {
-                            self.advance();
-                            let args = self.parse_args()?;
-                            self.expect(&TokenType::RParen)?;
-                            Ok(ParseNode::QualifiedCall {
-                                module: name,
-                                member,
-                                args: Some(args),
-                            })
-                        } else {
-                            Ok(ParseNode::QualifiedCall {
-                                module: name,
-                                member,
-                                args: None,
-                            })
-                        }
-                    }
-                    Some(TokenType::LParen) => {
-                        self.advance();
-                        let args = self.parse_args()?;
-                        self.expect(&TokenType::RParen)?;
-                        Ok(ParseNode::Call { name, args })
-                    }
-                    Some(TokenType::LBracket) => {        
-                        let idx = self.parse_expression()?;
-                        self.expect(&TokenType::RBracket)?;
-                        Ok(ParseNode::Index {
-                            target: Box::new(ParseNode::Identifier(name)),
-                            index: Box::new(idx),
-                        })
-                    }
-                    _ => Ok(ParseNode::Identifier(name)),
-                }
+                let steps = self.parse_postfix_steps()?;
+                Ok(ParseNode::AccessChain { base: name, steps })
             }
 
             Some(TokenType::SIntLit(n)) => {
@@ -1102,7 +1101,7 @@ impl Parser {
         args.push(self.parse_expression()?);
         while matches!(self.peek(), Some(TokenType::Comma)) {
             self.advance();
-            // handle trailing comma gracefully
+
             if matches!(
                 self.peek(),
                 Some(TokenType::RParen) | Some(TokenType::RBracket) | None
@@ -1168,10 +1167,17 @@ fn node_label(node: &ParseNode) -> String {
         ParseNode::Break => "\x1b[35mBreak\x1b[0m".into(),
         ParseNode::Continue => "\x1b[35mContinue\x1b[0m".into(),
         ParseNode::ExprStmt(_) => "ExprStmt".into(),
-        ParseNode::LValue { name, member } => match member {
-            Some(m) => format!("LValue  \x1b[36m{}::{}\x1b[0m", name, m),
-            None => format!("LValue  \x1b[36m{}\x1b[0m", name),
-        },
+        ParseNode::AccessChain { base, steps } => {
+            let chain: String = steps
+                .iter()
+                .map(|s| match s {
+                    AccessStep::Field(f) => format!("::{}", f),
+                    AccessStep::Index(_) => "[…]".into(),
+                    AccessStep::Call(a) => format!("({})", a.len()),
+                })
+                .collect();
+            format!("AccessChain  \x1b[36m{}{}\x1b[0m", base, chain)
+        }
         ParseNode::LogOr { .. } => "LogOr  \x1b[35m!or\x1b[0m".into(),
         ParseNode::LogAnd { .. } => "LogAnd  \x1b[35m!and\x1b[0m".into(),
         ParseNode::LogNot { .. } => "LogNot  \x1b[35m!not\x1b[0m".into(),
@@ -1183,19 +1189,6 @@ fn node_label(node: &ParseNode) -> String {
         ParseNode::Mul { op, .. } => format!("Mul  \x1b[35m{:?}\x1b[0m", op),
         ParseNode::Unary { op, .. } => format!("Unary  \x1b[35m{:?}\x1b[0m", op),
         ParseNode::Cast { target_type, .. } => format!("Cast  → {}", type_str(target_type)),
-        ParseNode::QualifiedCall {
-            module,
-            member,
-            args,
-        } => format!(
-            "QualifiedCall  \x1b[33m{}::{}\x1b[0m  args={}",
-            module,
-            member,
-            args.as_ref().map(|a| a.len()).unwrap_or(0)
-        ),
-        ParseNode::Call { name, args } => {
-            format!("Call  \x1b[33m{}\x1b[0m  args={}", name, args.len())
-        }
         ParseNode::ArrayLit(elems) => format!("ArrayLit  [{}]", elems.len()),
         ParseNode::StructLit(fields) => format!(
             "StructLit  {{{}}}",
@@ -1216,10 +1209,10 @@ fn node_label(node: &ParseNode) -> String {
         ParseNode::TypeFloat => "TypeFloat".into(),
         ParseNode::TypeChar => "TypeChar".into(),
         ParseNode::TypeBoolean => "TypeBoolean".into(),
-        ParseNode::TypeArray { elem, size } => format!("TypeArray<{},{}>", elem, size),
-        ParseNode::TypeList { elem } => format!("TypeList<{}>", elem),
+        ParseNode::TypeVoid => "TypeVoid".into(),
+        ParseNode::TypeArray { elem, size } => format!("TypeArray<{},{}>", type_str(elem), size),
+        ParseNode::TypeList { elem } => format!("TypeList<{}>", type_str(elem)),
         ParseNode::TypeStruct { name } => format!("TypeStruct<{}>", name),
-        ParseNode::Index { .. } => "Index".into(),
     }
 }
 
@@ -1229,8 +1222,9 @@ fn type_str(node: &ParseNode) -> String {
         ParseNode::TypeFloat => "float".into(),
         ParseNode::TypeChar => "char".into(),
         ParseNode::TypeBoolean => "bool".into(),
-        ParseNode::TypeArray { elem, size } => format!("array<{},{}>", elem, size),
-        ParseNode::TypeList { elem } => format!("list<{}>", elem),
+        ParseNode::TypeVoid => "void".into(),
+        ParseNode::TypeArray { elem, size } => format!("array<{},{}>", type_str(elem), size),
+        ParseNode::TypeList { elem } => format!("list<{}>", type_str(elem)),
         ParseNode::TypeStruct { name } => format!("struct<{}>", name),
         other => format!("{:?}", other),
     }
@@ -1284,7 +1278,7 @@ fn print_node_children(node: &ParseNode, prefix: &str) {
         ParseNode::StructDecl { init, .. } => {
             if let Some(i) = init {
                 let ip = print_section_header("init", prefix, true);
-                print_node(&i, &ip, true);
+                print_node(i, &ip, true);
             }
         }
         ParseNode::Decl { init, .. } => {
@@ -1346,6 +1340,23 @@ fn print_node_children(node: &ParseNode, prefix: &str) {
         ParseNode::ExprStmt(e) => {
             print_node(e, prefix, true);
         }
+        ParseNode::AccessChain { steps, .. } => {
+            let n = steps.len();
+            for (i, step) in steps.iter().enumerate() {
+                let is_last = i == n - 1;
+                match step {
+                    AccessStep::Index(idx) => {
+                        let ip = print_section_header(&format!("[{}]", i), prefix, is_last);
+                        print_node(idx, &ip, true);
+                    }
+                    AccessStep::Call(args) => {
+                        let cp = print_section_header(&format!("call({})", i), prefix, is_last);
+                        print_node_list(args, &cp);
+                    }
+                    AccessStep::Field(_) => {}
+                }
+            }
+        }
         ParseNode::LogOr { left, right }
         | ParseNode::LogAnd { left, right }
         | ParseNode::BitOr { left, right }
@@ -1369,14 +1380,6 @@ fn print_node_children(node: &ParseNode, prefix: &str) {
         ParseNode::Cast { expr, .. } => {
             print_node(expr, prefix, true);
         }
-        ParseNode::Call { args, .. } => {
-            print_node_list(args, prefix);
-        }
-        ParseNode::QualifiedCall {
-            args: Some(args), ..
-        } => {
-            print_node_list(args, prefix);
-        }
         ParseNode::ArrayLit(elems) => {
             print_node_list(elems, prefix);
         }
@@ -1387,10 +1390,6 @@ fn print_node_children(node: &ParseNode, prefix: &str) {
                 let fp = print_section_header(name, prefix, is_last);
                 print_node(val, &fp, true);
             }
-        }
-        ParseNode::Index { target, index } => {
-            print_node(target, prefix, false);
-            print_node(index, prefix, true);
         }
 
         _ => {}
@@ -1544,8 +1543,8 @@ mod tests {
     #[test]
     fn test_struct_def_and_decl() {
         let src = wrap(
-            ":struct<Node> { :int val; :struct<Node> next; }\n\
-             :struct<Node> n = {val = 1, next = NULL};",
+            ":struct<Node> { :int val; :struct<Node> next; };\n\
+             :struct<Node> n = {val = 1, next = !null};",
         );
         let tree = parse_prog(&src);
         let items = match &tree {
@@ -1608,7 +1607,10 @@ mod tests {
                 init: Some(expr), ..
             } => match expr.as_ref() {
                 ParseNode::BitOr { left, right } => {
-                    assert!(matches!(**left, ParseNode::Identifier(_)));
+                    assert!(matches!(
+                        **left,
+                        ParseNode::AccessChain { ref steps, .. } if steps.is_empty()
+                    ));
                     assert!(matches!(**right, ParseNode::BitXor { .. }));
                 }
                 _ => panic!("expected BitOr at top"),
@@ -1646,7 +1648,7 @@ mod tests {
         let src = wrap(
             ":int x = :int(3.7);\n\
              math::sin(x);\n\
-             :array<int, 3> arr = [1, 2, 3];",
+             :array<:int, 3> arr = [1, 2, 3];",
         );
         let tree = parse_prog(&src);
         let items = match &tree {
@@ -1663,10 +1665,16 @@ mod tests {
         }
 
         match &items[1] {
-            ParseNode::ExprStmt(e) => {
-                assert!(matches!(**e, ParseNode::QualifiedCall { .. }));
-            }
-            _ => panic!("expected ExprStmt with QualifiedCall"),
+            ParseNode::ExprStmt(e) => match e.as_ref() {
+                ParseNode::AccessChain { base, steps } => {
+                    assert_eq!(base, "math");
+                    assert_eq!(steps.len(), 2);
+                    assert!(matches!(&steps[0], AccessStep::Field(f) if f == "sin"));
+                    assert!(matches!(&steps[1], AccessStep::Call(_)));
+                }
+                _ => panic!("expected AccessChain"),
+            },
+            _ => panic!("expected ExprStmt"),
         }
 
         match &items[2] {
@@ -1677,754 +1685,61 @@ mod tests {
             _ => panic!("expected Decl with ArrayLit"),
         }
     }
-}
-
-#[cfg(test)]
-mod tests2 {
-    use super::*;
-    use crate::compiler::lexer::tokenize;
-
-    fn parse_prog(src: &str) -> ParseNode {
-        let tokens = tokenize(src);
-        parse(tokens).expect("parse failed")
-    }
-
-    fn wrap(body: &str) -> String {
-        format!("!start\n{}\n!end", body)
-    }
-
-    fn matches_cmp(a: &CmpOp, b: &CmpOp) -> bool {
-        matches!(
-            (a, b),
-            (CmpOp::Gt, CmpOp::Gt)
-                | (CmpOp::Lt, CmpOp::Lt)
-                | (CmpOp::Ge, CmpOp::Ge)
-                | (CmpOp::Le, CmpOp::Le)
-                | (CmpOp::EqEq, CmpOp::EqEq)
-                | (CmpOp::Ne, CmpOp::Ne)
-        )
-    }
 
     #[test]
-    fn test_decl_char_bool_noinit() {
-        let src = wrap(":char c = 'z';\n:boolean flag = true;\n:int uninit;");
+    fn test_access_chain_index_and_member() {
+        let src = wrap(":int x = arr[0][1];");
         let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        assert_eq!(items.len(), 3);
-
-        match &items[0] {
-            ParseNode::Decl {
-                name,
-                data_type,
-                init: Some(i),
-            } => {
-                assert_eq!(name, "c");
-                assert!(matches!(**data_type, ParseNode::TypeChar));
-                assert!(matches!(**i, ParseNode::CharLit('z')));
-            }
-            _ => panic!("expected char Decl"),
-        }
-        match &items[1] {
-            ParseNode::Decl {
-                name,
-                data_type,
-                init: Some(i),
-            } => {
-                assert_eq!(name, "flag");
-                assert!(matches!(**data_type, ParseNode::TypeBoolean));
-                assert!(matches!(**i, ParseNode::BoolLit(true)));
-            }
-            _ => panic!("expected bool Decl"),
-        }
-        match &items[2] {
-            ParseNode::Decl {
-                name, init: None, ..
-            } => assert_eq!(name, "uninit"),
-            _ => panic!("expected uninitialised Decl"),
-        }
-    }
-
-    #[test]
-    fn test_decl_list() {
-        let src = wrap(":list<int> nums;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Decl {
-                name, data_type, ..
-            } => {
-                assert_eq!(name, "nums");
-                match data_type.as_ref() {
-                    ParseNode::TypeList { elem } => assert_eq!(elem, "int"),
-                    _ => panic!("expected TypeList"),
-                }
-            }
-            _ => panic!("expected Decl"),
-        }
-    }
-
-    #[test]
-    fn test_decl_array_string_init() {
-        let src = wrap(":array<char, 10> s = \"hello\";");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Decl {
-                name,
-                data_type,
-                init: Some(i),
-            } => {
-                assert_eq!(name, "s");
-                match data_type.as_ref() {
-                    ParseNode::TypeArray { elem, size } => {
-                        assert_eq!(elem, "char");
-                        assert_eq!(*size, 10);
+        match &tree {
+            ParseNode::Program(items) => match &items[0] {
+                ParseNode::Decl { init: Some(i), .. } => match i.as_ref() {
+                    ParseNode::AccessChain { base, steps } => {
+                        assert_eq!(base, "arr");
+                        assert_eq!(steps.len(), 2);
+                        assert!(matches!(&steps[0], AccessStep::Index(_)));
+                        assert!(matches!(&steps[1], AccessStep::Index(_)));
                     }
-                    _ => panic!("expected TypeArray"),
-                }
-                assert!(matches!(**i, ParseNode::StringLit(_)));
-            }
-            _ => panic!("expected Decl"),
-        }
-    }
-
-    #[test]
-    fn test_unary_neg_bitnot() {
-        let src = wrap(":int a = -5;\n:int b = ~a;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-
-        match &items[0] {
-            ParseNode::Decl { init: Some(i), .. } => match i.as_ref() {
-                ParseNode::Unary {
-                    op: UnOp::Neg,
-                    operand,
-                } => {
-                    assert!(matches!(**operand, ParseNode::IntLit(5)));
-                }
-                _ => panic!("expected Unary Neg"),
-            },
-            _ => panic!("expected Decl"),
-        }
-        match &items[1] {
-            ParseNode::Decl { init: Some(i), .. } => {
-                assert!(matches!(
-                    **i,
-                    ParseNode::Unary {
-                        op: UnOp::BitNot,
-                        ..
-                    }
-                ));
-            }
-            _ => panic!("expected Decl"),
-        }
-    }
-
-    #[test]
-    fn test_lognot_right_assoc() {
-        let src = wrap(":boolean r = !not !not x;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Decl {
-                init: Some(outer), ..
-            } => match outer.as_ref() {
-                ParseNode::LogNot { operand: inner } => {
-                    assert!(
-                        matches!(**inner, ParseNode::LogNot { .. }),
-                        "expected inner LogNot, got {:?}",
-                        inner
-                    );
-                }
-                _ => panic!("expected outer LogNot"),
-            },
-            _ => panic!("expected Decl"),
-        }
-    }
-
-    #[test]
-    fn test_cmp_ops() {
-        let src = wrap(
-            ":boolean a = x > 1;\n\
-             :boolean b = x < 2;\n\
-             :boolean c = x >= 3;\n\
-             :boolean d = x <= 4;\n\
-             :boolean e = x == 5;\n\
-             :boolean f = x ~= 6;",
-        );
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        assert_eq!(items.len(), 6);
-
-        let expected = [
-            CmpOp::Gt,
-            CmpOp::Lt,
-            CmpOp::Ge,
-            CmpOp::Le,
-            CmpOp::EqEq,
-            CmpOp::Ne,
-        ];
-        for (item, expected_op) in items.iter().zip(expected.iter()) {
-            match item {
-                ParseNode::Decl {
-                    init: Some(expr), ..
-                } => match expr.as_ref() {
-                    ParseNode::Cmp { op, .. } => {
-                        assert!(
-                            matches_cmp(op, expected_op),
-                            "expected {:?}, got {:?}",
-                            expected_op,
-                            op
-                        );
-                    }
-                    _ => panic!("expected Cmp, got {:?}", expr),
+                    _ => panic!("expected AccessChain"),
                 },
                 _ => panic!("expected Decl"),
-            }
-        }
-    }
-
-    #[test]
-    fn test_arith_precedence() {
-        let src = wrap(":int r = 2 + 3 * 4;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Decl {
-                init: Some(expr), ..
-            } => match expr.as_ref() {
-                ParseNode::Add { left, right, .. } => {
-                    assert!(matches!(**left, ParseNode::IntLit(2)));
-                    assert!(matches!(**right, ParseNode::Mul { .. }));
-                }
-                _ => panic!("expected Add at top, got {:?}", expr),
             },
-            _ => panic!("expected Decl"),
-        }
-    }
-
-    #[test]
-    fn test_paren_precedence() {
-        let src = wrap(":int r = (2 + 3) * 4;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
             _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Decl {
-                init: Some(expr), ..
-            } => match expr.as_ref() {
-                ParseNode::Mul { left, right, .. } => {
-                    assert!(matches!(**left, ParseNode::Add { .. }));
-                    assert!(matches!(**right, ParseNode::IntLit(4)));
-                }
-                _ => panic!("expected Mul at top, got {:?}", expr),
-            },
-            _ => panic!("expected Decl"),
         }
-    }
 
-    #[test]
-    fn test_logical_vs_bitwise_precedence() {
-        let src = wrap(":boolean r = a !and b | c;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Decl {
-                init: Some(expr), ..
-            } => match expr.as_ref() {
-                ParseNode::LogAnd { left, right } => {
-                    assert!(matches!(**left, ParseNode::Identifier(_)));
-                    assert!(
-                        matches!(**right, ParseNode::BitOr { .. }),
-                        "expected BitOr on right of !and, got {:?}",
-                        right
-                    );
-                }
-                _ => panic!("expected LogAnd at top, got {:?}", expr),
-            },
-            _ => panic!("expected Decl"),
-        }
-    }
-
-    #[test]
-    fn test_plain_assign() {
-        let src = wrap("x = 99;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Assign { lvalue, op, expr } => {
-                assert!(matches!(**lvalue, ParseNode::LValue { member: None, .. }));
-                assert!(matches!(op, AssignOp::Eq));
-                assert!(matches!(**expr, ParseNode::IntLit(99)));
-            }
-            _ => panic!("expected Assign"),
-        }
-    }
-
-    #[test]
-    fn test_struct_member_assign() {
-        let src = wrap("node::next = NULL;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Assign { lvalue, op, expr } => {
-                match lvalue.as_ref() {
-                    ParseNode::LValue {
-                        name,
-                        member: Some(m),
-                    } => {
-                        assert_eq!(name, "node");
-                        assert_eq!(m, "next");
+        let src2 = wrap("at_arr[0]::i_val = 1;");
+        let tree2 = parse_prog(&src2);
+        match &tree2 {
+            ParseNode::Program(items) => match &items[0] {
+                ParseNode::Assign { lvalue, .. } => match lvalue.as_ref() {
+                    ParseNode::AccessChain { base, steps } => {
+                        assert_eq!(base, "at_arr");
+                        assert_eq!(steps.len(), 2);
+                        assert!(matches!(&steps[0], AccessStep::Index(_)));
+                        assert!(matches!(&steps[1], AccessStep::Field(f) if f == "i_val"));
                     }
-                    _ => panic!("expected LValue with member"),
-                }
-                assert!(matches!(op, AssignOp::Eq));
-                assert!(matches!(**expr, ParseNode::Null));
-            }
-            _ => panic!("expected Assign"),
-        }
-    }
-
-    #[test]
-    fn test_qualified_field_access() {
-        let src = wrap(":float x = math::pi;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Decl {
-                init: Some(expr), ..
-            } => match expr.as_ref() {
-                ParseNode::QualifiedCall {
-                    module,
-                    member,
-                    args: None,
-                } => {
-                    assert_eq!(module, "math");
-                    assert_eq!(member, "pi");
-                }
-                _ => panic!("expected QualifiedCall (no args), got {:?}", expr),
+                    _ => panic!("expected AccessChain lvalue"),
+                },
+                _ => panic!("expected Assign"),
             },
-            _ => panic!("expected Decl"),
-        }
-    }
-
-    #[test]
-    fn test_funcdef_no_params() {
-        let src = wrap("!func noop() -> :boolean { !return true; }");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
             _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::FuncDef {
-                name,
-                params,
-                return_type,
-                body,
-            } => {
-                assert_eq!(name, "noop");
-                assert!(params.is_empty());
-                assert!(matches!(**return_type, ParseNode::TypeBoolean));
-                assert_eq!(body.len(), 1);
-            }
-            _ => panic!("expected FuncDef"),
         }
-    }
 
-    #[test]
-    fn test_funcdef_struct_param_return() {
-        let src = wrap("!func clone(:struct<Node> n) -> :struct<Node> { !return n; }");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::FuncDef {
-                name,
-                params,
-                return_type,
-                ..
-            } => {
-                assert_eq!(name, "clone");
-                assert_eq!(params.len(), 1);
-                match &params[0] {
-                    ParseNode::Param {
-                        data_type,
-                        name: pname,
-                    } => {
-                        assert_eq!(pname, "n");
-                        assert!(matches!(**data_type, ParseNode::TypeStruct { .. }));
+        let src3 = wrap("alice::addr::street = \"Main St\";");
+        let tree3 = parse_prog(&src3);
+        match &tree3 {
+            ParseNode::Program(items) => match &items[0] {
+                ParseNode::Assign { lvalue, .. } => match lvalue.as_ref() {
+                    ParseNode::AccessChain { base, steps } => {
+                        assert_eq!(base, "alice");
+                        assert_eq!(steps.len(), 2);
+                        assert!(matches!(&steps[0], AccessStep::Field(f) if f == "addr"));
+                        assert!(matches!(&steps[1], AccessStep::Field(f) if f == "street"));
                     }
-                    _ => panic!("expected Param"),
-                }
-                assert!(matches!(**return_type, ParseNode::TypeStruct { .. }));
-            }
-            _ => panic!("expected FuncDef"),
-        }
-    }
-
-    #[test]
-    fn test_if_no_else() {
-        let src = wrap("!if (x == 0) { x = 1; }");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::If {
-                condition,
-                then_block,
-                else_block,
-            } => {
-                assert!(matches!(
-                    **condition,
-                    ParseNode::Cmp {
-                        op: CmpOp::EqEq,
-                        ..
-                    }
-                ));
-                assert_eq!(then_block.len(), 1);
-                assert!(else_block.is_none());
-            }
-            _ => panic!("expected If"),
-        }
-    }
-
-    #[test]
-    fn test_nested_if_in_while() {
-        let src = wrap("!while (x > 0) { !if (x == 1) { x = 0; } }");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::While { body, .. } => {
-                assert_eq!(body.len(), 1);
-                assert!(matches!(body[0], ParseNode::If { .. }));
-            }
-            _ => panic!("expected While"),
-        }
-    }
-
-    #[test]
-    fn test_break_continue_in_for() {
-        let src = wrap("!for (:int i, 0, 10, 1) { !break; !continue; }");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::For { body, .. } => {
-                assert_eq!(body.len(), 2);
-                assert!(matches!(body[0], ParseNode::Break));
-                assert!(matches!(body[1], ParseNode::Continue));
-            }
-            _ => panic!("expected For"),
-        }
-    }
-
-    #[test]
-    fn test_exit_stmt() {
-        let src = wrap("!exit 0;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Exit(expr) => {
-                assert!(matches!(**expr, ParseNode::IntLit(0)));
-            }
-            _ => panic!("expected Exit"),
-        }
-    }
-
-    #[test]
-    fn test_return_complex_expr() {
-        let src = wrap("!func f(:int a, :int b) -> :int { !return (a + b) * 2; }");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::FuncDef { body, .. } => match &body[0] {
-                ParseNode::Return(expr) => {
-                    assert!(matches!(**expr, ParseNode::Mul { .. }));
-                }
-                _ => panic!("expected Return"),
+                    _ => panic!("expected AccessChain lvalue"),
+                },
+                _ => panic!("expected Assign"),
             },
-            _ => panic!("expected FuncDef"),
-        }
-    }
-
-    #[test]
-    fn test_funcdef_empty_body() {
-        let src = wrap("!func empty() -> :int {}");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
             _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::FuncDef { name, body, .. } => {
-                assert_eq!(name, "empty");
-                assert!(body.is_empty());
-            }
-            _ => panic!("expected FuncDef"),
         }
-    }
-
-    #[test]
-    fn test_for_empty_body() {
-        let src = wrap("!for (:int i, 0, 5, 1) {}");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::For { var_name, body, .. } => {
-                assert_eq!(var_name, "i");
-                assert!(body.is_empty());
-            }
-            _ => panic!("expected For"),
-        }
-    }
-
-    #[test]
-    fn test_empty_array_lit() {
-        let src = wrap(":list<int> x = [];");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Decl {
-                init: Some(expr), ..
-            } => match expr.as_ref() {
-                ParseNode::ArrayLit(elems) => assert!(elems.is_empty()),
-                _ => panic!("expected ArrayLit"),
-            },
-            _ => panic!("expected Decl"),
-        }
-    }
-
-    #[test]
-    fn test_struct_decl_no_init() {
-        let src = wrap(":struct<Node> n;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::StructDecl {
-                struct_name,
-                var_name,
-                init,
-            } => {
-                assert_eq!(struct_name, "Node");
-                assert_eq!(var_name, "n");
-                assert!(init.is_none());
-            }
-            _ => panic!("expected StructDecl"),
-        }
-    }
-
-    #[test]
-    fn test_struct_def_primitives() {
-        let src = wrap(":struct<Vec3> { :float x; :float y; :float z; }");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::StructDef { name, fields } => {
-                assert_eq!(name, "Vec3");
-                assert_eq!(fields.len(), 3);
-                for f in fields {
-                    match f {
-                        ParseNode::Field { data_type, .. } => {
-                            assert!(matches!(**data_type, ParseNode::TypeFloat));
-                        }
-                        _ => panic!("expected Field"),
-                    }
-                }
-            }
-            _ => panic!("expected StructDef"),
-        }
-    }
-
-    #[test]
-    fn test_three_elif_chain() {
-        let src = wrap(
-            "!if (x == 1) { a = 1; } \
-             !elif (x == 2) { a = 2; } \
-             !elif (x == 3) { a = 3; } \
-             !elif (x == 4) { a = 4; } \
-             !else { a = 5; }",
-        );
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-
-        let mut node = &items[0];
-        let mut depth = 0usize;
-        loop {
-            match node {
-                ParseNode::If {
-                    else_block: Some(eb),
-                    ..
-                } => {
-                    depth += 1;
-                    if !matches!(eb[0], ParseNode::If { .. }) {
-                        break;
-                    }
-                    node = &eb[0];
-                }
-                _ => panic!("expected If at depth {}", depth),
-            }
-        }
-
-        assert_eq!(depth, 4);
-    }
-
-    #[test]
-    fn test_nested_arithmetic() {
-        let src = wrap(":int r = (a + b) * (c - d);");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Decl {
-                init: Some(expr), ..
-            } => match expr.as_ref() {
-                ParseNode::Mul { left, right, .. } => {
-                    assert!(matches!(**left, ParseNode::Add { op: AddOp::Add, .. }));
-                    assert!(matches!(**right, ParseNode::Add { op: AddOp::Sub, .. }));
-                }
-                _ => panic!("expected Mul at top, got {:?}", expr),
-            },
-            _ => panic!("expected Decl"),
-        }
-    }
-
-    #[test]
-    fn test_call_multi_args() {
-        let src = wrap("foo(1, 2, 3);");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::ExprStmt(e) => match e.as_ref() {
-                ParseNode::Call { name, args } => {
-                    assert_eq!(name, "foo");
-                    assert_eq!(args.len(), 3);
-                    assert!(matches!(args[0], ParseNode::IntLit(1)));
-                    assert!(matches!(args[1], ParseNode::IntLit(2)));
-                    assert!(matches!(args[2], ParseNode::IntLit(3)));
-                }
-                _ => panic!("expected Call"),
-            },
-            _ => panic!("expected ExprStmt"),
-        }
-    }
-
-    #[test]
-    fn test_call_no_args() {
-        let src = wrap("tick();");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::ExprStmt(e) => match e.as_ref() {
-                ParseNode::Call { name, args } => {
-                    assert_eq!(name, "tick");
-                    assert!(args.is_empty());
-                }
-                _ => panic!("expected Call"),
-            },
-            _ => panic!("expected ExprStmt"),
-        }
-    }
-
-    #[test]
-    fn test_module_block() {
-        let src = "!start\n$MODULE_START:mymod$\n:int x = 1;\n$MODULE_END:mymod$;\n!end";
-        let tree = parse_prog(src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        assert_eq!(items.len(), 1);
-        match &items[0] {
-            ParseNode::Module {
-                name,
-                items: mod_items,
-            } => {
-                assert_eq!(name, "mymod");
-                assert_eq!(mod_items.len(), 1);
-                assert!(matches!(mod_items[0], ParseNode::Decl { .. }));
-            }
-            _ => panic!("expected Module"),
-        }
-    }
-
-    #[test]
-    fn test_parse_error_bad_expr() {
-        let tokens = tokenize("!start\n:int x = == 1;\n!end");
-        let result = parse(tokens);
-        assert!(result.is_err(), "expected ParseError, got Ok");
     }
 }

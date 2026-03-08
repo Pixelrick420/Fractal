@@ -34,6 +34,7 @@ pub enum TokenType {
     TypeArray,
     TypeList,
     TypeStruct,
+    TypeVoid,
 
     SIntLit(i64),
     FloatLit(f64),
@@ -224,6 +225,7 @@ fn keyword_map(s: &str) -> TokenType {
         "and" => TokenType::And,
         "or" => TokenType::Or,
         "not" => TokenType::Not,
+        "null" => TokenType::Null,
         _ => TokenType::NoMatch,
     }
 }
@@ -237,6 +239,7 @@ fn type_map(s: &str) -> TokenType {
         "array" => TokenType::TypeArray,
         "list" => TokenType::TypeList,
         "struct" => TokenType::TypeStruct,
+        "void" => TokenType::TypeVoid,
         _ => TokenType::NoMatch,
     }
 }

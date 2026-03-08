@@ -1,10 +1,8 @@
 #![allow(unused)]
 #![allow(dead_code)]
 
-use crate::compiler::parser::{AddOp, AssignOp, CmpOp, MulOp, ParseNode, UnOp};
+use crate::compiler::parser::{AccessStep, AddOp, AssignOp, CmpOp, MulOp, ParseNode, UnOp};
 use std::collections::HashMap;
-
-// ─── Semantic type ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SemType {
@@ -12,12 +10,11 @@ pub enum SemType {
     Float,
     Char,
     Boolean,
-    Array { elem: String, size: i64 },
-    List { elem: String },
+    Array { elem: Box<SemType>, size: i64 },
+    List { elem: Box<SemType> },
     Struct { name: String },
-    Null,
     Void,
-    Unknown, // unresolved / error-recovery sentinel
+    Unknown,
 }
 
 impl std::fmt::Display for SemType {
@@ -30,30 +27,30 @@ impl std::fmt::Display for SemType {
             SemType::Array { elem, size } => write!(f, "array<{},{}>", elem, size),
             SemType::List { elem } => write!(f, "list<{}>", elem),
             SemType::Struct { name } => write!(f, "struct<{}>", name),
-            SemType::Null => write!(f, "null"),
             SemType::Void => write!(f, "void"),
             SemType::Unknown => write!(f, "unknown"),
         }
     }
 }
 
-fn sem_type_from_parse_node(node: &ParseNode) -> SemType {
+pub fn sem_type_from_parse_node(node: &ParseNode) -> SemType {
     match node {
         ParseNode::TypeInt => SemType::Int,
         ParseNode::TypeFloat => SemType::Float,
         ParseNode::TypeChar => SemType::Char,
         ParseNode::TypeBoolean => SemType::Boolean,
+        ParseNode::TypeVoid => SemType::Void,
         ParseNode::TypeArray { elem, size } => SemType::Array {
-            elem: elem.clone(),
+            elem: Box::new(sem_type_from_parse_node(elem.as_ref())),
             size: *size,
         },
-        ParseNode::TypeList { elem } => SemType::List { elem: elem.clone() },
+        ParseNode::TypeList { elem } => SemType::List {
+            elem: Box::new(sem_type_from_parse_node(elem.as_ref())),
+        },
         ParseNode::TypeStruct { name } => SemType::Struct { name: name.clone() },
         _ => SemType::Unknown,
     }
 }
-
-// ─── Runtime value (for simple constant tracking) ────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -62,18 +59,14 @@ pub enum Value {
     Char(char),
     Boolean(bool),
     Null,
-    Composite, // structs, arrays, lists – tracked by type only
+    Composite,
 }
-
-// ─── Symbol ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct Symbol {
     pub sem_type: SemType,
     pub value: Option<Value>,
 }
-
-// ─── Scope stack ─────────────────────────────────────────────────────────────
 
 pub struct ScopeStack {
     scopes: Vec<HashMap<String, Symbol>>,
@@ -120,7 +113,6 @@ impl ScopeStack {
         }
     }
 
-    /// Pretty-print every symbol visible from the current scope.
     pub fn dump(&self) {
         println!("\n\x1b[1;34m=== Symbol Table ===\x1b[0m");
         for (depth, scope) in self.scopes.iter().enumerate() {
@@ -153,31 +145,103 @@ impl ScopeStack {
     }
 }
 
-// ─── Function table ──────────────────────────────────────────────────────────
-
 #[derive(Debug, Clone)]
 pub struct FuncSig {
     pub param_types: Vec<SemType>,
     pub return_type: SemType,
 }
 
-// ─── Semanter ────────────────────────────────────────────────────────────────
+#[derive(Debug, Clone)]
+pub struct StructField {
+    pub name: String,
+    pub sem_type: SemType,
+}
 
 pub struct Semanter {
     pub scope: ScopeStack,
     pub funcs: HashMap<String, FuncSig>,
+    pub structs: HashMap<String, Vec<StructField>>,
     pub errors: Vec<String>,
     current_return_type: Option<SemType>,
 }
 
 impl Semanter {
     pub fn new() -> Self {
-        Semanter {
+        let mut s = Semanter {
             scope: ScopeStack::new(),
             funcs: HashMap::new(),
+            structs: HashMap::new(),
             errors: Vec::new(),
             current_return_type: None,
-        }
+        };
+        s.register_builtins();
+        s
+    }
+
+    fn register_builtins(&mut self) {
+        self.funcs.insert(
+            "print".to_string(),
+            FuncSig {
+                param_types: vec![],
+                return_type: SemType::Void,
+            },
+        );
+
+        self.funcs.insert(
+            "append".to_string(),
+            FuncSig {
+                param_types: vec![SemType::Unknown, SemType::Unknown],
+                return_type: SemType::Void,
+            },
+        );
+
+        self.funcs.insert(
+            "pop".to_string(),
+            FuncSig {
+                param_types: vec![SemType::Unknown],
+                return_type: SemType::Unknown,
+            },
+        );
+
+        self.funcs.insert(
+            "insert".to_string(),
+            FuncSig {
+                param_types: vec![SemType::Unknown, SemType::Unknown, SemType::Int],
+                return_type: SemType::Void,
+            },
+        );
+
+        self.funcs.insert(
+            "find".to_string(),
+            FuncSig {
+                param_types: vec![SemType::Unknown, SemType::Unknown],
+                return_type: SemType::Int,
+            },
+        );
+
+        self.funcs.insert(
+            "delete".to_string(),
+            FuncSig {
+                param_types: vec![SemType::Unknown, SemType::Int],
+                return_type: SemType::Void,
+            },
+        );
+
+        self.funcs.insert(
+            "starts".to_string(),
+            FuncSig {
+                param_types: vec![SemType::Unknown, SemType::Unknown],
+                return_type: SemType::Boolean,
+            },
+        );
+
+        self.funcs.insert(
+            "ends".to_string(),
+            FuncSig {
+                param_types: vec![SemType::Unknown, SemType::Unknown],
+                return_type: SemType::Boolean,
+            },
+        );
     }
 
     fn err(&mut self, msg: &str) {
@@ -185,9 +249,8 @@ impl Semanter {
         eprintln!("\x1b[1;31mSemantic error:\x1b[0m {}", msg);
     }
 
-    // ── Entry point ──────────────────────────────────────────────────────────
-
     pub fn check(&mut self, root: &ParseNode) {
+        self.hoist(root);
         self.check_node(root);
         self.scope.dump();
         if self.errors.is_empty() {
@@ -200,7 +263,60 @@ impl Semanter {
         }
     }
 
-    // ── Node dispatch ────────────────────────────────────────────────────────
+    fn hoist(&mut self, node: &ParseNode) {
+        match node {
+            ParseNode::Program(items) | ParseNode::Module { items, .. } => {
+                for item in items {
+                    self.hoist(item);
+                }
+            }
+            ParseNode::StructDef { name, fields } => {
+                let sem_fields: Vec<StructField> = fields
+                    .iter()
+                    .filter_map(|f| {
+                        if let ParseNode::Field {
+                            data_type,
+                            name: fname,
+                        } = f
+                        {
+                            Some(StructField {
+                                name: fname.clone(),
+                                sem_type: sem_type_from_parse_node(data_type.as_ref()),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                self.structs.insert(name.clone(), sem_fields);
+            }
+            ParseNode::FuncDef {
+                name,
+                params,
+                return_type,
+                ..
+            } => {
+                let ret = sem_type_from_parse_node(return_type.as_ref());
+                let param_types: Vec<SemType> = params
+                    .iter()
+                    .map(|p| match p {
+                        ParseNode::Param { data_type, .. } => {
+                            sem_type_from_parse_node(data_type.as_ref())
+                        }
+                        _ => SemType::Unknown,
+                    })
+                    .collect();
+                self.funcs.insert(
+                    name.clone(),
+                    FuncSig {
+                        param_types,
+                        return_type: ret,
+                    },
+                );
+            }
+            _ => {}
+        }
+    }
 
     fn check_node(&mut self, node: &ParseNode) {
         match node {
@@ -210,7 +326,7 @@ impl Semanter {
                 }
             }
 
-            ParseNode::Module { name: _, items } => {
+            ParseNode::Module { items, .. } => {
                 self.scope.push();
                 for item in items {
                     self.check_node(item);
@@ -224,23 +340,7 @@ impl Semanter {
                 return_type,
                 body,
             } => {
-                let ret = sem_type_from_parse_node(return_type);
-                let param_types: Vec<SemType> = params
-                    .iter()
-                    .map(|p| match p {
-                        ParseNode::Param { data_type, .. } => sem_type_from_parse_node(data_type),
-                        _ => SemType::Unknown,
-                    })
-                    .collect();
-
-                self.funcs.insert(
-                    name.clone(),
-                    FuncSig {
-                        param_types,
-                        return_type: ret.clone(),
-                    },
-                );
-
+                let ret = sem_type_from_parse_node(return_type.as_ref());
                 self.scope.push();
                 let prev_ret = self.current_return_type.replace(ret);
 
@@ -250,17 +350,15 @@ impl Semanter {
                         name: pname,
                     } = param
                     {
-                        let ptype = sem_type_from_parse_node(data_type);
                         self.scope.declare(
                             pname,
                             Symbol {
-                                sem_type: ptype,
+                                sem_type: sem_type_from_parse_node(data_type.as_ref()),
                                 value: None,
                             },
                         );
                     }
                 }
-
                 for stmt in body {
                     self.check_node(stmt);
                 }
@@ -269,14 +367,16 @@ impl Semanter {
                 self.scope.pop();
             }
 
-            ParseNode::StructDef { name: _, fields } => {
-                for f in fields {
-                    self.check_node(f);
-                }
-            }
+            ParseNode::StructDef { .. } => {}
 
-            ParseNode::StructDecl { struct_name, var_name, init } => {
-                let decl_type = SemType::Struct { name: struct_name.clone() };
+            ParseNode::StructDecl {
+                struct_name,
+                var_name,
+                init,
+            } => {
+                let decl_type = SemType::Struct {
+                    name: struct_name.clone(),
+                };
                 if let Some(init_expr) = init {
                     let init_type = self.infer_type_with_hint(init_expr, &decl_type);
                     if !self.types_compatible(&decl_type, &init_type) {
@@ -286,22 +386,28 @@ impl Semanter {
                         ));
                     }
                 }
-                self.scope.declare(var_name, Symbol {
-                    sem_type: decl_type,
-                    value: Some(Value::Composite),
-                });
+                self.scope.declare(
+                    var_name,
+                    Symbol {
+                        sem_type: decl_type,
+                        value: Some(Value::Composite),
+                    },
+                );
             }
 
-            ParseNode::Decl { data_type, name, init } => {
-                let decl_type = sem_type_from_parse_node(data_type);
+            ParseNode::Decl {
+                data_type,
+                name,
+                init,
+            } => {
+                let decl_type = sem_type_from_parse_node(data_type.as_ref());
                 let init_val: Option<Value>;
-            
+
                 if let Some(init_expr) = init {
                     let init_type = self.infer_type_with_hint(init_expr, &decl_type);
                     if !self.types_compatible(&decl_type, &init_type) {
                         self.err(&format!(
-                            "Type mismatch in declaration of '{}': declared as '{}', \
-                             initialised with '{}'",
+                            "Type mismatch in declaration of '{}': declared as '{}', initialised with '{}'",
                             name, decl_type, init_type
                         ));
                     }
@@ -309,20 +415,22 @@ impl Semanter {
                 } else {
                     init_val = None;
                 }
-            
+
                 self.scope.declare(
                     name,
-                    Symbol { sem_type: decl_type, value: init_val },
+                    Symbol {
+                        sem_type: decl_type,
+                        value: init_val,
+                    },
                 );
             }
 
             ParseNode::Assign { lvalue, op, expr } => {
-                let lval_type = self.infer_lvalue_type(lvalue);
+                let lval_type = self.infer_chain_type(lvalue);
                 let rval_type = self.infer_type(expr);
-            
+
                 match op {
                     AssignOp::Eq => {
-                        // strict — no implicit widening
                         if !self.types_compatible(&lval_type, &rval_type) {
                             self.err(&format!(
                                 "Type mismatch in assignment: cannot assign '{}' to '{}'",
@@ -330,8 +438,11 @@ impl Semanter {
                             ));
                         }
                     }
-                    AssignOp::PlusEq | AssignOp::MinusEq | AssignOp::StarEq |
-                    AssignOp::SlashEq | AssignOp::PercentEq => {
+                    AssignOp::PlusEq
+                    | AssignOp::MinusEq
+                    | AssignOp::StarEq
+                    | AssignOp::SlashEq
+                    | AssignOp::PercentEq => {
                         if !self.is_numeric(&lval_type) {
                             self.err(&format!(
                                 "Operator '{:?}' requires numeric left-hand side, got '{}'",
@@ -340,8 +451,7 @@ impl Semanter {
                         }
                         if !self.types_compatible(&lval_type, &rval_type) {
                             self.err(&format!(
-                                "Type mismatch in compound assignment: cannot apply '{:?}' \
-                                 between '{}' and '{}'",
+                                "Type mismatch in compound assignment: cannot apply '{:?}' between '{}' and '{}'",
                                 op, lval_type, rval_type
                             ));
                         }
@@ -355,66 +465,60 @@ impl Semanter {
                         }
                         if rval_type != SemType::Int {
                             self.err(&format!(
-                                "Bitwise assignment '{:?}' requires int right-hand side, got '{}'",
+                                "Bitwise assignment '{:?}' requires int rhs, got '{}'",
                                 op, rval_type
                             ));
                         }
                     }
                 }
-            
-                if let ParseNode::LValue { name, member: None } = lvalue.as_ref() {
-                    let new_val = match op {
-                        AssignOp::Eq => self.const_eval(expr),
-                
-                        AssignOp::PlusEq | AssignOp::MinusEq |
-                        AssignOp::StarEq | AssignOp::SlashEq | AssignOp::PercentEq => {
-                            // look up current value, apply the operation
-                            let cur = self.scope.lookup(name).and_then(|s| s.value.clone());
-                            let rhs = self.const_eval(expr);
-                            match (cur, rhs) {
-                                (Some(Value::Int(a)), Some(Value::Int(b))) => match op {
-                                    AssignOp::PlusEq  => Some(Value::Int(a + b)),
-                                    AssignOp::MinusEq => Some(Value::Int(a - b)),
-                                    AssignOp::StarEq  => Some(Value::Int(a * b)),
-                                    AssignOp::SlashEq if b != 0 => Some(Value::Int(a / b)),
-                                    AssignOp::PercentEq if b != 0 => Some(Value::Int(a % b)),
+
+                if let ParseNode::AccessChain { base, steps } = lvalue.as_ref() {
+                    if steps.is_empty() {
+                        let new_val = match op {
+                            AssignOp::Eq => self.const_eval(expr),
+                            AssignOp::PlusEq
+                            | AssignOp::MinusEq
+                            | AssignOp::StarEq
+                            | AssignOp::SlashEq
+                            | AssignOp::PercentEq => {
+                                let cur = self.scope.lookup(base).and_then(|s| s.value.clone());
+                                let rhs = self.const_eval(expr);
+                                match (cur, rhs) {
+                                    (Some(Value::Int(a)), Some(Value::Int(b))) => match op {
+                                        AssignOp::PlusEq => Some(Value::Int(a + b)),
+                                        AssignOp::MinusEq => Some(Value::Int(a - b)),
+                                        AssignOp::StarEq => Some(Value::Int(a * b)),
+                                        AssignOp::SlashEq if b != 0 => Some(Value::Int(a / b)),
+                                        AssignOp::PercentEq if b != 0 => Some(Value::Int(a % b)),
+                                        _ => None,
+                                    },
+                                    (Some(Value::Float(a)), Some(Value::Float(b))) => match op {
+                                        AssignOp::PlusEq => Some(Value::Float(a + b)),
+                                        AssignOp::MinusEq => Some(Value::Float(a - b)),
+                                        AssignOp::StarEq => Some(Value::Float(a * b)),
+                                        AssignOp::SlashEq => Some(Value::Float(a / b)),
+                                        _ => None,
+                                    },
                                     _ => None,
-                                },
-                                (Some(Value::Float(a)), Some(Value::Float(b))) => match op {
-                                    AssignOp::PlusEq  => Some(Value::Float(a + b)),
-                                    AssignOp::MinusEq => Some(Value::Float(a - b)),
-                                    AssignOp::StarEq  => Some(Value::Float(a * b)),
-                                    AssignOp::SlashEq => Some(Value::Float(a / b)),
-                                    _ => None,
-                                },
-                                (Some(Value::Int(a)), Some(Value::Float(b))) => match op {
-                                    AssignOp::PlusEq  => Some(Value::Float(a as f64 + b)),
-                                    AssignOp::MinusEq => Some(Value::Float(a as f64 - b)),
-                                    AssignOp::StarEq  => Some(Value::Float(a as f64 * b)),
-                                    AssignOp::SlashEq => Some(Value::Float(a as f64 / b)),
-                                    _ => None,
-                                },
-                                _ => None,
+                                }
                             }
-                        }
-                
-                        AssignOp::AmpEq | AssignOp::PipeEq | AssignOp::CaretEq => {
-                            let cur = self.scope.lookup(name).and_then(|s| s.value.clone());
-                            let rhs = self.const_eval(expr);
-                            match (cur, rhs) {
-                                (Some(Value::Int(a)), Some(Value::Int(b))) => match op {
-                                    AssignOp::AmpEq  => Some(Value::Int(a & b)),
-                                    AssignOp::PipeEq => Some(Value::Int(a | b)),
-                                    AssignOp::CaretEq => Some(Value::Int(a ^ b)),
+                            AssignOp::AmpEq | AssignOp::PipeEq | AssignOp::CaretEq => {
+                                let cur = self.scope.lookup(base).and_then(|s| s.value.clone());
+                                let rhs = self.const_eval(expr);
+                                match (cur, rhs) {
+                                    (Some(Value::Int(a)), Some(Value::Int(b))) => match op {
+                                        AssignOp::AmpEq => Some(Value::Int(a & b)),
+                                        AssignOp::PipeEq => Some(Value::Int(a | b)),
+                                        AssignOp::CaretEq => Some(Value::Int(a ^ b)),
+                                        _ => None,
+                                    },
                                     _ => None,
-                                },
-                                _ => None,
+                                }
                             }
+                        };
+                        if let Some(val) = new_val {
+                            self.scope.update_value(base, val);
                         }
-                    };
-                
-                    if let Some(val) = new_val {
-                        self.scope.update_value(name, val);
                     }
                 }
             }
@@ -453,7 +557,7 @@ impl Semanter {
                 step,
                 body,
             } => {
-                let vtype = sem_type_from_parse_node(var_type);
+                let vtype = sem_type_from_parse_node(var_type.as_ref());
                 self.scope.push();
                 self.scope.declare(
                     var_name,
@@ -466,8 +570,7 @@ impl Semanter {
                     let t = self.infer_type(expr);
                     if !self.types_compatible(&vtype, &t) {
                         self.err(&format!(
-                            "For loop range expression type mismatch: loop var is '{}', \
-                             expression is '{}'",
+                            "For loop range expression type mismatch: loop var is '{}', expression is '{}'",
                             vtype, t
                         ));
                     }
@@ -522,29 +625,19 @@ impl Semanter {
         }
     }
 
-    // ── Type inference ───────────────────────────────────────────────────────
-
     pub fn infer_type(&mut self, node: &ParseNode) -> SemType {
         match node {
             ParseNode::IntLit(_) => SemType::Int,
             ParseNode::FloatLit(_) => SemType::Float,
             ParseNode::CharLit(_) => SemType::Char,
+            ParseNode::BoolLit(_) => SemType::Boolean,
+            ParseNode::Null => SemType::Void,
             ParseNode::StringLit(s) => SemType::Array {
-                elem: "char".to_string(),
+                elem: Box::new(SemType::Char),
                 size: s.chars().count() as i64,
             },
-            ParseNode::BoolLit(_) => SemType::Boolean,
-            ParseNode::Null => SemType::Null,
 
-            ParseNode::Identifier(name) => match self.scope.lookup(name) {
-                Some(sym) => sym.sem_type.clone(),
-                None => {
-                    self.err(&format!("Undeclared identifier '{}'", name));
-                    SemType::Unknown
-                }
-            },
-
-            ParseNode::Cast { target_type, .. } => sem_type_from_parse_node(target_type),
+            ParseNode::Cast { target_type, .. } => sem_type_from_parse_node(target_type.as_ref()),
 
             ParseNode::Unary { op, operand } => {
                 let t = self.infer_type(operand);
@@ -559,7 +652,7 @@ impl Semanter {
                         t
                     }
                     UnOp::BitNot => {
-                        if t != SemType::Int {
+                        if t != SemType::Int && t != SemType::Unknown {
                             self.err(&format!("Bitwise NOT requires int, got '{}'", t));
                         }
                         SemType::Int
@@ -577,7 +670,11 @@ impl Semanter {
                 if !self.is_numeric(&lt) {
                     self.err(&format!("Addition requires numeric operands, got '{}'", lt));
                 }
-                lt
+                if lt == SemType::Unknown {
+                    rt
+                } else {
+                    lt
+                }
             }
 
             ParseNode::Mul { left, right, op } => {
@@ -590,10 +687,14 @@ impl Semanter {
                     ));
                     return SemType::Unknown;
                 }
-                if matches!(op, MulOp::Mod) && lt != SemType::Int {
+                if matches!(op, MulOp::Mod) && lt != SemType::Int && lt != SemType::Unknown {
                     self.err("Modulo operator requires int operands");
                 }
-                lt
+                if lt == SemType::Unknown {
+                    rt
+                } else {
+                    lt
+                }
             }
 
             ParseNode::BitOr { left, right }
@@ -601,11 +702,11 @@ impl Semanter {
             | ParseNode::BitAnd { left, right } => {
                 let lt = self.infer_type(left);
                 let rt = self.infer_type(right);
-                if lt != SemType::Int || rt != SemType::Int {
-                    self.err(&format!(
-                        "Bitwise operations require int operands, got '{}' and '{}'",
-                        lt, rt
-                    ));
+                if lt != SemType::Int && lt != SemType::Unknown {
+                    self.err(&format!("Bitwise operation requires int, got '{}'", lt));
+                }
+                if rt != SemType::Int && rt != SemType::Unknown {
+                    self.err(&format!("Bitwise operation requires int, got '{}'", rt));
                 }
                 SemType::Int
             }
@@ -625,17 +726,11 @@ impl Semanter {
             ParseNode::LogOr { left, right } | ParseNode::LogAnd { left, right } => {
                 let lt = self.infer_type(left);
                 let rt = self.infer_type(right);
-                if lt != SemType::Boolean {
-                    self.err(&format!(
-                        "Logical operator left operand must be boolean, got '{}'",
-                        lt
-                    ));
+                if lt != SemType::Boolean && lt != SemType::Unknown {
+                    self.err(&format!("Logical operator requires boolean, got '{}'", lt));
                 }
-                if rt != SemType::Boolean {
-                    self.err(&format!(
-                        "Logical operator right operand must be boolean, got '{}'",
-                        rt
-                    ));
+                if rt != SemType::Boolean && rt != SemType::Unknown {
+                    self.err(&format!("Logical operator requires boolean, got '{}'", rt));
                 }
                 SemType::Boolean
             }
@@ -648,55 +743,10 @@ impl Semanter {
                 SemType::Boolean
             }
 
-            ParseNode::Call { name, args } => {
-                // type-check args against known signature
-                if let Some(sig) = self.funcs.get(name).cloned() {
-                    if args.len() != sig.param_types.len() {
-                        self.err(&format!(
-                            "Function '{}' expects {} argument(s), got {}",
-                            name,
-                            sig.param_types.len(),
-                            args.len()
-                        ));
-                    } else {
-                        let param_types = sig.param_types.clone();
-                        for (i, (arg, expected)) in args.iter().zip(param_types.iter()).enumerate()
-                        {
-                            let at = self.infer_type(arg);
-                            if !self.types_compatible(expected, &at) {
-                                self.err(&format!(
-                                    "Argument {} of '{}': expected '{}', got '{}'",
-                                    i + 1,
-                                    name,
-                                    expected,
-                                    at
-                                ));
-                            }
-                        }
-                    }
-                    sig.return_type.clone()
-                } else {
-                    // unknown built-in call – infer from first arg or return Unknown
-                    for arg in args {
-                        self.infer_type(arg);
-                    }
-                    SemType::Unknown
-                }
-            }
-
-            ParseNode::QualifiedCall { args, .. } => {
-                if let Some(args) = args {
-                    for arg in args {
-                        self.infer_type(arg);
-                    }
-                }
-                SemType::Unknown
-            }
-
             ParseNode::ArrayLit(elems) => {
                 if elems.is_empty() {
                     return SemType::Array {
-                        elem: "unknown".to_string(),
+                        elem: Box::new(SemType::Unknown),
                         size: 0,
                     };
                 }
@@ -710,9 +760,8 @@ impl Semanter {
                         ));
                     }
                 }
-                let elem_name = self.sem_type_to_elem_str(&first);
                 SemType::Array {
-                    elem: elem_name,
+                    elem: Box::new(first),
                     size: elems.len() as i64,
                 }
             }
@@ -721,59 +770,136 @@ impl Semanter {
                 name: "unknown".to_string(),
             },
 
-            ParseNode::LValue { name, member } => {
-                match self.scope.lookup(name) {
-                    Some(sym) => {
-                        let t = sym.sem_type.clone();
-                        if member.is_some() {
-                            // we can't resolve struct field types without a full
-                            // struct definition table, so return Unknown for now
+            ParseNode::AccessChain { .. } => self.infer_chain_type(node),
+
+            _ => SemType::Unknown,
+        }
+    }
+
+    fn infer_chain_type(&mut self, node: &ParseNode) -> SemType {
+        let (base, steps) = match node {
+            ParseNode::AccessChain { base, steps } => (base, steps),
+            _ => return SemType::Unknown,
+        };
+
+        let mut current_type = match self.scope.lookup(base) {
+            Some(sym) => sym.sem_type.clone(),
+            None => {
+                if steps.is_empty() {
+                    self.err(&format!("Undeclared identifier '{}'", base));
+                }
+                SemType::Unknown
+            }
+        };
+
+        for step in steps {
+            current_type = match step {
+                AccessStep::Field(field_name) => {
+                    self.resolve_field(&current_type, field_name, base)
+                }
+
+                AccessStep::Index(idx_expr) => {
+                    let idx_type = self.infer_type(idx_expr);
+                    if idx_type != SemType::Int && idx_type != SemType::Unknown {
+                        self.err(&format!("Index expression must be int, got '{}'", idx_type));
+                    }
+
+                    match &current_type {
+                        SemType::Array { elem, .. } => *elem.clone(),
+                        SemType::List { elem } => *elem.clone(),
+                        SemType::Unknown => SemType::Unknown,
+                        other => {
+                            self.err(&format!("Cannot index into type '{}'", other));
                             SemType::Unknown
-                        } else {
-                            t
                         }
                     }
-                    None => {
-                        self.err(&format!("Undeclared identifier '{}'", name));
-                        SemType::Unknown
+                }
+
+                AccessStep::Call(args) => {
+                    let ret = self.check_call(base, args);
+                    ret
+                }
+            };
+        }
+
+        current_type
+    }
+
+    fn resolve_field(&mut self, on_type: &SemType, field_name: &str, ctx: &str) -> SemType {
+        match on_type {
+            SemType::Struct { name } => {
+                let struct_name = name.clone();
+
+                if let Some(fields) = self.structs.get(&struct_name).cloned() {
+                    match fields.iter().find(|f| f.name == field_name) {
+                        Some(f) => f.sem_type.clone(),
+                        None => {
+                            self.err(&format!(
+                                "Struct '{}' has no field '{}'",
+                                struct_name, field_name
+                            ));
+                            SemType::Unknown
+                        }
+                    }
+                } else {
+                    SemType::Unknown
+                }
+            }
+            SemType::Unknown => SemType::Unknown,
+            other => {
+                self.err(&format!(
+                    "Cannot access field '{}' on non-struct type '{}' (from '{}')",
+                    field_name, other, ctx
+                ));
+                SemType::Unknown
+            }
+        }
+    }
+
+    fn check_call(&mut self, name: &str, args: &[ParseNode]) -> SemType {
+        let arg_types: Vec<SemType> = args.iter().map(|a| self.infer_type(a)).collect();
+
+        if let Some(sig) = self.funcs.get(name).cloned() {
+            if !sig.param_types.is_empty() && arg_types.len() != sig.param_types.len() {
+                self.err(&format!(
+                    "Function '{}' expects {} argument(s), got {}",
+                    name,
+                    sig.param_types.len(),
+                    arg_types.len()
+                ));
+            } else if !sig.param_types.is_empty() {
+                for (i, (at, expected)) in arg_types.iter().zip(sig.param_types.iter()).enumerate()
+                {
+                    if !self.types_compatible(expected, at) {
+                        self.err(&format!(
+                            "Argument {} of '{}': expected '{}', got '{}'",
+                            i + 1,
+                            name,
+                            expected,
+                            at
+                        ));
                     }
                 }
             }
 
-            _ => SemType::Unknown,
+            if name == "pop" {
+                if let Some(at) = arg_types.first() {
+                    if let SemType::List { elem } = at {
+                        return *elem.clone();
+                    }
+                }
+            }
+
+            sig.return_type.clone()
+        } else {
+            SemType::Unknown
         }
     }
 
     fn infer_lvalue_type(&mut self, node: &ParseNode) -> SemType {
-        match node {
-            ParseNode::LValue { name, member: None } => match self.scope.lookup(name) {
-                Some(sym) => sym.sem_type.clone(),
-                None => {
-                    self.err(&format!("Undeclared identifier '{}'", name));
-                    SemType::Unknown
-                }
-            },
-            ParseNode::LValue {
-                name,
-                member: Some(_),
-            } => {
-                // struct member – we can't resolve without full struct table
-                match self.scope.lookup(name) {
-                    Some(_) => SemType::Unknown,
-                    None => {
-                        self.err(&format!("Undeclared identifier '{}'", name));
-                        SemType::Unknown
-                    }
-                }
-            }
-            _ => SemType::Unknown,
-        }
+        self.infer_chain_type(node)
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
-
-    /// Two types are compatible if they are equal, or one side is Unknown
-    /// (to avoid cascading errors), or both are numeric (int/float widen).
     fn types_compatible(&self, a: &SemType, b: &SemType) -> bool {
         if a == b {
             return true;
@@ -781,7 +907,26 @@ impl Semanter {
         if matches!(a, SemType::Unknown) || matches!(b, SemType::Unknown) {
             return true;
         }
-        // Remove the int/float widening block entirely — strict matching only
+
+        if *a == SemType::Float && *b == SemType::Int {
+            return true;
+        }
+        if *a == SemType::Int && *b == SemType::Float {
+            return true;
+        }
+
+        if let (SemType::Array { elem: ea, .. }, SemType::Array { elem: eb, .. }) = (a, b) {
+            if **ea == SemType::Char && **eb == SemType::Char {
+                return true;
+            }
+        }
+
+        if matches!(b, SemType::Void) && matches!(a, SemType::Struct { .. }) {
+            return true;
+        }
+        if matches!(a, SemType::Void) && matches!(b, SemType::Struct { .. }) {
+            return true;
+        }
         false
     }
 
@@ -789,17 +934,61 @@ impl Semanter {
         matches!(t, SemType::Int | SemType::Float | SemType::Unknown)
     }
 
-    fn sem_type_to_elem_str(&self, t: &SemType) -> String {
-        match t {
-            SemType::Int => "int".to_string(),
-            SemType::Float => "float".to_string(),
-            SemType::Char => "char".to_string(),
-            SemType::Boolean => "boolean".to_string(),
-            _ => "unknown".to_string(),
+    fn infer_type_with_hint(&mut self, node: &ParseNode, hint: &SemType) -> SemType {
+        match (node, hint) {
+            (ParseNode::StructLit(_), SemType::Struct { .. }) => hint.clone(),
+
+            (ParseNode::StringLit(s), SemType::Array { elem, size }) => {
+                let len = s.chars().count() as i64;
+                if **elem == SemType::Char && len > *size {
+                    self.err(&format!(
+                        "String literal of length {} does not fit in array<char,{}>",
+                        len, size
+                    ));
+                }
+                hint.clone()
+            }
+
+            (ParseNode::ArrayLit(elems), SemType::List { elem: hint_elem }) => {
+                for e in elems {
+                    let t = self.infer_type(e);
+                    if !self.types_compatible(hint_elem, &t) {
+                        self.err(&format!(
+                            "List literal element type mismatch: expected '{}', got '{}'",
+                            hint_elem, t
+                        ));
+                    }
+                }
+                SemType::List {
+                    elem: hint_elem.clone(),
+                }
+            }
+
+            (
+                ParseNode::ArrayLit(elems),
+                SemType::Array {
+                    elem: hint_elem,
+                    size,
+                },
+            ) => {
+                for e in elems {
+                    let t = self.infer_type(e);
+                    if !self.types_compatible(hint_elem, &t) {
+                        self.err(&format!(
+                            "Array literal element type mismatch: expected '{}', got '{}'",
+                            hint_elem, t
+                        ));
+                    }
+                }
+                SemType::Array {
+                    elem: hint_elem.clone(),
+                    size: *size,
+                }
+            }
+
+            _ => self.infer_type(node),
         }
     }
-
-    // ── Constant evaluator (best-effort for simple literals / identifiers) ───
 
     fn const_eval(&self, node: &ParseNode) -> Option<Value> {
         match node {
@@ -808,15 +997,17 @@ impl Semanter {
             ParseNode::CharLit(c) => Some(Value::Char(*c)),
             ParseNode::BoolLit(b) => Some(Value::Boolean(*b)),
             ParseNode::Null => Some(Value::Null),
-            ParseNode::StringLit(_) => Some(Value::Composite),  // add this
-            ParseNode::ArrayLit(_) => Some(Value::Composite),   // add this
-            ParseNode::StructLit(_) => Some(Value::Composite),  // already there
-            ParseNode::Identifier(name) => {
-                self.scope.lookup(name).and_then(|s| s.value.clone())
+            ParseNode::StringLit(_) => Some(Value::Composite),
+            ParseNode::ArrayLit(_) => Some(Value::Composite),
+            ParseNode::StructLit(_) => Some(Value::Composite),
+
+            ParseNode::AccessChain { base, steps } if steps.is_empty() => {
+                self.scope.lookup(base).and_then(|s| s.value.clone())
             }
+
             ParseNode::Cast { target_type, expr } => {
                 let inner = self.const_eval(expr)?;
-                let target = sem_type_from_parse_node(target_type);
+                let target = sem_type_from_parse_node(target_type.as_ref());
                 match (target, inner) {
                     (SemType::Int, Value::Float(f)) => Some(Value::Int(f as i64)),
                     (SemType::Float, Value::Int(n)) => Some(Value::Float(n as f64)),
@@ -825,6 +1016,7 @@ impl Semanter {
                     _ => None,
                 }
             }
+
             ParseNode::Add { left, op, right } => {
                 let l = self.const_eval(left)?;
                 let r = self.const_eval(right)?;
@@ -840,6 +1032,7 @@ impl Semanter {
                     _ => None,
                 }
             }
+
             ParseNode::Mul { left, op, right } => {
                 let l = self.const_eval(left)?;
                 let r = self.const_eval(right)?;
@@ -858,67 +1051,11 @@ impl Semanter {
                     _ => None,
                 }
             }
+
             _ => None,
         }
     }
-    fn infer_type_with_hint(&mut self, node: &ParseNode, hint: &SemType) -> SemType {
-        match (node, hint) {
-            // String literal assigned to array<char, N> — use declared size
-            (ParseNode::StringLit(_), SemType::Array { size, .. }) => {
-                SemType::Array {
-                    elem: "char".to_string(),
-                    size: *size,
-                }
-            }
-            // Array literal assigned to list<T> — treat as list
-            (ParseNode::ArrayLit(elems), SemType::List { elem: hint_elem }) => {
-                // still type-check all elements
-                for e in elems {
-                    let t = self.infer_type(e);
-                    let expected = self.str_to_sem_type(hint_elem);
-                    if !self.types_compatible(&expected, &t) {
-                        self.err(&format!(
-                            "List literal element type mismatch: expected '{}', got '{}'",
-                            hint_elem, t
-                        ));
-                    }
-                }
-                SemType::List { elem: hint_elem.clone() }
-            }
-            // Array literal assigned to array<T, N> — check size matches
-            (ParseNode::ArrayLit(elems), SemType::Array { elem: hint_elem, size }) => {
-                for e in elems {
-                    let t = self.infer_type(e);
-                    let expected = self.str_to_sem_type(hint_elem);
-                    if !self.types_compatible(&expected, &t) {
-                        self.err(&format!(
-                            "Array literal element type mismatch: expected '{}', got '{}'",
-                            hint_elem, t
-                        ));
-                    }
-                }
-                SemType::Array {
-                    elem: hint_elem.clone(),
-                    size: *size, // trust declared size
-                }
-            }
-            _ => self.infer_type(node),
-        }
-    }
-    
-    fn str_to_sem_type(&self, s: &str) -> SemType {
-        match s {
-            "int" => SemType::Int,
-            "float" => SemType::Float,
-            "char" => SemType::Char,
-            "boolean" => SemType::Boolean,
-            other => SemType::Struct { name: other.to_string() },
-        }
-    }
-
 }
-
-// ─── Public entry point ───────────────────────────────────────────────────────
 
 pub fn analyse(root: &ParseNode) -> Semanter {
     let mut sem = Semanter::new();

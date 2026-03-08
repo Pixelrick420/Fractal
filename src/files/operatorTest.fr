@@ -32,16 +32,14 @@ print("unary -  : {}", neg);    # -10
 :boolean t = true;
 :boolean f = false;
 
-:boolean and_result = t & f;
-:boolean or_result  = t | f;
-:boolean xor_result = t ^ f;
+:boolean and_result = t !and f;
+:boolean or_result  = t !or f;
 
 print("AND : {}", and_result);   # false
 print("OR  : {}", or_result);    # true
-print("XOR : {}", xor_result);   # true
 
 # ── Logical unary ──────────────────────────────────────────
-:boolean not_result = ~t;
+:boolean not_result = !not t;
 
 print("NOT : {}", not_result);   # false
 
@@ -60,12 +58,12 @@ print("<= : {}", lte);   # false
 print("== : {}", eq);    # false
 print("~= : {}", neq);   # true
 
-# ── Divisible-by shorthand ─────────────────────────────────
-:boolean div3 = a%==3;   # 10 % 3 == 0 -> false
-:boolean div5 = a%==5;   # 10 % 5 == 0 -> true
+# ── Divisible-by ───────────────────────────────────────────
+:boolean div3 = a % 3 == 0;
+:boolean div5 = a % 5 == 0;
 
-print("10 %== 3 : {}", div3);   # false
-print("10 %== 5 : {}", div5);   # true
+print("10 % 3 == 0 : {}", div3);   # false
+print("10 % 5 == 0 : {}", div5);   # true
 
 # ── Assignment operators ───────────────────────────────────
 :int x = 10;
@@ -76,10 +74,11 @@ x *= 2;   print("*= 2  -> {}", x);   # 24
 x /= 4;   print("/= 4  -> {}", x);   # 6
 x %= 4;   print("%%= 4 -> {}", x);   # 2
 
-:boolean bx = true;
-bx &= false;   print("&= false -> {}", bx);   # false
-bx |= true;    print("|= true  -> {}", bx);   # true
-bx ^= true;    print("^= true  -> {}", bx);   # false
+# ── Bitwise int operators ──────────────────────────────────
+:int ix = 0b1111;
+ix &= 0b1010;   print("&= 0b1010 -> {}", ix);   # 10
+ix |= 0b0001;   print("|= 0b0001 -> {}", ix);   # 11
+ix ^= 0b0011;   print("^= 0b0011 -> {}", ix);   # 8
 
 # ── Number literal formats ─────────────────────────────────
 :int bin_lit = 0b1010;   # 10
@@ -101,7 +100,7 @@ print("plain   : {}", plain);
 print("float     : {}", f1);
 print("float exp : {}", f2);
 
-# ── Type casting — colon-prefix form ──────────────────────
+# ── Type casting ───────────────────────────────────────────
 :float cast_result = :float(a) / 3.0;
 
 print("cast div : {}", cast_result);
@@ -111,7 +110,7 @@ print("float->int : {}", back);   # 3
 
 # ── Char and string literals ───────────────────────────────
 :char ch = 'Z';
-:array<char, 5> word = "hello";
+:array<:char, 5> word = "hello";
 
 print("char   : {}", ch);
 print("string : {}", word);
@@ -120,11 +119,11 @@ print("string : {}", word);
 :struct<Node> {
     :int val;
     :struct<Node> next;
-}
+};
 
-struct<Node> lone = {
+:struct<Node> lone = {
     val = 1
-}
+};
 lone::next = !null;
 
 print("next is null : {}", lone::next == !null);   # true
@@ -133,17 +132,17 @@ print("next is null : {}", lone::next == !null);   # true
 :struct<Point> {
     :int px;
     :int py;
-}
+};
 
-struct<Point> p = {
+:struct<Point> p = {
     px = 7,
     py = 9
-}
+};
 
 print("point x : {}", p::px);
 print("point y : {}", p::py);
 
-# ── Arrow — return type in function signature ──────────────
+# ── Function / arrow ───────────────────────────────────────
 !func add_ints(:int m, :int n) -> :int {
     !return m + n;
 }

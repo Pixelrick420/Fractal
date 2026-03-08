@@ -1,17 +1,15 @@
 !start
     !import "math.fr";
-    :int a =5;
+    :int a = 5;
     :float b = math::pi;
     :float d = math::calculate();
-  
+
     :int c = int(3.2);
- 
-    :array<char, 10> string = "hello 1234";
-    :list<int> nums = [1, 2,a];
+
+    :array<:char, 10> string = "hello 1234";
+    :list<:int> nums = [1, 2,a];
     :boolean res = true;
     a += 100;
-    
-
 
 !end
 

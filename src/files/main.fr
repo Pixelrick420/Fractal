@@ -1,80 +1,75 @@
-
 !start
-    # this is a comment
-    !import "math";
+    :struct<Node> {
+        :int a;
+        :int b;
+        :array<:int, 10> arr;
+        :struct<Node> next;
+    };
+
     :int a = 100;
     :float b = 5.0;
     :boolean checkBool = true;
-    :array<int, 5> arr = [1, 2, 3, 4, 5];
-    :array<char, 10> string = "hello 1234";
-    :list<int> nums = [1, 2, 3];
+    :array<:int, 5> arr = [1, 2, 3, 4, 5];
+    :array<:char, 10> string = "hello 1234";
+    :list<:int> nums = [1, 2, 3];
+
     print("{}", arr[0]);
 
-    !if (float(a) > b) {
+    !if (:float(a) > b) {
         a = (a + 1);
     }
     !else {
         b = (b + :float(1));
     }
-    ###
-    multi line
-    comment testing
-    in this program function call from imported files, recursion in loops tested
-    ###
 
     :char c = string[0];
     a = :int(math::pi);
     append(nums, a);
+    :int popped = pop(arr);
 
-    :int c = pop(arr);
-
-    !for (:int i, 0, 10, 1) { # variable, start, stop, step
-        if (i%==3){
-            print("{} is a multipe of 3",i);
-            continue
+    !for (:int i, 0, 10, 1) {
+        !if (i % 3 == 0) {
+            print("{} is a multiple of 3", i);
+            !continue;
         }
         print("{} {}\n", i, arr[i]);
     }
 
-    !while (float(a) > b) {
+    !while (:float(a) > b) {
         a -= 1;
-        if (a == 3){
-            break;
+        !if (a == 3) {
+            !break;
         }
-        else if (a%25==0){
-            print("Hello: a = {}\n",a);
+        !elif (a % 25 == 0) {
+            print("Hello: a = {}\n", a);
         }
     }
 
-    !func hello(:int a, :float b, :list c) -> :boolean {
+    !func hello(:int a, :float b, :list<:float> c) -> :boolean {
         :float sqrtOfB = sqrt(b);
         :float sqrtOfC = sqrt(c[0]);
         c[0] = 0.0;
-        !return (sqrtOfB>sqrtOfC);
+        !return (sqrtOfB > sqrtOfC);
     }
-    :list<float> top = [5.6,25.1];
-    :boolean res = hello(a, b,top);
-    print("{}\n",top[0]);
 
-    :struct<Node> {
-        :int a;
-        :int b;
-        :array<int, 10> arr;
-        :struct<Node> next;
-    }
-    struct<Node> root = {
+    :list<:float> top = [5.6, 25.1];
+    :boolean res = hello(a, b, top);
+    print("{}\n", top[0]);
+
+    :struct<Node> root = {
         a = 67,
-        b = 69
-        arr = [1,2,3]
-    }
-    struct <Node> cur = root;
-    for (:int i, 0 ,5,1){
-        struct<Node> node = {
+        b = 69,
+        arr = [1, 2, 3]
+    };
+    :struct<Node> cur = root;
+
+    !for (:int i, 0, 5, 1) {
+        :struct<Node> node = {
             a = i,
-            b = i*5
-        }
+            b = i * 5
+        };
         :int z = 0;
-        for(:int j, a,b,1){
+        !for (:int j, a, b, 1) {
             node::arr[z] = j;
             z += 1;
         }
@@ -82,19 +77,18 @@
         cur = node;
     }
     cur::next = !null;
-    !func traverse(struct<Node> node,array<:list,100>values,:int index)->:array{
-        if (cur==!null){
-            return;
+
+    !func traverse(:struct<Node> node, :array<:list<:int>, 100> values, :int index) -> :void {
+        !if (node == !null) {
+            !return !null;
         }
-        !list<:int> temp = [node::a,node::b]
-        values[index]=temp;
-    
-        
-        traverse(node::next,values,index+1);
+        :list<:int> temp = [node::a, node::b];
+        values[index] = temp;
+        traverse(node::next, values, index + 1);
     }
-    !array<:list,100>values;
+
+    :array<:list<:int>, 100> values;
     :int index = 0;
-    traverse(root,values,index)
-    
-    
+    traverse(root, values, index);
+
 !end

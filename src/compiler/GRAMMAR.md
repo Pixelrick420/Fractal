@@ -6,7 +6,9 @@ ITEM_LIST -> ITEM ITEM_LIST
 
 ITEM -> MODULE
       | FUNCDEF
-      | STRUCTDEF_OR_DECL EndL
+      | STRUCTDEF EndL
+      | STRUCTDECL EndL
+      | DECL EndL
       | STMT EndL
 
 MODULE -> ModuleStart ITEM_LIST ModuleEnd EndL?
@@ -19,11 +21,14 @@ PARAMS_TAIL -> Comma PARAM PARAMS_TAIL
              | ε
 PARAM       -> DATATYPE Identifier
 
-STRUCTDEF_OR_DECL -> TypeStruct Less Identifier Greater STRUCT_TAIL
-STRUCT_TAIL       -> LBrace FIELDS RBrace
-                   | Identifier STRUCTDECL_TAIL
-STRUCTDECL_TAIL   -> Equals EXPRESSION
-                   | ε
+# Struct definition: :struct<Name> { fields }; — semicolon required
+STRUCTDEF -> TypeStruct Less Identifier Greater LBrace FIELDS RBrace
+
+# Struct declaration: :struct<Name> varname  or  :struct<Name> varname = EXPRESSION
+STRUCTDECL -> TypeStruct Less Identifier Greater Identifier STRUCTDECL_TAIL
+STRUCTDECL_TAIL -> Equals EXPRESSION
+                 | ε
+
 FIELDS -> FIELD FIELDS
         | ε
 FIELD  -> DATATYPE Identifier EndL
@@ -33,8 +38,8 @@ STMTS -> STMT EndL? STMTS
        | ε
 
 STMT -> DECL
+      | STRUCTDECL
       | ASSIGN
-      | STRUCTDEF_OR_DECL
       | If LParen EXPRESSION RParen BLK ELSEPART
       | For LParen DATATYPE Identifier Comma EXPRESSION Comma EXPRESSION Comma EXPRESSION RParen BLK
       | While LParen EXPRESSION RParen BLK
@@ -52,10 +57,10 @@ DECL      -> DATATYPE Identifier DECL_TAIL
 DECL_TAIL -> Equals EXPRESSION
            | ε
 
-ASSIGN      -> LVALUE ASSIGNOP EXPRESSION
-LVALUE      -> Identifier LVALUE_TAIL
-LVALUE_TAIL -> ColonColon Identifier
-             | ε
+# Assignment target is any ACCESS_CHAIN that does not end with a Call step.
+# Valid lvalue examples:  x,  x::field,  x[i],  x[i]::field,  x::a::b::c
+# Invalid lvalue examples: foo(args),  foo(args)[i]
+ASSIGN   -> ACCESS_CHAIN ASSIGNOP EXPRESSION
 
 ASSIGNOP -> Equals | PlusEquals | MinusEquals | StarEquals | SlashEquals
           | PercentEquals | AmpersandEquals | PipeEquals | CaretEquals
@@ -118,7 +123,7 @@ CAST -> DATATYPE LParen EXPRESSION RParen
 PRIMARY -> LParen EXPRESSION RParen
          | LBracket ARGS RBracket
          | LBrace STRUCT_LIT_FIELDS RBrace
-         | Identifier PRIMARY_TAIL
+         | ACCESS_CHAIN
          | SIntLit
          | FloatLit
          | CharLit
@@ -126,11 +131,22 @@ PRIMARY -> LParen EXPRESSION RParen
          | BoolLit
          | Null
 
-PRIMARY_TAIL   -> ColonColon Identifier QUALIFIED_TAIL
-               | LParen ARGS RParen
-               | ε
-QUALIFIED_TAIL -> LParen ARGS RParen
-               | ε
+# ACCESS_CHAIN is the unified node for all identifier-rooted expressions.
+# It is a base identifier followed by up to 8 POSTFIX steps.
+# Examples:
+#   foo                         — plain identifier
+#   foo(args)                   — function call
+#   foo::bar                    — member field access
+#   foo::bar(args)              — module-qualified call
+#   foo[i]                      — index
+#   foo[i]::field               — index then member
+#   foo::bar[i]::baz            — member, index, member
+#   foo(args)[i]                — call result indexed  (expression-only, not lvalue)
+ACCESS_CHAIN -> Identifier POSTFIX*   (max 8 POSTFIX steps)
+
+POSTFIX -> ColonColon Identifier      # field/member access
+         | LBracket EXPRESSION RBracket  # index
+         | LParen ARGS RParen         # call
 
 STRUCT_LIT_FIELDS -> Identifier Equals EXPRESSION STRUCT_LIT_TAIL
                    | ε
@@ -160,7 +176,7 @@ ARGS_TAIL -> Comma EXPRESSION ARGS_TAIL
 | `And`      | `!and`       |
 | `Or`       | `!or`        |
 | `Not`      | `!not`       |
-| `Struct`   | `!struct`    |
+| `Struct`   | (unused — struct is always introduced via `:struct`) |
 | `Import`   | `!import`    |
 | `Module`   | `!module`    |
 | `TypeInt`     | `:int`      |
@@ -175,7 +191,7 @@ ARGS_TAIL -> Comma EXPRESSION ARGS_TAIL
 | `CharLit(char)`    | `'a'`, `'\n'`                                      |
 | `StringLit(String)`| `"hello\n"`                                        |
 | `BoolLit(bool)`    | `true`, `false`                                    |
-| `Null`             | `NULL`                                             |
+| `Null`             | `!null`                                            |
 | `Plus`             | `+`    |
 | `Minus`            | `-`    |
 | `Star`             | `*`    |

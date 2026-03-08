@@ -52,8 +52,6 @@ fn main() {
         println!("{:?}", token);
     }
 
-    
-    // ...
     match parser::parse(tokens) {
         Ok(node) => {
             pretty_print_root(&node);
@@ -61,5 +59,4 @@ fn main() {
         }
         Err(err) => eprintln!("Parse error: {:?}", err),
     }
-    
 }

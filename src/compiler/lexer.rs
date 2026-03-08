@@ -253,7 +253,7 @@ fn handle_token(buffer: &str) -> Token {
                 token_type: TokenType::BoolLit(false),
             }
         }
-        "NULL" => {
+        "!null" => {
             return Token {
                 token_type: TokenType::Null,
             }

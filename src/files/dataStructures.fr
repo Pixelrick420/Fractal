@@ -1,0 +1,302 @@
+!start
+
+###
+    dataStructures.fr
+    Tests nested structures, all container combos, struct declarations,
+    and standard library methods on arrays and lists.
+###
+
+# ============================================================
+# 1. LIST INSIDE LIST
+# ============================================================
+:list<:list<:int>> list_of_lists;
+
+:list<:int> inner1;
+inner1.append(1);
+inner1.append(2);
+inner1.append(3);
+
+:list<:int> inner2;
+inner2.append(4);
+inner2.append(5);
+
+list_of_lists.append(inner1);
+list_of_lists.append(inner2);
+
+print("list[0][1] = %d", list_of_lists[0][1]);   # 2
+print("list[1][0] = %d", list_of_lists[1][0]);   # 4
+
+# ============================================================
+# 2. ARRAY INSIDE ARRAY
+# ============================================================
+:int<3> row0 = [10, 20, 30];
+:int<3> row1 = [40, 50, 60];
+:int<3> row2 = [70, 80, 90];
+
+:array< :int<3> ><3> matrix = [row0, row1, row2];
+
+print("matrix[1][2] = %d", matrix[1][2]);   # 60
+print("matrix[2][0] = %d", matrix[2][0]);   # 70
+
+# ============================================================
+# 3. STRUCT INSIDE STRUCT
+# ============================================================
+!struct Address {
+    :char<30> street;
+    :int      zip;
+}
+
+!struct Person {
+    :char<20>  name;
+    :int       age;
+    :Address   addr;
+}
+
+:Person alice;
+alice::name      = "Alice";
+alice::age       = 28;
+alice::addr::street = "Main St";
+alice::addr::zip    = 12345;
+
+print("name   : %s",  alice::name);
+print("age    : %d",  alice::age);
+print("street : %s",  alice::addr::street);
+print("zip    : %d",  alice::addr::zip);
+
+# ============================================================
+# 4. LIST INSIDE ARRAY
+# ============================================================
+:list<:int> la0;
+la0.append(1);
+la0.append(2);
+
+:list<:int> la1;
+la1.append(3);
+la1.append(4);
+
+:array< :list<:int> ><2> arr_of_lists = [la0, la1];
+
+print("arr_of_lists[0][0] = %d", arr_of_lists[0][0]);   # 1
+print("arr_of_lists[1][1] = %d", arr_of_lists[1][1]);   # 4
+
+# ============================================================
+# 5. STRUCT INSIDE ARRAY
+# ============================================================
+!struct Vec2 {
+    :float x;
+    :float y;
+}
+
+:Vec2 v0;
+v0::x = 1.0;
+v0::y = 2.0;
+
+:Vec2 v1;
+v1::x = 3.0;
+v1::y = 4.0;
+
+:array< :Vec2 ><2> vec_arr = [v0, v1];
+
+print("vec_arr[0].x = %f", vec_arr[0]::x);
+print("vec_arr[1].y = %f", vec_arr[1]::y);
+
+# ============================================================
+# 6. ARRAY INSIDE LIST
+# ============================================================
+:int<3> al0 = [100, 200, 300];
+:int<3> al1 = [400, 500, 600];
+
+:list< :int<3> > list_of_arrays;
+list_of_arrays.append(al0);
+list_of_arrays.append(al1);
+
+print("list_of_arrays[0][2] = %d", list_of_arrays[0][2]);   # 300
+print("list_of_arrays[1][0] = %d", list_of_arrays[1][0]);   # 400
+
+# ============================================================
+# 7. STRUCT, LIST, ARRAY TOGETHER
+# ============================================================
+!struct DataBag {
+    :int<4>      fixed_data;
+    :list<:float> scores;
+    :int          id;
+}
+
+:DataBag bag;
+bag::fixed_data = [9, 8, 7, 6];
+bag::scores.append(95.5);
+bag::scores.append(87.3);
+bag::scores.append(76.1);
+bag::id = 42;
+
+print("bag.id          = %d", bag::id);
+print("bag.fixed_data[1] = %d", bag::fixed_data[1]);    # 8
+print("bag.scores[2]   = %f", bag::scores[2]);          # 76.1
+
+# ============================================================
+# 8. LIST METHOD TESTS  (append, pop, insert, find, delete)
+# ============================================================
+:list<:int> nums;
+
+# append
+nums.append(10);
+nums.append(20);
+nums.append(30);
+nums.append(40);
+print("after append x4 [0] = %d", nums[0]);   # 10
+
+# pop  (removes + returns last element)
+:int popped = nums.pop();
+print("popped          = %d", popped);         # 40
+print("after pop [2]   = %d", nums[2]);        # 30  (len now 3)
+
+# insert(value, index)
+nums.insert(15, 1);
+print("after insert(15,1) [1] = %d", nums[1]);  # 15
+# list is now [10, 15, 20, 30]
+
+# find(value) -> index, -1 if absent
+:int idx = nums.find(20);
+print("find(20)        = %d", idx);            # 2
+
+:int miss = nums.find(99);
+print("find(99)        = %d", miss);           # -1
+
+# delete(index)
+nums.delete(0);
+print("after delete(0) [0] = %d", nums[0]);   # 15
+
+# ============================================================
+# 9. ARRAY METHOD TESTS  (find, starts, ends)
+# ============================================================
+:int<6> primes = [2, 3, 5, 7, 11, 13];
+
+# find
+:int pidx = primes.find(7);
+print("find(7)  = %d", pidx);   # 3
+
+:int pmiss = primes.find(4);
+print("find(4)  = %d", pmiss);  # -1
+
+# starts(sub-array) -> bool — does the array start with that sequence?
+:int<2> head = [2, 3];
+:boolean starts_ok = primes.starts(head);
+print("starts([2,3])  = %b", starts_ok);   # true
+
+:int<2> wrong_head = [3, 2];
+:boolean starts_bad = primes.starts(wrong_head);
+print("starts([3,2])  = %b", starts_bad);  # false
+
+# ends(sub-array) -> bool
+:int<2> tail = [11, 13];
+:boolean ends_ok = primes.ends(tail);
+print("ends([11,13])  = %b", ends_ok);     # true
+
+:int<2> wrong_tail = [11, 12];
+:boolean ends_bad = primes.ends(wrong_tail);
+print("ends([11,12])  = %b", ends_bad);    # false
+
+# string (char array) starts / ends
+:char<11> greeting = "hello world";
+:char<5>  prefix   = "hello";
+:char<5>  suffix   = "world";
+
+print("str starts 'hello' = %b", greeting.starts(prefix));   # true
+print("str ends   'world' = %b", greeting.ends(suffix));     # true
+
+# ============================================================
+# 10. STRUCT DECLARATIONS — all possible forms
+# ============================================================
+
+# 10a. Declaration only — fields unset, assigned later
+!struct Rect {
+    :float width;
+    :float height;
+}
+
+:Rect r;
+r::width  = 5.0;
+r::height = 3.0;
+print("rect area = %f", r::width * r::height);   # 15.0
+
+# 10b. Multiple instances from the same struct type
+:Rect big;
+:Rect small;
+
+big::width  = 100.0;
+big::height = 80.0;
+
+small::width  = 4.0;
+small::height = 2.0;
+
+print("big area   = %f", big::width   * big::height);    # 8000.0
+print("small area = %f", small::width * small::height);  # 8.0
+
+# 10c. Struct with every simple datatype as a field
+!struct AllTypes {
+    :int     i_val;
+    :float   f_val;
+    :char    c_val;
+    :boolean b_val;
+}
+
+:AllTypes at;
+at::i_val = 7;
+at::f_val = 3.14;
+at::c_val = 'X';
+at::b_val = true;
+
+print("int   = %d", at::i_val);
+print("float = %f", at::f_val);
+print("char  = %c", at::c_val);
+print("bool  = %b", at::b_val);
+
+# 10d. Struct containing an array field
+!struct Row {
+    :int<4> cells;
+    :int    row_id;
+}
+
+:Row row;
+row::cells  = [1, 2, 3, 4];
+row::row_id = 0;
+
+print("row.cells[2] = %d", row::cells[2]);   # 3
+
+# 10e. Struct containing a list field
+!struct Bag {
+    :list<:int> items;
+    :int        capacity;
+}
+
+:Bag bag2;
+bag2::capacity = 10;
+bag2::items.append(5);
+bag2::items.append(6);
+
+print("bag2.items[1] = %d", bag2::items[1]);   # 6
+
+# 10f. Array of structs
+:AllTypes<3> at_arr;
+
+at_arr[0]::i_val = 1;
+at_arr[1]::i_val = 2;
+at_arr[2]::i_val = 3;
+
+print("at_arr[2].i_val = %d", at_arr[2]::i_val);   # 3
+
+# 10g. List of structs
+:list< :Rect > rect_list;
+
+:Rect tmp;
+tmp::width  = 1.0;
+tmp::height = 1.0;
+rect_list.append(tmp);
+
+tmp::width  = 2.0;
+tmp::height = 2.0;
+rect_list.append(tmp);
+
+print("rect_list[1].width = %f", rect_list[1]::width);   # 2.0
+
+!end

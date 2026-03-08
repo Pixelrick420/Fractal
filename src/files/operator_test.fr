@@ -1,0 +1,142 @@
+!start
+
+# ============================================================
+# operator_test.fr — exercises every operator in the language
+# ============================================================
+
+# ── Arithmetic binary ──────────────────────────────────────
+:int a = 10;
+:int b = 3;
+
+:int add_result    = a + b;    # 13
+:int sub_result    = a - b;    # 7
+:int mul_result    = a * b;    # 30
+:int div_result    = a / b;    # 3
+:int mod_result    = a % b;    # 1
+
+print("add      : %d", add_result);
+print("subtract : %d", sub_result);
+print("multiply : %d", mul_result);
+print("divide   : %d", div_result);
+print("modulo   : %d", mod_result);
+
+# ── Arithmetic unary ───────────────────────────────────────
+:int pos =  +a;    # +10
+:int neg =  -a;    # -10
+
+print("unary +  : %d", pos);
+print("unary -  : %d", neg);
+
+# ── Logical binary ─────────────────────────────────────────
+:boolean t = true;
+:boolean f = false;
+
+:boolean and_result = t & f;    # false
+:boolean or_result  = t | f;    # true
+:boolean xor_result = t ^ f;    # true
+
+print("AND      : %b", and_result);
+print("OR       : %b", or_result);
+print("XOR      : %b", xor_result);
+
+# ── Logical unary ──────────────────────────────────────────
+:boolean not_result = ~t;    # false
+
+print("NOT      : %b", not_result);
+
+# ── Comparison ─────────────────────────────────────────────
+:boolean gt  = a > b;     # true
+:boolean lt  = a < b;     # false
+:boolean gte = a >= b;    # true
+:boolean lte = a <= b;    # false
+:boolean eq  = a == b;    # false
+:boolean neq = a ~= b;    # true
+
+print(">        : %b", gt);
+print("<        : %b", lt);
+print(">=       : %b", gte);
+print("<=       : %b", lte);
+print("==       : %b", eq);
+print("~=       : %b", neq);
+
+# ── Assignment operators ───────────────────────────────────
+:int x = 10;
+
+x += 5;   print("+= (15)  : %d", x);
+x -= 3;   print("-= (12)  : %d", x);
+x *= 2;   print("*= (24)  : %d", x);
+x /= 4;   print("/= (6)   : %d", x);
+x %= 4;   print("%%= (2)  : %d", x);
+
+:boolean bx = true;
+bx &= false;   print("&= (false): %b", bx);
+bx |= true;    print("|= (true) : %b", bx);
+bx ^= true;    print("^= (false): %b", bx);
+
+# ── Number literal formats ─────────────────────────────────
+:int bin_lit = 0b1010;      # 10
+:int hex_lit = 0xFF;        # 255
+:int oct_lit = 0o17;        # 15
+:int dec_lit = 0d42;        # 42
+:int plain   = 99;          # 99
+
+print("binary   : %d", bin_lit);
+print("hex      : %d", hex_lit);
+print("octal    : %d", oct_lit);
+print("decimal  : %d", dec_lit);
+print("plain    : %d", plain);
+
+# ── Float literals ─────────────────────────────────────────
+:float f1 = 3.14;
+:float f2 = 1.5e3;    # 1500.0
+
+print("float    : %f", f1);
+print("float exp: %f", f2);
+
+# ── Type cast (int -> float) ───────────────────────────────
+:float cast_result = (float) a / 3.0;
+
+print("cast div : %f", cast_result);
+
+# ── Char and string literals ───────────────────────────────
+:char  ch  = 'Z';
+:char  nl  = '\n';
+:char<5> word = "hello";    # char array via string literal
+
+print("char     : %c", ch);
+print("string   : %s", word);
+
+# ── NULL literal ───────────────────────────────────────────
+:int maybe = NULL;
+
+print("null     : %d", maybe);
+
+# ── Struct member access (::) ──────────────────────────────
+!struct Point {
+    :int px;
+    :int py;
+}
+
+:Point p;
+p::px = 7;
+p::py = 9;
+
+print("struct x : %d", p::px);
+print("struct y : %d", p::py);
+
+# ── Arrow (return type) demonstrated in a function ─────────
+!func add(:int m, :int n) -> :int {
+    !return m + n;
+}
+
+:int fn_result = add(4, 6);
+print("func ->  : %d", fn_result);
+
+# ── Boolean literals ───────────────────────────────────────
+:boolean yes = true;
+:boolean no  = false;
+
+print("true     : %b", yes);
+print("false    : %b", no);
+
+!end

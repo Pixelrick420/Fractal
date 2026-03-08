@@ -12,5 +12,6 @@
 12. explicit type casting
 13. create test files to check array in array, struct in array, list in struct, list in list, array in list. also check functions in array
 14. create test file to check all operators
-15.  website
+15. in semanter, handle imported files variables and functions
+16.   website
 

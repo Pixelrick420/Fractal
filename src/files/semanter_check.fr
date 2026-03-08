@@ -1,6 +1,8 @@
 !start
+    !import "math.fr";
     :int a =5;
-    :float b = 3.2;
+    :float b = math::pi;
+    :float d = math::calculate();
   
     :int c = int(3.2);
  

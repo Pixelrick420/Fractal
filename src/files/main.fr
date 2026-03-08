@@ -75,19 +75,19 @@
             b = i*5
         }
         for(:int j, a,b,1){
-            append(node.arr,j)
+            append(node::arr,j)
         }
         cur::next = node;
         cur = node;
     }
-    cur.next = !null;
+    cur::next = !null;
     !func traverse(struct<Node> node,array<:list,100>values)->:array{
         if (cur==!null){
             return;
         }
         !list<:int> temp = [node::a,node::b]
         append(values,temp);
-        traverse(node.next,values);
+        traverse(node::next,values);
     }
     !array<:list,100>values;
     traverse(root,values)

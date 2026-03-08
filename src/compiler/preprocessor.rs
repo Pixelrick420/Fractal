@@ -4,8 +4,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process;
 
-fn module_search(module_name: &str, current_file: &str) -> io::Result<(Vec<char>, String)> {
-    let libs = ["sample_lib"];
+fn module_search(module_name: &str, current_file: &str  ) -> io::Result<(Vec<char>, String)> {
+     let lib_dir = "";
 
     if &module_name[0..1] == "\"" {
         let mut file_path = PathBuf::from(module_name.trim().trim_matches('"'));
@@ -39,15 +39,17 @@ fn module_search(module_name: &str, current_file: &str) -> io::Result<(Vec<char>
             io::ErrorKind::NotFound,
             format!("Module not found: {}", module_name),
         ))
-    } else if libs.contains(&module_name) {
-        let lib_path = format!("lib/{}.fr", module_name);
-        let contents = fs::read_to_string(&lib_path)?;
-        Ok((contents.chars().collect(), lib_path))
     } else {
-        Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("Module not available: {}", module_name),
-        ))
+        let lib_path = format!("{}/{}.fr", lib_dir, module_name);
+        if Path::new(&lib_path).exists() {
+            let contents = fs::read_to_string(&lib_path)?;
+            Ok((contents.chars().collect(), lib_path))
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Module not available: {}", module_name),
+            ))
+        }
     }
 }
 
@@ -171,7 +173,7 @@ fn traverse(
                     index += 1;
                 }
 
-                match module_search(&module_name, current_file) {
+                match module_search(&module_name, current_file,) {
                     Ok((module_raw, resolved_path)) => {
                         if import_chain.contains(&resolved_path) {
                             print_error("Circular dependency detected");

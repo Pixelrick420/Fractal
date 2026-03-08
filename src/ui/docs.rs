@@ -1,3 +1,4 @@
+use crate::ui::highlighter::Highlighter;
 use crate::ui::theme::Theme;
 use eframe::egui;
 
@@ -323,26 +324,9 @@ fn code(ui: &mut egui::Ui, src: &str, t: &Theme) {
         .stroke(egui::Stroke::new(1.0, t.border))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            for line in src.lines() {
-                let trimmed = line.trim_start();
-                let color = if trimmed.starts_with('#') {
-                    t.comment
-                } else if trimmed.starts_with('!') {
-                    t.keyword
-                } else if trimmed.starts_with(':') {
-                    t.type_name
-                } else if trimmed.starts_with('"') {
-                    t.string
-                } else {
-                    t.text_default
-                };
-                ui.label(
-                    egui::RichText::new(line)
-                        .monospace()
-                        .size(13.0)
-                        .color(color),
-                );
-            }
+            let job =
+                Highlighter::new(*t).highlight_to_layout_job(src, egui::FontId::monospace(13.0));
+            ui.label(egui::WidgetText::LayoutJob(job));
         });
     ui.add_space(8.0);
 }

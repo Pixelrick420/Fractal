@@ -110,15 +110,18 @@ impl FileDialog {
             let lum = 0.299 * c.r() as f32 + 0.587 * c.g() as f32 + 0.114 * c.b() as f32;
             lum < 128.0
         };
-        let (hr, hg, hb) = if is_dark {
-            (255u8, 255, 255)
+
+        let hover_bg = if is_dark {
+            egui::Color32::from_rgba_unmultiplied(255, 255, 255, 18)
         } else {
-            (0u8, 0, 0)
+            egui::Color32::from_rgba_unmultiplied(0, 0, 0, 14)
         };
-        let hover_bg =
-            egui::Color32::from_rgba_premultiplied(hr, hg, hb, if is_dark { 45 } else { 22 });
-        let selected_bg =
-            egui::Color32::from_rgba_premultiplied(hr, hg, hb, if is_dark { 70 } else { 40 });
+        let selected_bg = egui::Color32::from_rgba_unmultiplied(
+            t.accent.r(),
+            t.accent.g(),
+            t.accent.b(),
+            if is_dark { 55 } else { 35 },
+        );
 
         let title = match self.mode {
             FileDialogMode::Open => "Open File",
@@ -144,7 +147,7 @@ impl FileDialog {
         egui::Window::new(title)
             .collapsible(false)
             .resizable(true)
-            .default_size([580.0, 420.0])
+            .default_size([600.0, 440.0])
             .min_size([420.0, 300.0])
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .frame(window_frame)
@@ -199,11 +202,18 @@ impl FileDialog {
                                         egui::Sense::hover(),
                                     );
                                     let close_hovered = ui.rect_contains_pointer(cr);
+
+                                    let close_hover_bg = egui::Color32::from_rgba_unmultiplied(
+                                        220,
+                                        60,
+                                        60,
+                                        if is_dark { 180 } else { 160 },
+                                    );
                                     if close_hovered {
                                         ui.painter().rect_filled(
                                             cr,
                                             egui::Rounding::same(5.0),
-                                            hover_bg,
+                                            close_hover_bg,
                                         );
                                     }
                                     ui.painter().text(
@@ -212,7 +222,7 @@ impl FileDialog {
                                         egui_phosphor::regular::X,
                                         egui::FontId::proportional(14.0),
                                         if close_hovered {
-                                            t.menu_fg
+                                            egui::Color32::WHITE
                                         } else {
                                             t.tab_inactive_fg
                                         },
@@ -343,7 +353,7 @@ impl FileDialog {
                                                 self.selected.as_ref() == Some(&entry.path);
 
                                             let (row_rect, row_resp) = ui.allocate_exact_size(
-                                                egui::vec2(ui.available_width(), 23.0),
+                                                egui::vec2(ui.available_width(), 26.0),
                                                 egui::Sense::click(),
                                             );
 
@@ -420,7 +430,7 @@ impl FileDialog {
                                     )
                                     .fill(egui::Color32::TRANSPARENT)
                                     .stroke(egui::Stroke::new(1.0, t.border))
-                                    .min_size(egui::vec2(76.0, 30.0)),
+                                    .min_size(egui::vec2(80.0, 32.0)),
                                 )
                                 .clicked()
                             {
@@ -454,7 +464,7 @@ impl FileDialog {
                                     )
                                     .fill(t.accent)
                                     .stroke(egui::Stroke::NONE)
-                                    .min_size(egui::vec2(76.0, 30.0)),
+                                    .min_size(egui::vec2(80.0, 32.0)),
                                 )
                                 .clicked()
                             {

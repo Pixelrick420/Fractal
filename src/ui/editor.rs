@@ -201,14 +201,6 @@ pub fn show_empty_state(ui: &mut egui::Ui, t: &Theme) -> EmptyStateAction {
             });
 
             ui.add_space(16.0);
-            ui.label(egui::RichText::new("Ctrl+O  ·  Ctrl+N").size(11.0).color(
-                egui::Color32::from_rgba_premultiplied(
-                    t.empty_fg.r(),
-                    t.empty_fg.g(),
-                    t.empty_fg.b(),
-                    100,
-                ),
-            ));
         });
     });
 

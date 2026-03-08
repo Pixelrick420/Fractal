@@ -93,15 +93,10 @@ impl SettingsPanel {
             + 24.0;
         let panel_rect = egui::Rect::from_center_size(screen.center(), egui::vec2(w, h));
 
-        painter.rect_filled(
-            panel_rect.translate(egui::vec2(0.0, 4.0)).expand(8.0),
-            egui::Rounding::same(14.0),
-            egui::Color32::from_black_alpha(60),
-        );
-        painter.rect_filled(panel_rect, egui::Rounding::same(10.0), t.panel_bg);
+        painter.rect_filled(panel_rect, egui::Rounding::same(12.0), t.panel_bg);
         painter.rect_stroke(
             panel_rect,
-            egui::Rounding::same(10.0),
+            egui::Rounding::same(12.0),
             egui::Stroke::new(1.0, t.border),
         );
 
@@ -160,7 +155,7 @@ impl SettingsPanel {
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new("Settings")
-                                    .size(17.0)
+                                    .size(18.0)
                                     .strong()
                                     .color(t.tab_active_fg),
                             );
@@ -231,16 +226,86 @@ impl SettingsPanel {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui
-                                        .add(
-                                            egui::Slider::new(&mut profile.font_size, 10.0..=24.0)
-                                                .step_by(1.0)
-                                                .suffix(" px")
-                                                .min_decimals(0)
-                                                .max_decimals(0),
-                                        )
-                                        .changed()
-                                    {
+                                    let btn_size = egui::vec2(26.0, 26.0);
+                                    let val_w = 44.0;
+
+                                    let (plus_rect, plus_resp) =
+                                        ui.allocate_exact_size(btn_size, egui::Sense::click());
+                                    let plus_hovered = plus_resp.hovered();
+                                    ui.painter().rect_filled(
+                                        plus_rect,
+                                        egui::Rounding::same(5.0),
+                                        if plus_hovered {
+                                            t.button_hover_bg
+                                        } else {
+                                            t.button_bg
+                                        },
+                                    );
+                                    ui.painter().rect_stroke(
+                                        plus_rect,
+                                        egui::Rounding::same(5.0),
+                                        egui::Stroke::new(1.0, t.border),
+                                    );
+                                    ui.painter().text(
+                                        plus_rect.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        "+",
+                                        egui::FontId::proportional(16.0),
+                                        t.tab_active_fg,
+                                    );
+                                    if plus_resp.clicked() && profile.font_size < 24.0 {
+                                        profile.font_size += 1.0;
+                                        changed = true;
+                                    }
+
+                                    let (val_rect, _) = ui.allocate_exact_size(
+                                        egui::vec2(val_w, 26.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    ui.painter().rect_filled(
+                                        val_rect,
+                                        egui::Rounding::same(5.0),
+                                        t.button_bg,
+                                    );
+                                    ui.painter().rect_stroke(
+                                        val_rect,
+                                        egui::Rounding::same(5.0),
+                                        egui::Stroke::new(1.0, t.border),
+                                    );
+                                    ui.painter().text(
+                                        val_rect.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        format!("{} px", profile.font_size as u32),
+                                        egui::FontId::proportional(12.5),
+                                        t.tab_active_fg,
+                                    );
+
+                                    let (minus_rect, minus_resp) =
+                                        ui.allocate_exact_size(btn_size, egui::Sense::click());
+                                    let minus_hovered = minus_resp.hovered();
+                                    ui.painter().rect_filled(
+                                        minus_rect,
+                                        egui::Rounding::same(5.0),
+                                        if minus_hovered {
+                                            t.button_hover_bg
+                                        } else {
+                                            t.button_bg
+                                        },
+                                    );
+                                    ui.painter().rect_stroke(
+                                        minus_rect,
+                                        egui::Rounding::same(5.0),
+                                        egui::Stroke::new(1.0, t.border),
+                                    );
+                                    ui.painter().text(
+                                        minus_rect.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        "−",
+                                        egui::FontId::proportional(16.0),
+                                        t.tab_active_fg,
+                                    );
+                                    if minus_resp.clicked() && profile.font_size > 10.0 {
+                                        profile.font_size -= 1.0;
                                         changed = true;
                                     }
                                 },
@@ -310,13 +375,18 @@ fn theme_row(ui: &mut egui::Ui, label: &str, selected: bool, t: Theme) -> egui::
             .rect_filled(rect, egui::Rounding::same(5.0), bg);
 
         if selected {
+            let indicator_color = egui::Color32::from_rgb(
+                t.accent.r().saturating_add(30),
+                t.accent.g().saturating_add(30),
+                t.accent.b().saturating_add(30),
+            );
             ui.painter().rect_filled(
                 egui::Rect::from_min_size(
-                    egui::pos2(rect.min.x, rect.min.y + 7.0),
-                    egui::vec2(3.0, rect.height() - 14.0),
+                    egui::pos2(rect.min.x, rect.min.y + 6.0),
+                    egui::vec2(3.0, rect.height() - 12.0),
                 ),
                 egui::Rounding::same(2.0),
-                t.accent,
+                indicator_color,
             );
         }
 
@@ -325,17 +395,22 @@ fn theme_row(ui: &mut egui::Ui, label: &str, selected: bool, t: Theme) -> egui::
             egui::pos2(rect.min.x + 16.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
             label,
-            egui::FontId::proportional(13.5),
+            egui::FontId::proportional(14.0),
             text_col,
         );
 
         if selected {
+            let tick_color = egui::Color32::from_rgb(
+                t.accent.r().saturating_add(50),
+                t.accent.g().saturating_add(50),
+                t.accent.b().saturating_add(50),
+            );
             ui.painter().text(
                 egui::pos2(rect.max.x - 14.0, rect.center().y),
                 egui::Align2::RIGHT_CENTER,
                 ic::SUCCESS,
                 egui::FontId::proportional(14.0),
-                t.accent,
+                tick_color,
             );
         }
     }

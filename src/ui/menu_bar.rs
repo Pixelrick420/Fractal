@@ -20,6 +20,7 @@ pub enum MenuAction {
 const BTN_W: f32 = 72.0;
 const BTN_H: f32 = 28.0;
 const BTN_ROUNDING: f32 = 5.0;
+const ICON_BTN_W: f32 = 34.0;
 
 pub fn show_menu_bar(
     ctx: &egui::Context,
@@ -85,7 +86,7 @@ pub fn show_menu_bar(
                 s.visuals.widgets.open.bg_stroke = egui::Stroke::NONE;
             }
 
-            ui.set_min_height(40.0);
+            ui.set_min_height(44.0);
             ui.horizontal_centered(|ui| {
                 ui.label(egui::RichText::new(ic::APP_LOGO).size(17.0).color(t.accent));
                 ui.add_space(10.0);
@@ -190,18 +191,10 @@ pub fn show_menu_bar(
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let gear_id = egui::Id::new("menu_gear_btn");
                     let (gear_rect, _) =
-                        ui.allocate_exact_size(egui::vec2(BTN_W, BTN_H), egui::Sense::hover());
+                        ui.allocate_exact_size(egui::vec2(ICON_BTN_W, BTN_H), egui::Sense::hover());
                     let gear_hovered = ui.rect_contains_pointer(gear_rect);
 
-                    paint_menu_button(
-                        ui,
-                        gear_rect,
-                        "Settings",
-                        ic::SETTINGS,
-                        gear_hovered,
-                        false,
-                        t,
-                    );
+                    paint_icon_button(ui, gear_rect, ic::SETTINGS, gear_hovered, t);
 
                     let gear_resp = ui.interact(gear_rect, gear_id, egui::Sense::click());
                     if gear_resp.clicked() {
@@ -322,6 +315,38 @@ fn paint_run_button(
     );
 }
 
+fn paint_icon_button(ui: &egui::Ui, rect: egui::Rect, icon: &str, active: bool, t: &Theme) {
+    let rounding = egui::Rounding::same(BTN_ROUNDING);
+    if active {
+        ui.painter().rect_filled(rect, rounding, t.button_hover_bg);
+        ui.painter().rect_stroke(
+            rect,
+            rounding,
+            egui::Stroke::new(
+                1.0,
+                egui::Color32::from_rgba_premultiplied(
+                    t.border.r(),
+                    t.border.g(),
+                    t.border.b(),
+                    180,
+                ),
+            ),
+        );
+    }
+    let fg = if active {
+        t.tab_active_fg
+    } else {
+        t.tab_inactive_fg
+    };
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        icon,
+        egui::FontId::proportional(14.0),
+        fg,
+    );
+}
+
 fn styled_separator(ui: &mut egui::Ui, t: &Theme) {
     ui.add_space(2.0);
     let (sep_rect, _) =
@@ -348,7 +373,7 @@ fn icon_menu_item(ui: &mut egui::Ui, icon: &str, label: &str, shortcut: &str, t:
         egui::pos2(rect.left() + 10.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         icon_label,
-        egui::FontId::proportional(13.0),
+        egui::FontId::proportional(13.5),
         text_fg,
     );
 
@@ -372,7 +397,7 @@ fn icon_menu_item(ui: &mut egui::Ui, icon: &str, label: &str, shortcut: &str, t:
             egui::pos2(rect.right() - 10.0, rect.center().y),
             egui::Align2::RIGHT_CENTER,
             shortcut,
-            egui::FontId::proportional(11.0),
+            egui::FontId::proportional(11.5),
             shortcut_fg,
         );
     }

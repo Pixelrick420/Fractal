@@ -5,13 +5,13 @@
 5. array index in parser
 6. append and pop in list
 7. semanter struct
-8. Libraries written in .fr handling by preprocessor
+8. ~~ Libraries written in .fr handling by preprocessor ~~
 9. handling print and input in semanter
 10. Lexer - arr, list handling
 11. variable scope inside semanter
 12. explicit type casting
-13. create test files to check array in array, struct in array, list in struct, list in list, array in list. also check functions in array
-14. create test file to check all operators
+13. ~~create test files to check array in array, struct in array, list in struct, list in list, array in list. also check functions in array~~
+14. ~~create test file to check all operators~~
 15. in semanter, handle imported files variables and functions
 16.   website
 17. terminal height should not interfere with editor ui when no files are open

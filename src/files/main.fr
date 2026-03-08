@@ -25,7 +25,6 @@
     :char c = string[0];
     a = :int(math::pi);
     append(nums, a);
-    append(arr, (int) b);
 
     :int c = pop(arr);
 
@@ -74,23 +73,28 @@
             a = i,
             b = i*5
         }
+        :int z = 0;
         for(:int j, a,b,1){
-            append(node::arr,j)
+            node::arr[z] = j;
+            z += 1;
         }
         cur::next = node;
         cur = node;
     }
     cur::next = !null;
-    !func traverse(struct<Node> node,array<:list,100>values)->:array{
+    !func traverse(struct<Node> node,array<:list,100>values,:int index)->:array{
         if (cur==!null){
             return;
         }
         !list<:int> temp = [node::a,node::b]
-        append(values,temp);
-        traverse(node::next,values);
+        values[index]=temp;
+    
+        
+        traverse(node::next,values,index+1);
     }
     !array<:list,100>values;
-    traverse(root,values)
+    :int index = 0;
+    traverse(root,values,index)
     
     
 !end

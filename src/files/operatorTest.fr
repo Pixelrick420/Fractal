@@ -1,0 +1,161 @@
+!start
+
+# ============================================================
+# operator_test.fr
+# Tests every operator using confirmed .fr syntax
+# ============================================================
+
+# ── Arithmetic binary ──────────────────────────────────────
+:int a = 10;
+:int b = 3;
+
+:int add_result = a + b;
+:int sub_result = a - b;
+:int mul_result = a * b;
+:int div_result = a / b;
+:int mod_result = a % b;
+
+print("add      : {}", add_result);   # 13
+print("subtract : {}", sub_result);   # 7
+print("multiply : {}", mul_result);   # 30
+print("divide   : {}", div_result);   # 3
+print("modulo   : {}", mod_result);   # 1
+
+# ── Arithmetic unary ───────────────────────────────────────
+:int pos = +a;
+:int neg = -a;
+
+print("unary +  : {}", pos);    # 10
+print("unary -  : {}", neg);    # -10
+
+# ── Logical binary ─────────────────────────────────────────
+:boolean t = true;
+:boolean f = false;
+
+:boolean and_result = t & f;
+:boolean or_result  = t | f;
+:boolean xor_result = t ^ f;
+
+print("AND : {}", and_result);   # false
+print("OR  : {}", or_result);    # true
+print("XOR : {}", xor_result);   # true
+
+# ── Logical unary ──────────────────────────────────────────
+:boolean not_result = ~t;
+
+print("NOT : {}", not_result);   # false
+
+# ── Comparison ─────────────────────────────────────────────
+:boolean gt  = a > b;
+:boolean lt  = a < b;
+:boolean gte = a >= b;
+:boolean lte = a <= b;
+:boolean eq  = a == b;
+:boolean neq = a ~= b;
+
+print(">  : {}", gt);    # true
+print("<  : {}", lt);    # false
+print(">= : {}", gte);   # true
+print("<= : {}", lte);   # false
+print("== : {}", eq);    # false
+print("~= : {}", neq);   # true
+
+# ── Divisible-by shorthand ─────────────────────────────────
+:boolean div3 = a%==3;   # 10 % 3 == 0 -> false
+:boolean div5 = a%==5;   # 10 % 5 == 0 -> true
+
+print("10 %== 3 : {}", div3);   # false
+print("10 %== 5 : {}", div5);   # true
+
+# ── Assignment operators ───────────────────────────────────
+:int x = 10;
+
+x += 5;   print("+= 5  -> {}", x);   # 15
+x -= 3;   print("-= 3  -> {}", x);   # 12
+x *= 2;   print("*= 2  -> {}", x);   # 24
+x /= 4;   print("/= 4  -> {}", x);   # 6
+x %= 4;   print("%%= 4 -> {}", x);   # 2
+
+:boolean bx = true;
+bx &= false;   print("&= false -> {}", bx);   # false
+bx |= true;    print("|= true  -> {}", bx);   # true
+bx ^= true;    print("^= true  -> {}", bx);   # false
+
+# ── Number literal formats ─────────────────────────────────
+:int bin_lit = 0b1010;   # 10
+:int hex_lit = 0xFF;     # 255
+:int oct_lit = 0o17;     # 15
+:int dec_lit = 0d42;     # 42
+:int plain   = 99;
+
+print("binary  : {}", bin_lit);
+print("hex     : {}", hex_lit);
+print("octal   : {}", oct_lit);
+print("decimal : {}", dec_lit);
+print("plain   : {}", plain);
+
+# ── Float literals ─────────────────────────────────────────
+:float f1 = 3.14;
+:float f2 = 1.5e3;
+
+print("float     : {}", f1);
+print("float exp : {}", f2);
+
+# ── Type casting — colon-prefix form ──────────────────────
+:float cast_result = :float(a) / 3.0;
+
+print("cast div : {}", cast_result);
+
+:int back = :int(3.99);
+print("float->int : {}", back);   # 3
+
+# ── Char and string literals ───────────────────────────────
+:char ch = 'Z';
+:array<char, 5> word = "hello";
+
+print("char   : {}", ch);
+print("string : {}", word);
+
+# ── Null literal ───────────────────────────────────────────
+:struct<Node> {
+    :int val;
+    :struct<Node> next;
+}
+
+struct<Node> lone = {
+    val = 1
+}
+lone::next = !null;
+
+print("next is null : {}", lone::next == !null);   # true
+
+# ── Struct member access (::) ──────────────────────────────
+:struct<Point> {
+    :int px;
+    :int py;
+}
+
+struct<Point> p = {
+    px = 7,
+    py = 9
+}
+
+print("point x : {}", p::px);
+print("point y : {}", p::py);
+
+# ── Arrow — return type in function signature ──────────────
+!func add_ints(:int m, :int n) -> :int {
+    !return m + n;
+}
+
+:int fn_result = add_ints(4, 6);
+print("func -> : {}", fn_result);   # 10
+
+# ── Boolean literals ───────────────────────────────────────
+:boolean yes = true;
+:boolean no  = false;
+
+print("true  : {}", yes);
+print("false : {}", no);
+
+!end

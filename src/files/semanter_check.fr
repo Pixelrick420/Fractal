@@ -1,7 +1,8 @@
 !start
     :int a =5;
-    :int b = 3;
-    :int c = a + b;
+    :float b = 3.2;
+  
+    :int c = int(3.2);
  
     :array<char, 10> string = "hello 1234";
     :list<int> nums = [1, 2,a];

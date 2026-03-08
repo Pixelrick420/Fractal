@@ -1,0 +1,16 @@
+!start
+:int n = 0;
+if (n==0){
+    # type error
+    :int a = 1;
+    :float b = 4;
+    if (a>b){
+        print("wow error");
+    }
+}
+else if (n==1){
+    #using undeclared variable
+    :int a = c;
+}
+
+!end

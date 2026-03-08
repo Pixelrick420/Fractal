@@ -1,33 +1,96 @@
+
 !start
-    :int a = 4;
+    # this is a comment
+    !import "math";
+    :int a = 100;
     :float b = 5.0;
+    :boolean checkBool = true;
     :array<int, 5> arr = [1, 2, 3, 4, 5];
     :array<char, 10> string = "hello 1234";
     :list<int> nums = [1, 2, 3];
-    !if (a > b) {
+    print("{}", arr[0]);
+
+    !if (float(a) > b) {
         a = (a + 1);
     }
     !else {
         b = (b + :float(1));
     }
+    ###
+    multi line
+    comment testing
+    in this program function call from imported files, recursion in loops tested
+    ###
+
+    :char c = string[0];
     a = :int(math::pi);
     append(nums, a);
-    append(arr, :int(b));
+    append(arr, (int) b);
+
     :int c = pop(arr);
-    !for (:int i, 0, n, 1) {
-        print("{}, {}, {}", a, b, c);
+
+    !for (:int i, 0, 10, 1) { # variable, start, stop, step
+        if (i%==3){
+            print("{} is a multipe of 3",i);
+            continue
+        }
+        print("{} {}\n", i, arr[i]);
     }
-    !while (a > b) {
+
+    !while (float(a) > b) {
         a -= 1;
-        print("Hello");
+        if (a == 3){
+            break;
+        }
+        else if (a%25==0){
+            print("Hello: a = {}\n",a);
+        }
     }
-    !func hello(:int a, :float b) -> :boolean {
-        !return (a > b);
+
+    !func hello(:int a, :float b, :list c) -> :boolean {
+        :float sqrtOfB = sqrt(b);
+        :float sqrtOfC = sqrt(c[0]);
+        c[0] = 0.0;
+        !return (sqrtOfB>sqrtOfC);
     }
+    :list<float> top = [5.6,25.1];
+    :boolean res = hello(a, b,top);
+    print("{}\n",top[0]);
+
     :struct<Node> {
         :int a;
         :int b;
         :array<int, 10> arr;
         :struct<Node> next;
     }
+    struct<Node> root = {
+        a = 67,
+        b = 69
+        arr = [1,2,3]
+    }
+    struct <Node> cur = root;
+    for (:int i, 0 ,5,1){
+        struct<Node> node = {
+            a = i,
+            b = i*5
+        }
+        for(:int j, a,b,1){
+            append(node.arr,j)
+        }
+        cur::next = node;
+        cur = node;
+    }
+    cur.next = !null;
+    !func traverse(struct<Node> node,array<:list,100>values)->:array{
+        if (cur==!null){
+            return;
+        }
+        !list<:int> temp = [node::a,node::b]
+        append(values,temp);
+        traverse(node.next,values);
+    }
+    !array<:list,100>values;
+    traverse(root,values)
+    
+    
 !end

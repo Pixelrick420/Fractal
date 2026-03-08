@@ -145,7 +145,7 @@
         1. : signifys type
         2. ! signifys keyword
         3. -> return type
-        4. . struct member access
+        4.  struct member access
         6. , seperation in arrays lists function params etc
         7. ' char
         8. " string

@@ -4,7 +4,7 @@
         2. float : 64 bit IEEE floating point
         3. char : 32 bit character (UTF 32 encoding)
         4. boolean : true or false (1 bit)
-        5. NULL (special type)
+        5. void : the null type, !null is its only value
 
     b) iterable
         1. array : fixed size array that can store any single simple data type
@@ -13,10 +13,6 @@
 
     c) complex
         1. user defined structure : has to be fixed size
-
-
-# MODIFIERS
-    1. const : this type of variable has to be assigned a value during initialization and cant be changed. lists and structures cant be const.
 
 
 # LITERALS
@@ -41,71 +37,71 @@
     e) list
         1. same as array but declared as :list
 
+
 # RULES
-    1. no implicit type casting. if user does not convert int to float before calculation, then error happens.
+    1. no implicit type casting. if user does not convert int to float before
+       calculation, then an error occurs.
         2 / 1.0 -> type error: operands do not match
-        (float) 2 / 1.0 -> ok
+        :float(2) / 1.0 -> ok
 
         :int a = 1.0 -> type error
-        :int a = (!int) 1.0 -> ok
+        :int a = :int(1.0) -> ok
 
-    2. static + strong typing. All datatypes must be declared and cannot be changed.
+    2. static + strong typing. all datatypes must be declared and cannot be changed.
 
     3. all keywords start with !
         for -> error
         !for -> keyword signifying a for loop
 
-    4. All datatypes will start with :
+    4. all datatypes start with :
         :int -> integer datatype
         int -> error
 
-    5. intendation + curly brackets.
+    5. indentation + curly brackets.
         !if (a > b){
         print(a);
         }
-        warning: intendation error
+        warning: indentation error
 
-        !if (a > b){
+        !if (a > b) {
             print(a);
         }
         ok
 
-        also the starting curly brace must be on the same line as condition
+        the opening curly brace must be on the same line as the condition:
         !if (a > b)
         {
             print(a);
         }
         warning: improper use of {
 
-        !if (a > b){
-            print(a);
-        }
-        ok
+    6. !start and !end must be used. only lines of code between those will
+       be considered.
 
-        Users will have to type all code with proper intendation as well as use curly braces. This makes everyones code look identical and more readable.
-
-    5. !start and !end must be used. Only lines of code between those will be considered.
-
-    6. All variables are local. ie, they can only be accessed within the nearest { }
-        !if (condition){
+    7. all variables are local, i.e. they can only be accessed within the
+       nearest { }.
+        !if (condition) {
             :int a = 0;
         }
-        # no a here
+        # a is not accessible here
 
-        if variable is declared after start without any nesting, then it is global. The compiler will treat !start as { and !end as }
+        variables declared after !start with no nesting are global.
+        the compiler treats !start as { and !end as }.
+
 
 # COMMENTS
     1. single line: # <comment here>
     2. multiline:
     ###
-            comment
-            here
+        comment
+        here
     ###
+
 
 # OPERATORS
     a) arithmetic unary
-        1. +
-        2. -
+        1. + (no-op)
+        2. - (negate)
 
     b) arithmetic binary
         1. +
@@ -114,60 +110,68 @@
         4. /
         5. %
 
-    c) logical unary
-        1. ~ (not)
+    c) bitwise unary (int only)
+        1. ~ (bitwise NOT)
 
-    d) logical binary
-        1. &
-        2. |
-        3. ^
+    d) bitwise binary (int only)
+        1. & (bitwise AND)
+        2. | (bitwise OR)
+        3. ^ (bitwise XOR)
 
-    e) assignment
+    e) logical unary (boolean only)
+        1. !not
+
+    f) logical binary (boolean only)
+        1. !and
+        2. !or
+
+    g) assignment
         1. =
         2. +=
-        3. *=
-        4. -=
+        3. -=
+        4. *=
         5. /=
         6. %=
-        7. &=
-        8. |=
-        9. ^=
+        7. &=  (int only)
+        8. |=  (int only)
+        9. ^=  (int only)
 
-    f) comparison
+    h) comparison
         1. >
-        2. <
+        2.
         3. >=
         4. <=
-        5. ~=
-        6. ==
+        5. ==
+        6. ~=  (not-equal, all types)
 
-    g) other
-        1. : signifys type
-        2. ! signifys keyword
-        3. -> return type
-        4. :: struct member access
-        6. , seperation in arrays lists function params etc
-        7. ' char
-        8. " string
+    i) other
+        1. :   signifies type
+        2. !   signifies keyword
+        3. ->  return type
+        4. ::  struct member access
+        5. ,   separation in arrays, lists, function params etc
+        6. '   char literal delimiter
+        7. "   string literal delimiter
 
-    h) parentheses
-        1. ()  functions, priority and type casting
+    j) parentheses
+        1. ()  functions, priority, and type casting
         2. []  arrays and lists
-        3. {}  scope define
-        4. <>  type define
-
+        3. {}  scope
+        4. <>  type parameters
 
 
 # STANDARD LIBRARY FUNCTIONS
     a) io
-        1. print(string with placeholders, ..... as many simple data variables as there are placeholders) -> will print formatted string to console
-        2. input(string with placeholders, ..... as many simple data variables as there are placeholders) -> will take user input and match it with the provided string and fill in placeholder variables. Results in error if types dont match
-
+        1. print(string with placeholders, ...variables) -> prints formatted
+           string to console
+        2. input(string with placeholders, ...variables) -> takes user input,
+           matches against the format string, fills placeholder variables.
+           error if types don't match.
 
     b) array methods
         1. find
-        2. starts (startswith in python)
-        2. ends (endswith in python)
+        2. starts  (startswith)
+        3. ends    (endswith)
 
     c) list methods
         1. append
@@ -175,9 +179,6 @@
         3. insert
         4. find
         5. delete
-
-    e) tbd (file access needed ig + some sort of turtle like thing for 2d graphics)
-
 
 
 # SAMPLE PROGRAM
@@ -188,12 +189,12 @@
     :int a = 4;
     :float b = 5.0;
 
-    :array<int, 5> arr = [1, 2, 3, 4, 5];
-    :array<char, 10> string = "hello 1234";
-    :list<int> nums = [1, 2, 3];
+    :array<:int, 5> arr = [1, 2, 3, 4, 5];
+    :array<:char, 10> string = "hello 1234";
+    :list<:int> nums = [1, 2, 3];
     print("{}", arr[0]);
 
-    !if (a > b) {
+    !if (:float(a) > b) {
         a = (a + 1);
     }
     !else {
@@ -203,21 +204,21 @@
     :char c = string[0];
     a = :int(math::pi);
     append(nums, a);
-    append(arr, (int) b);
+    append(arr, :int(b));
 
-    :int c = pop(arr);
+    :int popped = pop(arr);
 
-    !for (:int i, 0, n, 1) { # variable, start, stop, step
-        print("{}, {}, {}", a, b, c);
+    !for (:int i, 0, 10, 1) {
+        print("{}, {}, {}", a, b, popped);
     }
 
-    !while (a > b) {
+    !while (:float(a) > b) {
         a -= 1;
         print("Hello");
     }
 
     !func hello(:int a, :float b) -> :boolean {
-        !return (a > b);
+        !return :float(a) > b;
     }
 
     :boolean res = hello(a, b);
@@ -225,8 +226,8 @@
     :struct<Node> {
         :int a;
         :int b;
-        :array<int, 10> arr;
+        :array<:int, 10> arr;
         :struct<Node> next;
-    }
+    };
 
 !end

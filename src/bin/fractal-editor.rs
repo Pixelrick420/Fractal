@@ -552,7 +552,7 @@ impl eframe::App for FractalEditor {
                 if self.docs_window.open {
                     self.docs_window.show(ui);
                 } else if self.tabs.is_empty() {
-                    match show_empty_state(ui, &self.theme) {
+                    match show_empty_state(ui, &self.theme, ctx.screen_rect()) {
                         EmptyStateAction::Open => self.file_dialog.open_for_open(),
                         EmptyStateAction::New => {
                             self.tabs.push(Tab::new(self.theme));

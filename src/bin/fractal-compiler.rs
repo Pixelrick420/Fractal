@@ -1,17 +1,10 @@
-#![allow(unused_parens)]
-#![allow(unused)]
-#![allow(dead_code)]
-
 use std::env;
 use std::fs;
 use std::io::ErrorKind;
 use std::process;
-use std::process::Command;
 
 use fractal::compiler::lexer::Token;
 use fractal::compiler::parser::pretty_print_root;
-use fractal::compiler::parser::ParseError;
-use fractal::compiler::parser::ParseNode;
 use fractal::compiler::semanter;
 use fractal::compiler::{lexer, parser, preprocessor};
 
@@ -21,7 +14,7 @@ fn print_error(msg: &str) {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if (args.len() != 2) {
+    if args.len() != 2 {
         print_error(&format!("Usage: {} <path/to/file.fr>", &args[0]));
         process::exit(1);
     }

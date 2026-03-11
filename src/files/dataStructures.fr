@@ -1,390 +1,389 @@
 !start
-
-###
+    ###
     dataStructures.fr
     Tests nested structures, all container combos, struct declarations,
     standard library methods, and functions returning nested types.
-###
-
-# ============================================================
-# STRUCT DEFINITIONS
-# ============================================================
-
-:struct<Vec2> {
-    :float x;
-    :float y;
-};
-
-:struct<Address> {
-    :array<:char, 30> street;
-    :int             zip;
-};
-
-:struct<Person> {
-    :array<:char, 20> name;
-    :int             age;
-    :struct<Address> addr;
-};
-
-:struct<Rect> {
-    :float width;
-    :float height;
-};
-
-:struct<DataBag> {
-    :array<:int, 4>  fixed_data;
-    :list<:float>    scores;
-    :int            id;
-};
-
-:struct<AllTypes> {
-    :int     i_val;
-    :float   f_val;
-    :char    c_val;
-    :boolean b_val;
-};
-
-:struct<Row> {
-    :array<:int, 4> cells;
-    :int           row_id;
-};
-
-:struct<Bag> {
-    :list<:int> items;
-    :int       capacity;
-};
-
-:struct<Node> {
-    :int           val;
-    :struct<Node>  next;
-};
-
-# ============================================================
-# 1. LIST INSIDE LIST
-# ============================================================
-
-:list<:int> inner1 = [1, 2, 3];
-:list<:int> inner2 = [4, 5];
-
-:list<:list<:int>> list_of_lists;
-append(list_of_lists, inner1);
-append(list_of_lists, inner2);
-
-print("list[0][1] = {}", list_of_lists[0][1]);
-print("list[1][0] = {}", list_of_lists[1][0]);
-
-# ============================================================
-# 2. ARRAY INSIDE ARRAY
-# ============================================================
-
-:array<:int, 3> row0 = [10, 20, 30];
-:array<:int, 3> row1 = [40, 50, 60];
-:array<:int, 3> row2 = [70, 80, 90];
-
-:array<:array<:int, 3>, 3> matrix = [row0, row1, row2];
-
-print("matrix[1][2] = {}", matrix[1][2]);
-print("matrix[2][0] = {}", matrix[2][0]);
-
-# ============================================================
-# 3. STRUCT INSIDE STRUCT
-# ============================================================
-
-:struct<Person> alice = { name = "Alice", age = 28 };
-alice::addr::street = "Main St";
-alice::addr::zip    = 12345;
-
-print("name   : {}", alice::name);
-print("street : {}", alice::addr::street);
-print("zip    : {}", alice::addr::zip);
-
-# ============================================================
-# 4. LIST INSIDE ARRAY
-# ============================================================
-
-:list<:int> la0 = [1, 2];
-:list<:int> la1 = [3, 4];
-
-:array<:list<:int>, 2> arr_of_lists = [la0, la1];
-
-print("arr_of_lists[0][0] = {}", arr_of_lists[0][0]);
-print("arr_of_lists[1][1] = {}", arr_of_lists[1][1]);
-
-# ============================================================
-# 5. STRUCT INSIDE ARRAY
-# ============================================================
-
-:struct<Vec2> v0 = { x = 1.0, y = 2.0 };
-:struct<Vec2> v1 = { x = 3.0, y = 4.0 };
-
-:array<:struct<Vec2>, 2> vec_arr = [v0, v1];
-
-print("vec_arr[0].x = {}", vec_arr[0]::x);
-print("vec_arr[1].y = {}", vec_arr[1]::y);
-
-# ============================================================
-# 6. ARRAY INSIDE LIST
-# ============================================================
-
-:array<:int, 3> al0 = [100, 200, 300];
-:array<:int, 3> al1 = [400, 500, 600];
-
-:list<:array<:int, 3>> list_of_arrays;
-append(list_of_arrays, al0);
-append(list_of_arrays, al1);
-
-print("list_of_arrays[0][2] = {}", list_of_arrays[0][2]);
-print("list_of_arrays[1][0] = {}", list_of_arrays[1][0]);
-
-# ============================================================
-# 7. STRUCT WITH ARRAY AND LIST FIELDS
-# ============================================================
-
-:struct<DataBag> bag = {
-    id         = 42,
-    fixed_data = [9, 8, 7, 6]
-};
-append(bag::scores, 95.5);
-append(bag::scores, 87.3);
-append(bag::scores, 76.1);
-
-print("bag.id            = {}", bag::id);
-print("bag.fixed_data[1] = {}", bag::fixed_data[1]);
-print("bag.scores[2]     = {}", bag::scores[2]);
-
-# ============================================================
-# 8. LIST METHODS
-# ============================================================
-
-:list<:int> nums = [10, 20, 30, 40];
-
-:int popped = pop(nums);
-print("popped = {}", popped);
-
-insert(nums, 15, 1);
-print("after insert(15,1) [1] = {}", nums[1]);
-
-:int idx  = find(nums, 20);
-print("find(20) = {}", idx);
-
-:int miss = find(nums, 99);
-print("find(99) = {}", miss);
-
-delete(nums, 0);
-print("after delete(0) [0] = {}", nums[0]);
-
-# ============================================================
-# 9. ARRAY METHODS
-# ============================================================
-
-:array<:int, 6> primes = [2, 3, 5, 7, 11, 13];
-
-:int pidx  = find(primes, 7);
-print("find(7) = {}", pidx);
-
-:array<:int, 2> head       = [2, 3];
-:array<:int, 2> wrong_head = [3, 2];
-print("starts([2,3]) = {}", starts(primes, head));
-print("starts([3,2]) = {}", starts(primes, wrong_head));
-
-:array<:int, 2> tail       = [11, 13];
-:array<:int, 2> wrong_tail = [11, 12];
-print("ends([11,13]) = {}", ends(primes, tail));
-print("ends([11,12]) = {}", ends(primes, wrong_tail));
-
-:array<:char, 11> greeting = "hello world";
-:array<:char, 5>  prefix   = "hello";
-:array<:char, 5>  suffix   = "world";
-
-print("str starts 'hello' = {}", starts(greeting, prefix));
-print("str ends   'world' = {}", ends(greeting, suffix));
-
-# ============================================================
-# 10. STRUCT DECLARATIONS
-# ============================================================
-
-:struct<Rect> r;
-r::width  = 5.0;
-r::height = 3.0;
-print("rect area = {}", r::width * r::height);
-
-:struct<Rect> big   = { width = 100.0, height = 80.0 };
-:struct<Rect> small = { width = 4.0,   height = 2.0  };
-
-print("big area   = {}", big::width   * big::height);
-print("small area = {}", small::width * small::height);
-
-:struct<AllTypes> at = {
-    i_val = 7,
-    f_val = 3.14,
-    c_val = 'X',
-    b_val = true
-};
-
-print("int   = {}", at::i_val);
-print("float = {}", at::f_val);
-print("char  = {}", at::c_val);
-print("bool  = {}", at::b_val);
-
-:struct<Row> row = { cells = [1, 2, 3, 4], row_id = 0 };
-print("row.cells[2] = {}", row::cells[2]);
-
-:struct<Bag> bag2 = { capacity = 10 };
-append(bag2::items, 5);
-append(bag2::items, 6);
-print("bag2.items[1] = {}", bag2::items[1]);
-
-:array<:struct<AllTypes>, 3> at_arr;
-at_arr[0]::i_val = 1;
-at_arr[1]::i_val = 2;
-at_arr[2]::i_val = 3;
-print("at_arr[2].i_val = {}", at_arr[2]::i_val);
-
-:list<:struct<Rect>> rect_list;
-:struct<Rect> tmp = { width = 1.0, height = 1.0 };
-append(rect_list, tmp);
-tmp::width  = 2.0;
-tmp::height = 2.0;
-append(rect_list, tmp);
-print("rect_list[1].width = {}", rect_list[1]::width);
-
-# ============================================================
-# 11. FUNCTIONS RETURNING NESTED TYPES
-# ============================================================
-
-!func make_vec2(:float nx, :float ny) -> :struct<Vec2> {
-    :struct<Vec2> result = { x = nx, y = ny };
-    !return result;
-}
-
-:struct<Vec2> made = make_vec2(6.0, 9.0);
-print("make_vec2 x = {}", made::x);
-print("make_vec2 y = {}", made::y);
-
-!func make_person(:array<:char,20> pname, :int page, :array<:char,30> pstreet, :int pzip) -> :struct<Person> {
-    :struct<Person> p = { name = pname, age = page };
-    p::addr::street = pstreet;
-    p::addr::zip    = pzip;
-    !return p;
-}
-
-:struct<Person> bob = make_person("Bob", 35, "Oak Ave", 67890);
-print("person name   = {}", bob::name);
-print("person street = {}", bob::addr::street);
-print("person zip    = {}", bob::addr::zip);
-
-!func range(:int start, :int stop) -> :list<:int> {
-    :list<:int> out;
-    :int i = start;
-    !while (i < stop) {
-        append(out, i);
-        i += 1;
-    }
-    !return out;
-}
-
-:list<:int> rng = range(3, 7);
-print("range[0] = {}", rng[0]);
-print("range[3] = {}", rng[3]);
-
-!func two_rects(:float w0, :float h0, :float w1, :float h1) -> :list<:struct<Rect>> {
-    :list<:struct<Rect>> out;
-    :struct<Rect> a = { width = w0, height = h0 };
-    :struct<Rect> b = { width = w1, height = h1 };
-    append(out, a);
-    append(out, b);
-    !return out;
-}
-
-:list<:struct<Rect>> rects = two_rects(2.0, 3.0, 4.0, 5.0);
-print("rects[0] area = {}", rects[0]::width * rects[0]::height);
-print("rects[1] area = {}", rects[1]::width * rects[1]::height);
-
-!func fill_array() -> :array<:int, 4> {
-    :array<:int, 4> arr = [10, 20, 30, 40];
-    !return arr;
-}
-
-:array<:int, 4> filled = fill_array();
-print("filled[2] = {}", filled[2]);
-
-!func make_databag(:int bid) -> :struct<DataBag> {
-    :struct<DataBag> d = { id = bid, fixed_data = [1, 2, 3, 4] };
-    append(d::scores, 10.0);
-    append(d::scores, 20.0);
-    !return d;
-}
-
-:struct<DataBag> db = make_databag(99);
-print("db.id            = {}", db::id);
-print("db.fixed_data[3] = {}", db::fixed_data[3]);
-print("db.scores[1]     = {}", db::scores[1]);
-
-!func make_list_of_lists() -> :list<:list<:int>> {
-    :list<:int> r0 = [1, 2];
-    :list<:int> r1 = [3, 4];
-    :list<:list<:int>> outer;
-    append(outer, r0);
-    append(outer, r1);
-    !return outer;
-}
-
-:list<:list<:int>> lol = make_list_of_lists();
-print("lol[0][1] = {}", lol[0][1]);
-print("lol[1][0] = {}", lol[1][0]);
-
-!func scale_rect(:struct<Rect> src, :float factor) -> :struct<Rect> {
-    :struct<Rect> out = {
-        width  = src::width  * factor,
-        height = src::height * factor
+    ###
+
+    # ============================================================
+    # STRUCT DEFINITIONS
+    # ============================================================
+
+    :struct<Vec2> {
+        :float x;
+        :float y;
     };
-    !return out;
-}
 
-:struct<Rect> base   = { width = 3.0, height = 4.0 };
-:struct<Rect> scaled = scale_rect(base, 2.0);
-print("scaled width  = {}", scaled::width);
-print("scaled height = {}", scaled::height);
+    :struct<Address> {
+        :array<:char, 30> street;
+        :int zip;
+    };
 
-!func keep_above(:list<:int> src, :int threshold) -> :list<:int> {
-    :list<:int> out;
-    :int i = 0;
-    !while (i < find(src, -999)) {
-        !if (src[i] > threshold) {
-            append(out, src[i]);
+    :struct<Person> {
+        :array<:char, 20> name;
+        :int age;
+        :struct<Address> addr;
+    };
+
+    :struct<Rect> {
+        :float width;
+        :float height;
+    };
+
+    :struct<DataBag> {
+        :array<:int, 4> fixed_data;
+        :list<:float> scores;
+        :int id;
+    };
+
+    :struct<AllTypes> {
+        :int i_val;
+        :float f_val;
+        :char c_val;
+        :boolean b_val;
+    };
+
+    :struct<Row> {
+        :array<:int, 4> cells;
+        :int row_id;
+    };
+
+    :struct<Bag> {
+        :list<:int> items;
+        :int capacity;
+    };
+
+    :struct<Node> {
+        :int val;
+        :struct<Node> next;
+    };
+
+    # ============================================================
+    # 1. LIST INSIDE LIST
+    # ============================================================
+
+    :list<:int> inner1 = [1, 2, 3];
+    :list<:int> inner2 = [4, 5];
+
+    :list<:list<:int>> list_of_lists;
+    append(list_of_lists, inner1);
+    append(list_of_lists, inner2);
+
+    print("list[0][1] = {}", list_of_lists[0][1]);
+    print("list[1][0] = {}", list_of_lists[1][0]);
+
+    # ============================================================
+    # 2. ARRAY INSIDE ARRAY
+    # ============================================================
+
+    :array<:int, 3> row0 = [10, 20, 30];
+    :array<:int, 3> row1 = [40, 50, 60];
+    :array<:int, 3> row2 = [70, 80, 90];
+
+    :array<:array<:int, 3>, 3> matrix = [row0, row1, row2];
+
+    print("matrix[1][2] = {}", matrix[1][2]);
+    print("matrix[2][0] = {}", matrix[2][0]);
+
+    # ============================================================
+    # 3. STRUCT INSIDE STRUCT
+    # ============================================================
+
+    :struct<Person> alice = { name = "Alice", age = 28 };
+    alice::addr::street = "Main St";
+    alice::addr::zip = 12345;
+
+    print("name   : {}", alice::name);
+    print("street : {}", alice::addr::street);
+    print("zip    : {}", alice::addr::zip);
+
+    # ============================================================
+    # 4. LIST INSIDE ARRAY
+    # ============================================================
+
+    :list<:int> la0 = [1, 2];
+    :list<:int> la1 = [3, 4];
+
+    :array<:list<:int>, 2> arr_of_lists = [la0, la1];
+
+    print("arr_of_lists[0][0] = {}", arr_of_lists[0][0]);
+    print("arr_of_lists[1][1] = {}", arr_of_lists[1][1]);
+
+    # ============================================================
+    # 5. STRUCT INSIDE ARRAY
+    # ============================================================
+
+    :struct<Vec2> v0 = { x = 1.0, y = 2.0 };
+    :struct<Vec2> v1 = { x = 3.0, y = 4.0 };
+
+    :array<:struct<Vec2>, 2> vec_arr = [v0, v1];
+
+    print("vec_arr[0].x = {}", vec_arr[0]::x);
+    print("vec_arr[1].y = {}", vec_arr[1]::y);
+
+    # ============================================================
+    # 6. ARRAY INSIDE LIST
+    # ============================================================
+
+    :array<:int, 3> al0 = [100, 200, 300];
+    :array<:int, 3> al1 = [400, 500, 600];
+
+    :list<:array<:int, 3>> list_of_arrays;
+    append(list_of_arrays, al0);
+    append(list_of_arrays, al1);
+
+    print("list_of_arrays[0][2] = {}", list_of_arrays[0][2]);
+    print("list_of_arrays[1][0] = {}", list_of_arrays[1][0]);
+
+    # ============================================================
+    # 7. STRUCT WITH ARRAY AND LIST FIELDS
+    # ============================================================
+
+    :struct<DataBag> bag = {
+        id = 42,
+        fixed_data = [9, 8, 7, 6]
+    };
+    append(bag::scores, 95.5);
+    append(bag::scores, 87.3);
+    append(bag::scores, 76.1);
+
+    print("bag.id            = {}", bag::id);
+    print("bag.fixed_data[1] = {}", bag::fixed_data[1]);
+    print("bag.scores[2]     = {}", bag::scores[2]);
+
+    # ============================================================
+    # 8. LIST METHODS
+    # ============================================================
+
+    :list<:int> nums = [10, 20, 30, 40];
+
+    :int popped = pop(nums);
+    print("popped = {}", popped);
+
+    insert(nums, 15, 1);
+    print("after insert(15,1) [1] = {}", nums[1]);
+
+    :int idx = find(nums, 20);
+    print("find(20) = {}", idx);
+
+    :int miss = find(nums, 99);
+    print("find(99) = {}", miss);
+
+    delete(nums, 0);
+    print("after delete(0) [0] = {}", nums[0]);
+
+    # ============================================================
+    # 9. ARRAY METHODS
+    # ============================================================
+
+    :array<:int, 6> primes = [2, 3, 5, 7, 11, 13];
+
+    :int pidx = find(primes, 7);
+    print("find(7) = {}", pidx);
+
+    :array<:int, 2> head = [2, 3];
+    :array<:int, 2> wrong_head = [3, 2];
+    print("starts([2,3]) = {}", starts(primes, head));
+    print("starts([3,2]) = {}", starts(primes, wrong_head));
+
+    :array<:int, 2> tail = [11, 13];
+    :array<:int, 2> wrong_tail = [11, 12];
+    print("ends([11,13]) = {}", ends(primes, tail));
+    print("ends([11,12]) = {}", ends(primes, wrong_tail));
+
+    :array<:char, 11> greeting = "hello world";
+    :array<:char, 5> prefix = "hello";
+    :array<:char, 5> suffix = "world";
+
+    print("str starts 'hello' = {}", starts(greeting, prefix));
+    print("str ends   'world' = {}", ends(greeting, suffix));
+
+    # ============================================================
+    # 10. STRUCT DECLARATIONS
+    # ============================================================
+
+    :struct<Rect> r;
+    r::width = 5.0;
+    r::height = 3.0;
+    print("rect area = {}", r::width * r::height);
+
+    :struct<Rect> big = { width = 100.0, height = 80.0 };
+    :struct<Rect> small = { width = 4.0, height = 2.0 };
+
+    print("big area   = {}", big::width * big::height);
+    print("small area = {}", small::width * small::height);
+
+    :struct<AllTypes> at = {
+        i_val = 7,
+        f_val = 3.14,
+        c_val = 'X',
+        b_val = true
+    };
+
+    print("int   = {}", at::i_val);
+    print("float = {}", at::f_val);
+    print("char  = {}", at::c_val);
+    print("bool  = {}", at::b_val);
+
+    :struct<Row> row = { cells = [1, 2, 3, 4], row_id = 0 };
+    print("row.cells[2] = {}", row::cells[2]);
+
+    :struct<Bag> bag2 = { capacity = 10 };
+    append(bag2::items, 5);
+    append(bag2::items, 6);
+    print("bag2.items[1] = {}", bag2::items[1]);
+
+    :array<:struct<AllTypes>, 3> at_arr;
+    at_arr[0]::i_val = 1;
+    at_arr[1]::i_val = 2;
+    at_arr[2]::i_val = 3;
+    print("at_arr[2].i_val = {}", at_arr[2]::i_val);
+
+    :list<:struct<Rect>> rect_list;
+    :struct<Rect> tmp = { width = 1.0, height = 1.0 };
+    append(rect_list, tmp);
+    tmp::width = 2.0;
+    tmp::height = 2.0;
+    append(rect_list, tmp);
+    print("rect_list[1].width = {}", rect_list[1]::width);
+
+    # ============================================================
+    # 11. FUNCTIONS RETURNING NESTED TYPES
+    # ============================================================
+
+    !func make_vec2(:float nx, :float ny) -> :struct<Vec2> {
+        :struct<Vec2> result = { x = nx, y = ny };
+        !return result;
+    }
+
+    :struct<Vec2> made = make_vec2(6.0, 9.0);
+    print("make_vec2 x = {}", made::x);
+    print("make_vec2 y = {}", made::y);
+
+    !func make_person(:array<:char, 20> pname, :int page, :array<:char, 30> pstreet, :int pzip) -> :struct<Person> {
+        :struct<Person> p = { name = pname, age = page };
+        p::addr::street = pstreet;
+        p::addr::zip = pzip;
+        !return p;
+    }
+
+    :struct<Person> bob = make_person("Bob", 35, "Oak Ave", 67890);
+    print("person name   = {}", bob::name);
+    print("person street = {}", bob::addr::street);
+    print("person zip    = {}", bob::addr::zip);
+
+    !func range(:int start, :int stop) -> :list<:int> {
+        :list<:int> out;
+        :int i = start;
+        !while (i < stop) {
+            append(out, i);
+            i += 1;
         }
-        i += 1;
+        !return out;
     }
-    !return out;
-}
 
-:list<:int> mixed    = [5, 1, 8, 2, 9, -999];
-:list<:int> big_ones = keep_above(mixed, 4);
-print("big_ones[0] = {}", big_ones[0]);
-print("big_ones[1] = {}", big_ones[1]);
-print("big_ones[2] = {}", big_ones[2]);
+    :list<:int> rng = range(3, 7);
+    print("range[0] = {}", rng[0]);
+    print("range[3] = {}", rng[3]);
 
-:struct<Rect> r_chain = scale_rect(scale_rect(base, 2.0), 3.0);
-print("double scaled width  = {}", r_chain::width);
-print("double scaled height = {}", r_chain::height);
-
-:struct<Node> n3 = { val = 30 };
-n3::next = !null;
-
-:struct<Node> n2 = { val = 20 };
-n2::next = n3;
-
-:struct<Node> n1 = { val = 10 };
-n1::next = n2;
-
-!func sum_list(:struct<Node> node) -> :int {
-    !if (node == !null) {
-        !return 0;
+    !func two_rects(:float w0, :float h0, :float w1, :float h1) -> :list<:struct<Rect>> {
+        :list<:struct<Rect>> out;
+        :struct<Rect> a = { width = w0, height = h0 };
+        :struct<Rect> b = { width = w1, height = h1 };
+        append(out, a);
+        append(out, b);
+        !return out;
     }
-    !return node::val + sum_list(node::next);
-}
 
-:int total = sum_list(n1);
-print("linked list sum = {}", total);
+    :list<:struct<Rect>> rects = two_rects(2.0, 3.0, 4.0, 5.0);
+    print("rects[0] area = {}", rects[0]::width * rects[0]::height);
+    print("rects[1] area = {}", rects[1]::width * rects[1]::height);
+
+    !func fill_array() -> :array<:int, 4> {
+        :array<:int, 4> arr = [10, 20, 30, 40];
+        !return arr;
+    }
+
+    :array<:int, 4> filled = fill_array();
+    print("filled[2] = {}", filled[2]);
+
+    !func make_databag(:int bid) -> :struct<DataBag> {
+        :struct<DataBag> d = { id = bid, fixed_data = [1, 2, 3, 4] };
+        append(d::scores, 10.0);
+        append(d::scores, 20.0);
+        !return d;
+    }
+
+    :struct<DataBag> db = make_databag(99);
+    print("db.id            = {}", db::id);
+    print("db.fixed_data[3] = {}", db::fixed_data[3]);
+    print("db.scores[1]     = {}", db::scores[1]);
+
+    !func make_list_of_lists() -> :list<:list<:int>> {
+        :list<:int> r0 = [1, 2];
+        :list<:int> r1 = [3, 4];
+        :list<:list<:int>> outer;
+        append(outer, r0);
+        append(outer, r1);
+        !return outer;
+    }
+
+    :list<:list<:int>> lol = make_list_of_lists();
+    print("lol[0][1] = {}", lol[0][1]);
+    print("lol[1][0] = {}", lol[1][0]);
+
+    !func scale_rect(:struct<Rect> src, :float factor) -> :struct<Rect> {
+        :struct<Rect> out = {
+            width = src::width * factor,
+            height = src::height * factor
+        };
+        !return out;
+    }
+
+    :struct<Rect> base = { width = 3.0, height = 4.0 };
+    :struct<Rect> scaled = scale_rect(base, 2.0);
+    print("scaled width  = {}", scaled::width);
+    print("scaled height = {}", scaled::height);
+
+    !func keep_above(:list<:int> src, :int threshold) -> :list<:int> {
+        :list<:int> out;
+        :int i = 0;
+        !while (i < find(src, - 999)) {
+            !if (src[i] > threshold) {
+                append(out, src[i]);
+            }
+            i += 1;
+        }
+        !return out;
+    }
+
+    :list<:int> mixed = [5, 1, 8, 2, 9, - 999];
+    :list<:int> big_ones = keep_above(mixed, 4);
+    print("big_ones[0] = {}", big_ones[0]);
+    print("big_ones[1] = {}", big_ones[1]);
+    print("big_ones[2] = {}", big_ones[2]);
+
+    :struct<Rect> r_chain = scale_rect(scale_rect(base, 2.0), 3.0);
+    print("double scaled width  = {}", r_chain::width);
+    print("double scaled height = {}", r_chain::height);
+
+    :struct<Node> n3 = { val = 30 };
+    n3::next = !null;
+
+    :struct<Node> n2 = { val = 20 };
+    n2::next = n3;
+
+    :struct<Node> n1 = { val = 10 };
+    n1::next = n2;
+
+    !func sum_list(:struct<Node> node) -> :int {
+        !if (node == !null) {
+            !return 0;
+        }
+        !return node::val + sum_list(node::next);
+    }
+
+    :int total = sum_list(n1);
+    print("linked list sum = {}", total);
 
 !end

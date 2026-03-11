@@ -1,6 +1,3 @@
-#![allow(unused)]
-#![allow(dead_code)]
-
 use crate::compiler::lexer::{Token, TokenType};
 
 #[derive(Debug, Clone)]
@@ -244,10 +241,6 @@ impl Parser {
 
     fn peek(&self) -> Option<&TokenType> {
         self.tokens.get(self.pos).map(|t| &t.token_type)
-    }
-
-    fn peek2(&self) -> Option<&TokenType> {
-        self.tokens.get(self.pos + 1).map(|t| &t.token_type)
     }
 
     fn advance(&mut self) -> Option<&TokenType> {

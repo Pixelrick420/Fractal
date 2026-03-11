@@ -1,9 +1,3 @@
-#![allow(unused_parens)]
-#![allow(unused)]
-#![allow(dead_code)]
-
-use std::str::FromStr;
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     Start,

@@ -112,7 +112,7 @@ pub enum EmptyStateAction {
     New,
 }
 
-pub fn show_empty_state(ui: &mut egui::Ui, t: &Theme) -> EmptyStateAction {
+pub fn show_empty_state(ui: &mut egui::Ui, t: &Theme, full_rect: egui::Rect) -> EmptyStateAction {
     let mut action = EmptyStateAction::None;
 
     ui.painter().rect_filled(
@@ -121,25 +121,16 @@ pub fn show_empty_state(ui: &mut egui::Ui, t: &Theme) -> EmptyStateAction {
         t.editor_bg,
     );
 
-    let avail = ui.available_size();
-    let cx = avail.x * 0.5;
-    let cy = avail.y * 0.5;
-    let content_w = 320.0_f32.min(avail.x - 64.0);
+    let content_w = 320.0_f32.min(full_rect.width() - 64.0);
+    let card_rect = egui::Rect::from_center_size(full_rect.center(), egui::vec2(content_w, 260.0));
 
-    let card_rect = egui::Rect::from_center_size(
-        ui.min_rect().min + egui::vec2(cx, cy),
-        egui::vec2(content_w, 260.0),
-    );
     ui.allocate_new_ui(egui::UiBuilder::new().max_rect(card_rect), |ui| {
         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-            ui.label(egui::RichText::new(ic::EMPTY_STATE).size(48.0).color(
-                egui::Color32::from_rgba_premultiplied(
-                    t.empty_fg.r(),
-                    t.empty_fg.g(),
-                    t.empty_fg.b(),
-                    160,
-                ),
-            ));
+            ui.label(
+                egui::RichText::new(ic::EMPTY_STATE)
+                    .size(48.0)
+                    .color(t.empty_fg),
+            );
             ui.add_space(14.0);
             ui.label(
                 egui::RichText::new("No files open")
@@ -151,12 +142,7 @@ pub fn show_empty_state(ui: &mut egui::Ui, t: &Theme) -> EmptyStateAction {
             ui.label(
                 egui::RichText::new("Open a file or create a new one to get started.")
                     .size(12.5)
-                    .color(egui::Color32::from_rgba_premultiplied(
-                        t.empty_fg.r(),
-                        t.empty_fg.g(),
-                        t.empty_fg.b(),
-                        160,
-                    )),
+                    .color(t.empty_fg),
             );
             ui.add_space(24.0);
 

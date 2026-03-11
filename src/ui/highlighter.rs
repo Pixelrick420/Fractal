@@ -79,7 +79,6 @@ impl Highlighter {
                     color: self.theme.comment,
                 });
             }
-
             if *in_block_comment {
                 return result;
             }
@@ -103,6 +102,8 @@ impl Highlighter {
                 }
             }
         }
+
+        let mut next_ident_is_fn = false;
 
         while i < chars.len() {
             if chars[i].is_whitespace() {
@@ -201,7 +202,11 @@ impl Highlighter {
                     i += 1;
                 }
                 let text: String = chars[start..i].iter().collect();
-                let color = if Self::is_keyword(&text[1..]) {
+                let word = &text[1..];
+                let color = if Self::is_keyword(word) {
+                    if word == "func" {
+                        next_ident_is_fn = true;
+                    }
                     self.theme.keyword
                 } else {
                     self.theme.operator
@@ -210,31 +215,114 @@ impl Highlighter {
                 continue;
             }
 
-            if chars[i] == ':' {
-                let start = i;
-                i += 1;
-                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
-                    i += 1;
-                }
-                let text: String = chars[start..i].iter().collect();
-                let color = if Self::is_type(&text[1..]) {
-                    self.theme.type_name
-                } else {
-                    self.theme.operator
-                };
-                result.push(Token { text, color });
+            if chars[i] == ':' && i + 1 < chars.len() && chars[i + 1] == ':' {
+                result.push(Token {
+                    text: "::".to_string(),
+                    color: self.theme.operator,
+                });
+                i += 2;
                 continue;
             }
 
-            if Self::is_operator_char(chars[i]) {
-                let start = i;
-                while i < chars.len() && Self::is_operator_char(chars[i]) {
+            if chars[i] == ':' {
+                i += 1;
+                let mut type_word = String::new();
+                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                    type_word.push(chars[i]);
                     i += 1;
                 }
+
+                if Self::is_type(&type_word) {
+                    result.push(Token {
+                        text: format!(":{}", type_word),
+                        color: self.theme.type_name,
+                    });
+
+                    if type_word == "struct" && i < chars.len() && chars[i] == '<' {
+                        result.push(Token {
+                            text: "<".to_string(),
+                            color: self.theme.angle_bracket,
+                        });
+                        i += 1;
+
+                        let name_start = i;
+                        while i < chars.len() && chars[i] != '>' {
+                            i += 1;
+                        }
+                        let struct_name: String = chars[name_start..i].iter().collect();
+                        if !struct_name.is_empty() {
+                            result.push(Token {
+                                text: struct_name,
+                                color: self.theme.struct_name,
+                            });
+                        }
+
+                        if i < chars.len() && chars[i] == '>' {
+                            result.push(Token {
+                                text: ">".to_string(),
+                                color: self.theme.angle_bracket,
+                            });
+                            i += 1;
+                        }
+                    }
+                } else {
+                    result.push(Token {
+                        text: format!(":{}", type_word),
+                        color: self.theme.operator,
+                    });
+                }
+                continue;
+            }
+
+            if chars[i] == '-' && i + 1 < chars.len() && chars[i + 1] == '>' {
                 result.push(Token {
-                    text: chars[start..i].iter().collect(),
+                    text: "->".to_string(),
                     color: self.theme.operator,
                 });
+                i += 2;
+                continue;
+            }
+
+            if Self::is_bracket_char(chars[i]) {
+                result.push(Token {
+                    text: chars[i].to_string(),
+                    color: self.theme.bracket,
+                });
+                i += 1;
+                continue;
+            }
+
+            if Self::is_operator_char(chars[i]) && i + 1 < chars.len() {
+                let two: String = chars[i..i + 2].iter().collect();
+                if matches!(
+                    two.as_str(),
+                    ">=" | "<="
+                        | "=="
+                        | "~="
+                        | "+="
+                        | "-="
+                        | "*="
+                        | "/="
+                        | "%="
+                        | "&="
+                        | "|="
+                        | "^="
+                ) {
+                    result.push(Token {
+                        text: two,
+                        color: self.theme.operator,
+                    });
+                    i += 2;
+                    continue;
+                }
+            }
+
+            if Self::is_operator_char(chars[i]) {
+                result.push(Token {
+                    text: chars[i].to_string(),
+                    color: self.theme.operator,
+                });
+                i += 1;
                 continue;
             }
 
@@ -258,11 +346,25 @@ impl Highlighter {
                     i += 1;
                 }
                 let text: String = chars[start..i].iter().collect();
+
+                let mut j = i;
+                while j < chars.len() && chars[j] == ' ' {
+                    j += 1;
+                }
+                let followed_by_paren = j < chars.len() && chars[j] == '(';
+
                 let color = match text.as_str() {
                     "true" | "false" => self.theme.boolean,
                     "NULL" => self.theme.keyword,
+                    _ if next_ident_is_fn => self.theme.fn_name,
+                    _ if followed_by_paren => self.theme.fn_name,
                     _ => self.theme.identifier,
                 };
+
+                if next_ident_is_fn {
+                    next_ident_is_fn = false;
+                }
+
                 result.push(Token { text, color });
                 continue;
             }
@@ -284,6 +386,7 @@ impl Highlighter {
                 | "end"
                 | "exit"
                 | "if"
+                | "elif"
                 | "else"
                 | "for"
                 | "while"
@@ -292,39 +395,30 @@ impl Highlighter {
                 | "struct"
                 | "import"
                 | "module"
+                | "break"
+                | "continue"
+                | "and"
+                | "or"
+                | "not"
+                | "null"
         )
     }
 
     fn is_type(s: &str) -> bool {
         matches!(
             s,
-            "int" | "float" | "char" | "boolean" | "array" | "list" | "struct"
+            "int" | "float" | "char" | "boolean" | "array" | "list" | "struct" | "void"
         )
+    }
+
+    fn is_bracket_char(c: char) -> bool {
+        matches!(c, '(' | ')' | '{' | '}' | '[' | ']')
     }
 
     fn is_operator_char(c: char) -> bool {
         matches!(
             c,
-            '+' | '-'
-                | '*'
-                | '/'
-                | '%'
-                | '&'
-                | '|'
-                | '~'
-                | '^'
-                | '='
-                | '>'
-                | '<'
-                | '('
-                | ')'
-                | '{'
-                | '}'
-                | '['
-                | ']'
-                | '.'
-                | ','
-                | ';'
+            '+' | '-' | '*' | '/' | '%' | '&' | '|' | '~' | '^' | '=' | '>' | '<' | '.' | ',' | ';'
         )
     }
 }

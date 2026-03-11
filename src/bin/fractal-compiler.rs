@@ -5,7 +5,7 @@ use std::process;
 
 use fractal::compiler::lexer::Token;
 use fractal::compiler::parser::pretty_print_root;
-use fractal::compiler::semanter;
+use fractal::compiler::semanter::analyze;
 use fractal::compiler::{lexer, parser, preprocessor};
 
 fn print_error(msg: &str) {
@@ -48,7 +48,11 @@ fn main() {
     match parser::parse(tokens) {
         Ok(node) => {
             pretty_print_root(&node);
-            semanter::analyse(&node);
+        
+            
+            let result = analyze(&node);
+            result.print_symbol_table();
+            result.print_errors();
         }
         Err(err) => eprintln!("Parse error: {:?}", err),
     }

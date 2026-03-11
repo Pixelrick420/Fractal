@@ -7,10 +7,13 @@
     :int c = int(3.2);
 
     :array<:char, 10> string = "hello 1234";
-    :list<:int> nums = [1, 2,a];
+    :list<:int> nums = [1, 2,2.3];
     :boolean res = true;
     a += 100;
 
 !end
 
 #a+3 => parser error doesnt work
+#import 
+#built in functions
+#functions once

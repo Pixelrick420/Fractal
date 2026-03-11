@@ -1,16 +1,21 @@
 !start
-:int n = 0;
-if (n==0){
-    # type error
-    :int a = 1;
-    :float b = 4;
-    if (a>b){
-        print("wow error");
+
+    :int n = 2;
+    if (n==0){
+        # type error
+    } else if (n==1){
+        #using undeclared variable
+        :int a = c;
+    } else if(n==2){
+        !fn add(a: int, b: int) -> int {
+            return a + b;
+        }
+        !fn add(b: int) -> int {
+            return b;
+        }
+       
     }
-}
-else if (n==1){
-    #using undeclared variable
-    :int a = c;
-}
+
+
 
 !end

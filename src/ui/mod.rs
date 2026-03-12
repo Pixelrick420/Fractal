@@ -10,3 +10,4 @@ pub mod tab;
 pub mod terminal;
 pub mod theme;
 pub mod user_profile;
+pub mod search_bar;

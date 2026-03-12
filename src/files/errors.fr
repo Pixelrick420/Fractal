@@ -3,15 +3,15 @@
     :int n = 0;
     !if (n == 0) {
         # type error
-        :int x = 4.5;
+        :nt x = 4.5;
     } !else if(n == 1) {
-        #using undeclared variable
-        :int a = c;
+        #usng undeclared varable
+        :nt a = c;
     } !else !(n == 2) {
-        !func add(a : int, b : int) -> int {
+        !func add(a : nt, b : nt) -> nt {
             return a + b;
         }
-        !func add(b : int) -> int {
+        !func add(b : nt) -> nt {
             return b;
         }
 

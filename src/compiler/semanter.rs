@@ -151,11 +151,10 @@ impl ScopeStack {
     }
     fn declare(&mut self, sym: Symbol) -> Result<(), SemanticError> {
         let frame = self.frames.last_mut().unwrap();
-        if frame.contains_key(&sym.name) {
-            return Err(SemanticError::new(format!("'{}' already declared in this scope", sym.name)));
-        }
+        // overwrite silently — re-declaration replaces the previous binding
         frame.insert(sym.name.clone(), sym);
         Ok(())
+  
     }
     fn inject(&mut self, sym: Symbol) {
         self.frames.last_mut().unwrap().insert(sym.name.clone(), sym);
@@ -232,10 +231,12 @@ impl SemanticResult {
 fn types_compatible(declared: &FrType, actual: &FrType) -> bool {
     if declared == actual { return true; }
     match (declared, actual) {
-        // List<T>  ←  Array<T, N>   (literal initialiser)
+        // List<T>  ←  Array<T, N>
         (FrType::List { elem: de }, FrType::Array { elem: ae, .. }) => de == ae,
-        // Array<T, M>  ←  Array<T, N>  (size may differ, checked at runtime)
+        // Array<T, M>  ←  Array<T, N>
         (FrType::Array { elem: de, .. }, FrType::Array { elem: ae, .. }) => de == ae,
+        // :char x = "a"  — string literal is Array<char,1>, coerce to bare Char
+        (FrType::Char, FrType::Array { elem, size: 1 }) => **elem == FrType::Char,
         _ => false,
     }
 }
@@ -692,6 +693,8 @@ impl Analyzer {
             (FrType::Float,   FrType::Int)     |
             (FrType::Int,     FrType::Char)    |
             (FrType::Char,    FrType::Int)     |
+            (FrType::Float,     FrType::Char)    |
+            (FrType::Char,    FrType::Float)   |   // ← add this line
             (FrType::Int,     FrType::Boolean) |
             (FrType::Boolean, FrType::Int)     |
             (FrType::Float,   FrType::Boolean) |
@@ -715,6 +718,7 @@ impl Analyzer {
             (FrType::Boolean, SymbolValue::Int(n))     => SymbolValue::Boolean(*n != 0),
             (FrType::Boolean, SymbolValue::Float(f))   => SymbolValue::Boolean(*f != 0.0),
             _ => SymbolValue::Unknown,
+            (FrType::Float,   SymbolValue::Char(c))    => SymbolValue::Float(*c as u32 as f64),  // ← add
         }
     }
 

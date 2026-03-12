@@ -4,12 +4,25 @@
     :float b = math::pi;
     :float d = math::calculate();
 
-    :int c = int(3.2);
 
     :array<:char, 10> string = "hello 1234";
     :list<:int> nums = [1, 2,3];
     :boolean res = true;
     a += 100;
+    :int x1 = :int(b);
+    :float x2 = :float(a);
+    :array<:char,1> x3 ="a";
+    :char x3= "b";
+    :float x4 = :float(x3);
+    :char x5 = :char(65);
+    :char x6 = :char(65.0);
+    :float x7 = :float(true);
+    :boolean x8 = :boolean(1.0);
+    !func add(:int a, :int b) -> :int {
+        !return a + b;
+    }
+
+
 
 !end
 

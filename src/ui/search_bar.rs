@@ -83,17 +83,6 @@ impl SearchBar {
                 do_close = true;
                 i.events.retain(|e| !matches!(e, egui::Event::Key { key: egui::Key::Escape, .. }));
             }
-            let ctrl = i.modifiers.ctrl || i.modifiers.mac_cmd;
-            // Ctrl+H while search bar open: toggle replace row
-            if ctrl && i.key_pressed(egui::Key::H) {
-                if self.replace_mode {
-                    self.replace_mode = false;
-                } else {
-                    self.replace_mode = true;
-                    self.focus_replace = true;
-                }
-                i.events.retain(|e| !matches!(e, egui::Event::Key { key: egui::Key::H, .. }));
-            }
             if i.key_pressed(egui::Key::Enter) {
                 if i.modifiers.shift {
                     do_find_prev = true;

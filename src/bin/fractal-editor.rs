@@ -751,20 +751,21 @@ impl eframe::App for FractalEditor {
                 self.docs_window.open = false;
             }
             MenuAction::Search => {
-                // Ctrl+F: open search bar (search-only mode). If already open, do nothing.
+                // Ctrl+F: open in search-only mode. If already open, do nothing.
                 if !self.search_bar.visible {
                     self.search_bar.open_search();
                 }
+                // second+ Ctrl+F: no change
             }
             MenuAction::Replace => {
-                // Ctrl+H: if search bar not open, open in replace mode.
-                // If already open in replace mode, collapse back to search-only.
-                // If open in search-only mode, expand to replace mode.
                 if !self.search_bar.visible {
+                    // Bar is closed → open with replace row visible
                     self.search_bar.open_replace();
                 } else if self.search_bar.replace_mode {
+                    // Replace row is showing → hide it (back to search only)
                     self.search_bar.replace_mode = false;
                 } else {
+                    // Search-only showing → show replace row
                     self.search_bar.replace_mode = true;
                     self.search_bar.focus_replace = true;
                 }

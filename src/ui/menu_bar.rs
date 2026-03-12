@@ -57,7 +57,8 @@ pub fn show_menu_bar(
             action = MenuAction::ToggleDocs;
         } else if ctrl && i.key_pressed(egui::Key::F) && !search_bar_visible {
             action = MenuAction::Search;
-        } else if ctrl && i.key_pressed(egui::Key::H) && !search_bar_visible {
+        } else if ctrl && i.key_pressed(egui::Key::H) {
+            // Always pass through — fractal-editor handles the toggle logic
             action = MenuAction::Replace;
         }
     });
@@ -124,6 +125,18 @@ pub fn show_menu_bar(
 
                 paint_menu_button(ui, file_rect, "File", ic::FILE_OPEN, file_active, false, t);
 
+                // IDs for cross-frame state
+                let flyout_open_id = egui::Id::new("recent_flyout_open");
+                let flyout_row_rect_id = egui::Id::new("recent_row_rect");
+                let recent_clicked_id = egui::Id::new("recent_clicked_path");
+
+                // Read deferred click from previous frame
+                let deferred_open: Option<PathBuf> =
+                    ctx.data_mut(|d| d.remove_temp(recent_clicked_id));
+                if let Some(path) = deferred_open {
+                    action = MenuAction::OpenRecent(path);
+                }
+
                 egui::popup::popup_below_widget(
                     ui,
                     file_id,
@@ -163,91 +176,41 @@ pub fn show_menu_bar(
 
                         styled_separator(ui, t);
 
-                        // ── Recent Files ── flat list under a header ───────
-                        ui.add_space(2.0);
-                        ui.label(
-                            egui::RichText::new("  Recent Files")
-                                .size(11.0)
-                                .color(t.tab_inactive_fg),
+                        // ── Recent row — hover state stored for flyout outside popup ──
+                        let flyout_was_hovered =
+                            ui.ctx().data(|d| d.get_temp::<bool>(flyout_open_id).unwrap_or(false));
+
+                        let (r_row, r_resp) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), 28.0),
+                            egui::Sense::hover(),
                         );
-                        ui.add_space(2.0);
+                        let row_hovered = r_resp.hovered();
+                        let show_flyout = row_hovered || flyout_was_hovered;
 
-                        if recent_files.is_empty() {
-                            let (r, _) = ui.allocate_exact_size(
-                                egui::vec2(ui.available_width(), 24.0),
-                                egui::Sense::hover(),
-                            );
-                            ui.painter().text(
-                                egui::pos2(r.left() + 20.0, r.center().y),
-                                egui::Align2::LEFT_CENTER,
-                                "No recent files",
-                                egui::FontId::proportional(12.5),
-                                t.tab_inactive_fg,
-                            );
-                        } else {
-                            for path in recent_files.iter() {
-                                let name = path
-                                    .file_name()
-                                    .map(|n| n.to_string_lossy().to_string())
-                                    .unwrap_or_else(|| path.to_string_lossy().to_string());
+                        if show_flyout {
+                            ui.painter().rect_filled(r_row, egui::Rounding::same(4.0), t.accent);
+                        }
+                        let row_fg = if show_flyout { t.tab_bar_bg } else { t.menu_fg };
+                        ui.painter().text(
+                            egui::pos2(r_row.left() + 10.0, r_row.center().y),
+                            egui::Align2::LEFT_CENTER,
+                            format!("{}   Recent", ic::FILE_OPEN),
+                            egui::FontId::proportional(13.5),
+                            row_fg,
+                        );
+                        ui.painter().text(
+                            egui::pos2(r_row.right() - 10.0, r_row.center().y),
+                            egui::Align2::RIGHT_CENTER,
+                            "▶",
+                            egui::FontId::proportional(11.0),
+                            row_fg,
+                        );
 
-                                let full = path.to_string_lossy().to_string();
-                                let short_path = if full.len() > 38 {
-                                    format!("…{}", &full[full.len() - 37..])
-                                } else {
-                                    full.clone()
-                                };
-
-                                let (r, resp) = ui.allocate_exact_size(
-                                    egui::vec2(ui.available_width(), 28.0),
-                                    egui::Sense::click(),
-                                );
-                                let hov = resp.hovered();
-                                if hov {
-                                    ui.painter().rect_filled(
-                                        r,
-                                        egui::Rounding::same(4.0),
-                                        t.accent,
-                                    );
-                                }
-                                let fg = if hov { t.tab_bar_bg } else { t.menu_fg };
-                                let hint = if hov {
-                                    egui::Color32::from_rgba_premultiplied(
-                                        t.tab_bar_bg.r(),
-                                        t.tab_bar_bg.g(),
-                                        t.tab_bar_bg.b(),
-                                        160,
-                                    )
-                                } else {
-                                    egui::Color32::from_rgba_premultiplied(
-                                        t.tab_inactive_fg.r(),
-                                        t.tab_inactive_fg.g(),
-                                        t.tab_inactive_fg.b(),
-                                        130,
-                                    )
-                                };
-                                // File name on the left
-                                ui.painter().text(
-                                    egui::pos2(r.left() + 20.0, r.center().y),
-                                    egui::Align2::LEFT_CENTER,
-                                    &name,
-                                    egui::FontId::proportional(13.0),
-                                    fg,
-                                );
-                                // Full path on the right, dimmed
-                                ui.painter().text(
-                                    egui::pos2(r.right() - 10.0, r.center().y),
-                                    egui::Align2::RIGHT_CENTER,
-                                    short_path,
-                                    egui::FontId::proportional(10.5),
-                                    hint,
-                                );
-
-                                if resp.clicked() {
-                                    action = MenuAction::OpenRecent(path.clone());
-                                    ui.memory_mut(|m| m.close_popup());
-                                }
-                            }
+                        // Save the row's screen rect so the flyout knows where to anchor
+                        ui.ctx().data_mut(|d| d.insert_temp(flyout_row_rect_id, r_row));
+                        // Save whether we should show the flyout next frame
+                        if row_hovered {
+                            ui.ctx().data_mut(|d| d.insert_temp(flyout_open_id, true));
                         }
 
                         styled_separator(ui, t);
@@ -272,6 +235,116 @@ pub fn show_menu_bar(
                         ui.add_space(4.0);
                     },
                 );
+
+                // ── Recent flyout — rendered OUTSIDE the popup so clicks aren't eaten ──
+                let popup_is_open = ui.memory(|m| m.is_popup_open(file_id));
+                let flyout_was_hovered =
+                    ctx.data(|d| d.get_temp::<bool>(flyout_open_id).unwrap_or(false));
+                let row_rect: Option<egui::Rect> =
+                    ctx.data(|d| d.get_temp(flyout_row_rect_id));
+
+                if popup_is_open && flyout_was_hovered {
+                    if let Some(r_row) = row_rect {
+                        let flyout_pos = egui::pos2(r_row.right() + 6.0, r_row.top());
+                        let recent_area_id = egui::Id::new("recent_flyout_area");
+                        let area_resp = egui::Area::new(recent_area_id)
+                            .order(egui::Order::Foreground)
+                            .fixed_pos(flyout_pos)
+                            .show(ctx, |ui| {
+                                egui::Frame::none()
+                                    .fill(t.menu_bg)
+                                    .stroke(egui::Stroke::new(1.0, t.border))
+                                    .rounding(egui::Rounding::same(6.0))
+                                    .shadow(egui::Shadow {
+                                        offset: egui::vec2(0.0, 4.0),
+                                        blur: 12.0,
+                                        spread: 0.0,
+                                        color: egui::Color32::from_black_alpha(80),
+                                    })
+                                    .inner_margin(egui::Margin::same(4.0))
+                                    .show(ui, |ui| {
+                                        ui.set_min_width(260.0);
+                                        ui.add_space(2.0);
+                                        if recent_files.is_empty() {
+                                            let (er, _) = ui.allocate_exact_size(
+                                                egui::vec2(260.0, 28.0),
+                                                egui::Sense::hover(),
+                                            );
+                                            ui.painter().text(
+                                                egui::pos2(er.left() + 12.0, er.center().y),
+                                                egui::Align2::LEFT_CENTER,
+                                                "No recent files",
+                                                egui::FontId::proportional(12.5),
+                                                t.tab_inactive_fg,
+                                            );
+                                        } else {
+                                            for path in recent_files.iter().take(10) {
+                                                let name = path
+                                                    .file_name()
+                                                    .map(|n| n.to_string_lossy().to_string())
+                                                    .unwrap_or_else(|| path.to_string_lossy().to_string());
+                                                let full = path.to_string_lossy().to_string();
+                                                let short = if full.len() > 36 {
+                                                    format!("…{}", &full[full.len() - 35..])
+                                                } else {
+                                                    full.clone()
+                                                };
+                                                let (ir, ir_resp) = ui.allocate_exact_size(
+                                                    egui::vec2(260.0, 28.0),
+                                                    egui::Sense::click(),
+                                                );
+                                                let ih = ir_resp.hovered();
+                                                if ih {
+                                                    ui.painter().rect_filled(
+                                                        ir,
+                                                        egui::Rounding::same(4.0),
+                                                        t.accent,
+                                                    );
+                                                }
+                                                let ifg = if ih { t.tab_bar_bg } else { t.menu_fg };
+                                                let ihint = if ih {
+                                                    egui::Color32::from_rgba_premultiplied(
+                                                        t.tab_bar_bg.r(), t.tab_bar_bg.g(), t.tab_bar_bg.b(), 160,
+                                                    )
+                                                } else {
+                                                    egui::Color32::from_rgba_premultiplied(
+                                                        t.tab_inactive_fg.r(), t.tab_inactive_fg.g(), t.tab_inactive_fg.b(), 130,
+                                                    )
+                                                };
+                                                ui.painter().text(
+                                                    egui::pos2(ir.left() + 12.0, ir.center().y),
+                                                    egui::Align2::LEFT_CENTER,
+                                                    &name,
+                                                    egui::FontId::proportional(13.0),
+                                                    ifg,
+                                                );
+                                                ui.painter().text(
+                                                    egui::pos2(ir.right() - 10.0, ir.center().y),
+                                                    egui::Align2::RIGHT_CENTER,
+                                                    &short,
+                                                    egui::FontId::proportional(10.5),
+                                                    ihint,
+                                                );
+                                                if ir_resp.clicked() {
+                                                    // Store path as deferred — will be read next frame
+                                                    // after the popup has finished its close logic
+                                                    ctx.data_mut(|d| d.insert_temp(recent_clicked_id, path.clone()));
+                                                    ctx.data_mut(|d| d.insert_temp(flyout_open_id, false));
+                                                    ui.memory_mut(|m| m.close_popup());
+                                                }
+                                            }
+                                        }
+                                        ui.add_space(2.0);
+                                    });
+                            });
+                        // Update hover state for next frame
+                        let still_hovered = area_resp.response.hovered();
+                        ctx.data_mut(|d| d.insert_temp(flyout_open_id, still_hovered));
+                    }
+                } else if !popup_is_open {
+                    // Popup closed — clear all flyout state
+                    ctx.data_mut(|d| d.insert_temp(flyout_open_id, false));
+                }
 
                 ui.add_space(4.0);
 

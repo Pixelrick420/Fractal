@@ -318,8 +318,14 @@ impl Parser {
                 self.advance();
                 let items = self.parse_item_list()?;
                 match self.peek().cloned() {
-                    Some(TokenType::ModuleEnd(_end_name)) => {
+                    Some(TokenType::ModuleEnd(end_name)) => {
                         self.advance();
+                        if end_name != name {
+                            return Err(ParseError::new(format!(
+                                "Module name mismatch: started '{}' but ended '{}'",
+                                name, end_name
+                            )));
+                        }
                         if self.at_endl() {
                             self.advance();
                         }
@@ -1099,7 +1105,9 @@ impl Parser {
                 self.peek(),
                 Some(TokenType::RParen) | Some(TokenType::RBracket) | None
             ) {
-                break;
+                return Err(ParseError::new(
+                    "Trailing comma not allowed in argument list",
+                ));
             }
             args.push(self.parse_expression()?);
         }

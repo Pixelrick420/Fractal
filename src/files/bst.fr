@@ -1,0 +1,103 @@
+!start
+    :struct<BSTNode> {
+        :int val;
+        :int left;
+        :int right;
+    };
+    :struct<BST> {
+        :list<:struct<BSTNode>> nodes;
+        :int root;
+        :int size;
+    };
+    !func make_bst() -> :struct<BST> {
+        :struct<BST> t;
+        t::nodes = [];
+        t::root = -1;
+        t::size = 0;
+        !return t;
+    }
+    !func new_node(:struct<BST> t, :int val) -> :int {
+        :struct<BSTNode> n;
+        n::val = val;
+        n::left = -1;
+        n::right = -1;
+        append(t::nodes, n);
+        :int idx = t::size;
+        t::size = t::size + 1;
+        !return idx;
+    }
+    !func insert_into(:struct<BST> t, :int val) -> :void {
+        :int idx = new_node(t, val);
+        !if (t::root == -1) {
+            t::root = idx;
+            !return !null;
+        }
+        :int cur = t::root;
+        :boolean placed = false;
+        !for (:int i, 0, 1000, 1) {
+            !if (placed) {
+                !break;
+            }
+            :struct<BSTNode> node = t::nodes[cur];
+            !if (val < node::val) {
+                !if (node::left == -1) {
+                    t::nodes[cur]::left = idx;
+                    placed = true;
+                }
+                !if (!not placed) {
+                    cur = node::left;
+                }
+            }
+            !if (val >= node::val) {
+                !if (node::right == -1) {
+                    t::nodes[cur]::right = idx;
+                    placed = true;
+                }
+                !if (!not placed) {
+                    cur = node::right;
+                }
+            }
+        }
+    }
+    !func inorder(:struct<BST> t, :int node_idx) -> :void {
+        !if (node_idx == -1) {
+            !return !null;
+        }
+        :struct<BSTNode> node = t::nodes[node_idx];
+        inorder(t, node::left);
+        print("{}", node::val);
+        inorder(t, node::right);
+    }
+    !func search(:struct<BST> t, :int val) -> :boolean {
+        :int cur = t::root;
+        !for (:int i, 0, 1000, 1) {
+            !if (cur == -1) {
+                !return false;
+            }
+            :struct<BSTNode> node = t::nodes[cur];
+            !if (node::val == val) {
+                !return true;
+            }
+            !if (val < node::val) {
+                cur = node::left;
+            }
+            !if (val >= node::val) {
+                cur = node::right;
+            }
+        }
+        !return false;
+    }
+    :struct<BST> tree = make_bst();
+    insert_into(tree, 50);
+    insert_into(tree, 30);
+    insert_into(tree, 70);
+    insert_into(tree, 20);
+    insert_into(tree, 40);
+    insert_into(tree, 60);
+    insert_into(tree, 80);
+    inorder(tree, tree::root);
+    :boolean found = search(tree, 40);
+    :boolean missing = search(tree, 99);
+    print("found 40: {}", found);
+    print("found 99: {}", missing);
+!end

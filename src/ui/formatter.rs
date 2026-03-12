@@ -140,6 +140,34 @@ fn ends_with_type_keyword(out: &str) -> bool {
     )
 }
 
+fn last_meaningful_char(out: &str) -> Option<char> {
+    out.chars().rev().find(|c| !c.is_whitespace())
+}
+
+fn is_unary_position(out: &str) -> bool {
+    match last_meaningful_char(out) {
+        None => true,
+        Some(c) => matches!(
+            c,
+            '=' | '+'
+                | '-'
+                | '*'
+                | '/'
+                | '%'
+                | '&'
+                | '|'
+                | '^'
+                | '~'
+                | '<'
+                | '>'
+                | '!'
+                | '('
+                | '['
+                | ','
+        ),
+    }
+}
+
 fn normalise_line(line: &str) -> String {
     if line.is_empty() {
         return String::new();
@@ -150,7 +178,6 @@ fn normalise_line(line: &str) -> String {
     let mut i = 0;
 
     let mut angle_depth: u32 = 0;
-
     let mut after_scope: bool = false;
 
     while i < chars.len() {
@@ -287,7 +314,6 @@ fn normalise_line(line: &str) -> String {
             }
             let ty: String = chars[start..i].iter().collect();
             out.push_str(&ty);
-
             continue;
         }
 
@@ -308,6 +334,17 @@ fn normalise_line(line: &str) -> String {
         if i + 1 < chars.len() {
             let two: String = chars[i..i + 2].iter().collect();
             if is_two_char_op(&two) {
+                if two == "->" {
+                    ensure_space_before(&mut out);
+                    out.push_str("->");
+                    i += 2;
+                    while i < chars.len() && chars[i].is_whitespace() {
+                        i += 1;
+                    }
+                    out.push(' ');
+                    continue;
+                }
+
                 ensure_space_before(&mut out);
                 out.push_str(&two);
                 i += 2;
@@ -317,6 +354,45 @@ fn normalise_line(line: &str) -> String {
                 out.push(' ');
                 continue;
             }
+        }
+
+        if chars[i] == '-' || chars[i] == '+' {
+            let ch = chars[i];
+
+            let in_sci_exp = {
+                let lmc = last_meaningful_char(&out);
+                if matches!(lmc, Some('e') | Some('E')) {
+                    let pre_e = out
+                        .trim_end_matches(|c: char| c.is_whitespace())
+                        .trim_end_matches(|c: char| c == 'e' || c == 'E');
+                    pre_e.chars().last().map_or(false, |c| c.is_ascii_digit())
+                } else {
+                    false
+                }
+            };
+
+            if in_sci_exp {
+                out.push(ch);
+                i += 1;
+            } else if is_unary_position(&out) {
+                out.push(ch);
+                i += 1;
+
+                while i < chars.len() && chars[i].is_whitespace() {
+                    i += 1;
+                }
+            } else {
+                ensure_space_before(&mut out);
+                out.push(ch);
+                i += 1;
+                while i < chars.len() && chars[i].is_whitespace() {
+                    i += 1;
+                }
+                if i < chars.len() {
+                    out.push(' ');
+                }
+            }
+            continue;
         }
 
         if chars[i] == '<' {
@@ -421,7 +497,7 @@ fn normalise_line(line: &str) -> String {
 
 fn ensure_space_before(out: &mut String) {
     if let Some(last) = out.chars().last() {
-        if last != ' ' && last != '(' && last != '[' && last != '<' {
+        if last != ' ' && last != '(' && last != '[' && last != '<' && last != '-' && last != '+' {
             out.push(' ');
         }
     }
@@ -435,5 +511,5 @@ fn is_two_char_op(s: &str) -> bool {
 }
 
 fn is_binary_op_char(c: char) -> bool {
-    matches!(c, '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '~' | '=')
+    matches!(c, '*' | '/' | '%' | '&' | '|' | '^' | '~' | '=')
 }

@@ -1,0 +1,118 @@
+!start
+
+    !import "math";
+
+    :struct<Edge> {
+        :int to;
+        :int weight;
+    };
+
+    :struct<Node> {
+        :int id;
+        :list<:struct<Edge>> edges;
+    };
+
+    :struct<Graph> {
+        :int n;
+        :list<:struct<Node>> nodes;
+    };
+
+    !func create_graph(:int n) -> :struct<Graph> {
+
+        :struct<Graph> g;
+        g::n = n;
+        g::nodes = [];
+
+        !for (:int i, 0, n, 1) {
+
+            :struct<Node> node;
+            node::id = i;
+            node::edges = [];
+
+            append(g::nodes, node);
+        }
+
+        !return g;
+    }
+
+    !func add_edge(:struct<Graph> g, :int u, :int v, :int w) -> :void {
+
+        :struct<Edge> e;
+        e::to = v;
+        e::weight = w;
+
+        append(g::nodes[u]::edges, e);
+    }
+
+    !func bfs(:struct<Graph> g, :int start) -> :void {
+
+        :array<:boolean, 100> visited;
+        :list<:int> queue = [];
+
+        append(queue, start);
+        visited[start] = true;
+
+        !while (find(queue, start) ~= - 1) {
+
+            :int current = pop(queue);
+            print("visit {}", current);
+
+            :struct<Node> node = g::nodes[current];
+
+            !for (:int i, 0, 10, 1) {
+
+                !if (i >= len(node::edges)){
+                    !break;
+                }
+
+                :struct<Edge> e = node::edges[i];
+
+                !if (!not visited[e::to]) {
+                    visited[e::to] = true;
+                    append(queue, e::to);
+                }
+            }
+        }
+    }
+
+    !func compute_weights(:struct<Graph> g) -> :int {
+
+        :int sum = 0;
+
+        !for (:int i, 0, g::n, 1) {
+
+            :struct<Node> node = g::nodes[i];
+
+            !for (:int j, 0, 20, 1) {
+
+                !if (j >= len(node::edges)) {
+                    !break;
+                }
+
+                :struct<Edge> e = node::edges[j];
+                sum += e::weight;
+            }
+        }
+
+        !return sum;
+    }
+
+    :struct<Graph> graph = create_graph(10);
+
+    add_edge(graph, 0, 1, 5);
+    add_edge(graph, 1, 2, 3);
+    add_edge(graph, 2, 3, 2);
+    add_edge(graph, 3, 4, 4);
+    add_edge(graph, 4, 5, 7);
+    add_edge(graph, 5, 6, 1);
+    add_edge(graph, 6, 7, 8);
+    add_edge(graph, 7, 8, 2);
+    add_edge(graph, 8, 9, 6);
+
+    bfs(graph, 0);
+
+    :int total = compute_weights(graph);
+
+    print("total weight {}", total);
+
+!end

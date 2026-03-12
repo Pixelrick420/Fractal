@@ -1,0 +1,76 @@
+!start
+    :struct<Poly> {
+        :list<:float> coeffs;
+        :int degree;
+    };
+    !func make_poly(:int degree) -> :struct<Poly> {
+        :struct<Poly> p;
+        p::degree = degree;
+        p::coeffs = [];
+        !for (:int i, 0, degree + 1, 1) {
+            append(p::coeffs, 0.0);
+        }
+        !return p;
+    }
+    !func set_coeff(:struct<Poly> p, :int i, :float v) -> :void {
+        p::coeffs[i] = v;
+    }
+    !func eval_poly(:struct<Poly> p, :float x) -> :float {
+        :float result = 0.0;
+        :float xpow = 1.0;
+        !for (:int i, 0, p::degree + 1, 1) {
+            result = result + p::coeffs[i] * xpow;
+            xpow = xpow * x;
+        }
+        !return result;
+    }
+    !func add_poly(:struct<Poly> a, :struct<Poly> b) -> :struct<Poly> {
+        :int deg = a::degree;
+        !if (b::degree > deg) {
+            deg = b::degree;
+        }
+        :struct<Poly> result = make_poly(deg);
+        !for (:int i, 0, a::degree + 1, 1) {
+            result::coeffs[i] = result::coeffs[i] + a::coeffs[i];
+        }
+        !for (:int i, 0, b::degree + 1, 1) {
+            result::coeffs[i] = result::coeffs[i] + b::coeffs[i];
+        }
+        !return result;
+    }
+    !func mul_poly(:struct<Poly> a, :struct<Poly> b) -> :struct<Poly> {
+        :int deg = a::degree + b::degree;
+        :struct<Poly> result = make_poly(deg);
+        !for (:int i, 0, a::degree + 1, 1) {
+            !for (:int j, 0, b::degree + 1, 1) {
+                result::coeffs[i + j] = result::coeffs[i + j] + a::coeffs[i] * b::coeffs[j];
+            }
+        }
+        !return result;
+    }
+    !func derive_poly(:struct<Poly> p) -> :struct<Poly> {
+        !if (p::degree == 0) {
+            !return make_poly(0);
+        }
+        :struct<Poly> d = make_poly(p::degree - 1);
+        !for (:int i, 1, p::degree + 1, 1) {
+            d::coeffs[i - 1] = :float(i) * p::coeffs[i];
+        }
+        !return d;
+    }
+    :struct<Poly> p1 = make_poly(2);
+    set_coeff(p1, 0, 1.0);
+    set_coeff(p1, 1, 2.0);
+    set_coeff(p1, 2, 3.0);
+    :struct<Poly> p2 = make_poly(1);
+    set_coeff(p2, 0, 1.0);
+    set_coeff(p2, 1, -1.0);
+    :struct<Poly> sum = add_poly(p1, p2);
+    :struct<Poly> product = mul_poly(p1, p2);
+    :struct<Poly> deriv = derive_poly(p1);
+    :float at2 = eval_poly(p1, 2.0);
+    :float dat2 = eval_poly(deriv, 2.0);
+    print("p1(2) = {}", at2);
+    print("p1'(2) = {}", dat2);
+    print("(p1*p2)(1) = {}", eval_poly(product, 1.0));
+!end

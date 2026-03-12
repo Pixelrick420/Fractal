@@ -93,6 +93,69 @@ pub struct Token {
     pub token_type: TokenType,
 }
 
+fn offset_to_line_col(src: &str, offset: usize) -> (usize, usize) {
+    let mut line = 1usize;
+    let mut col = 1usize;
+    for (i, c) in src.char_indices() {
+        if i == offset {
+            break;
+        }
+        if c == '\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
+}
+
+fn get_source_line(src: &str, line: usize) -> &str {
+    src.lines().nth(line - 1).unwrap_or("")
+}
+
+fn emit_error(
+    src: &str,
+    source_file: &str,
+    offset: usize,
+    span_len: usize,
+    code: &str,
+    title: &str,
+    label: &str,
+    hint: &str,
+) {
+    let (line, col) = offset_to_line_col(src, offset);
+    let src_line = get_source_line(src, line);
+    let line_str = line.to_string();
+    let pad = " ".repeat(line_str.len());
+    let underline_len = span_len.max(1);
+    let underline = "^".repeat(underline_len);
+    let caret_pad = " ".repeat(col.saturating_sub(1));
+
+    eprintln!(
+        "\x1b[1;31merror[{code}]\x1b[0m\x1b[1m: {title}\x1b[0m",
+        code = code,
+        title = title
+    );
+    eprintln!(
+        " \x1b[1;34m-->\x1b[0m {file}:{line}:{col}",
+        file = source_file,
+        line = line,
+        col = col
+    );
+    eprintln!(" \x1b[1;34m{pad} |\x1b[0m");
+    eprintln!(
+        " \x1b[1;34m{line_str} |\x1b[0m {src_line}",
+        line_str = line_str,
+        src_line = src_line
+    );
+    eprintln!(" \x1b[1;34m{pad} |\x1b[0m \x1b[1;31m{caret_pad}{underline} {label}\x1b[0m");
+    if !hint.is_empty() {
+        eprintln!(" \x1b[1;34m{pad} =\x1b[0m \x1b[1;32mhint\x1b[0m: {hint}");
+    }
+    eprintln!();
+}
+
 fn is_operator_char(c: char) -> bool {
     matches!(
         c,
@@ -129,6 +192,38 @@ fn is_identifier(s: &str) -> bool {
         return false;
     }
     chars.all(|c| c.is_alphanumeric() || c == '_')
+}
+
+fn closest_keyword(s: &str) -> Option<&'static str> {
+    const KEYWORDS: &[&str] = &[
+        "start", "end", "exit", "if", "elif", "else", "for", "while", "func", "return", "struct",
+        "import", "module", "break", "continue", "and", "or", "not", "null",
+    ];
+
+    KEYWORDS.iter().copied().find(|kw| {
+        let a: Vec<char> = s.chars().collect();
+        let b: Vec<char> = kw.chars().collect();
+        if a.len().abs_diff(b.len()) > 1 {
+            return false;
+        }
+        let diffs = a.iter().zip(b.iter()).filter(|(x, y)| x != y).count();
+        diffs <= 1 + a.len().abs_diff(b.len())
+    })
+}
+
+fn closest_type(s: &str) -> Option<&'static str> {
+    const TYPES: &[&str] = &[
+        "int", "float", "char", "boolean", "array", "list", "struct", "void",
+    ];
+    TYPES.iter().copied().find(|t| {
+        let a: Vec<char> = s.chars().collect();
+        let b: Vec<char> = t.chars().collect();
+        if a.len().abs_diff(b.len()) > 1 {
+            return false;
+        }
+        let diffs = a.iter().zip(b.iter()).filter(|(x, y)| x != y).count();
+        diffs <= 1 + a.len().abs_diff(b.len())
+    })
 }
 
 fn parse_number_literal(s: &str) -> TokenType {
@@ -250,11 +345,6 @@ fn handle_token(buffer: &str) -> Token {
                 token_type: TokenType::BoolLit(false),
             }
         }
-        "!null" => {
-            return Token {
-                token_type: TokenType::Null,
-            }
-        }
         _ => {}
     }
 
@@ -306,9 +396,31 @@ fn parse_module_marker(chars: &[char], start_index: usize) -> Option<(TokenType,
 }
 
 pub fn tokenize(program: &str) -> Vec<Token> {
+    tokenize_with_source(program, "<input>")
+}
+
+pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
     let chars: Vec<char> = program.chars().collect();
     let mut tokens: Vec<Token> = Vec::new();
     let mut index: usize = 0;
+    let mut had_error = false;
+
+    let char_offsets: Vec<usize> = {
+        let mut offs = Vec::with_capacity(chars.len() + 1);
+        let mut byte = 0usize;
+        for c in &chars {
+            offs.push(byte);
+            byte += c.len_utf8();
+        }
+        offs.push(byte);
+        offs
+    };
+
+    macro_rules! byte_off {
+        ($ci:expr) => {
+            char_offsets.get($ci).copied().unwrap_or(program.len())
+        };
+    }
 
     macro_rules! peek {
         ($offset:expr) => {
@@ -324,12 +436,28 @@ pub fn tokenize(program: &str) -> Vec<Token> {
             break;
         }
 
+        let token_start = index;
+
         if chars[index] == '$' {
             if let Some((tt, new_index)) = parse_module_marker(&chars, index) {
                 tokens.push(Token { token_type: tt });
                 index = new_index;
                 continue;
             }
+
+            emit_error(
+                program,
+                source_file,
+                byte_off!(token_start),
+                1,
+                "E001",
+                "unexpected character `$`",
+                "not a valid token",
+                "the `$` character is reserved for internal module markers; remove it",
+            );
+            had_error = true;
+            index += 1;
+            continue;
         }
 
         if chars[index] == ':' && peek!(1) == Some(':') {
@@ -341,6 +469,7 @@ pub fn tokenize(program: &str) -> Vec<Token> {
         }
 
         if chars[index] == '!' {
+            let bang_pos = token_start;
             index += 1;
             let mut buffer = String::new();
             while index < chars.len()
@@ -350,18 +479,53 @@ pub fn tokenize(program: &str) -> Vec<Token> {
                 buffer.push(chars[index]);
                 index += 1;
             }
+
+            if buffer.is_empty() {
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(bang_pos),
+                    1,
+                    "E002",
+                    "bare `!` with no keyword",
+                    "expected a keyword after `!`",
+                    "valid keywords: `!if`, `!else`, `!elif`, `!for`, `!while`, `!func`, \
+                     `!return`, `!break`, `!continue`, `!import`, `!start`, `!end`, `!exit`",
+                );
+                had_error = true;
+                continue;
+            }
+
             let result = keyword_map(&buffer);
-            tokens.push(Token {
-                token_type: if matches!(result, TokenType::NoMatch) {
-                    TokenType::NoMatch
+            if matches!(result, TokenType::NoMatch) {
+                let hint = if let Some(close) = closest_keyword(&buffer) {
+                    format!("unknown keyword `!{buffer}` — did you mean `!{close}`?")
                 } else {
-                    result
-                },
-            });
+                    format!(
+                        "unknown keyword `!{buffer}`; valid keywords: \
+                         if, elif, else, for, while, func, return, break, continue, \
+                         import, start, end, exit, struct, module"
+                    )
+                };
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(bang_pos),
+                    buffer.len() + 1,
+                    "E003",
+                    &format!("unknown keyword `!{}`", buffer),
+                    "not a recognised keyword",
+                    &hint,
+                );
+                had_error = true;
+            } else {
+                tokens.push(Token { token_type: result });
+            }
             continue;
         }
 
         if chars[index] == ':' {
+            let colon_pos = token_start;
             index += 1;
             let mut buffer = String::new();
             while index < chars.len()
@@ -372,74 +536,260 @@ pub fn tokenize(program: &str) -> Vec<Token> {
                 buffer.push(chars[index]);
                 index += 1;
             }
+
+            if buffer.is_empty() {
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(colon_pos),
+                    1,
+                    "E004",
+                    "bare `:` with no type name",
+                    "expected a type name after `:`",
+                    "types are written as `:int`, `:float`, `:char`, `:boolean`, \
+                     `:array<T,N>`, `:list<T>`, `:struct<Name>`, `:void`; \
+                     for field access use `::`",
+                );
+                had_error = true;
+                continue;
+            }
+
             let result = type_map(&buffer);
-            tokens.push(Token {
-                token_type: if matches!(result, TokenType::NoMatch) {
-                    TokenType::NoMatch
+            if matches!(result, TokenType::NoMatch) {
+                let hint = if let Some(close) = closest_type(&buffer) {
+                    format!("unknown type `:{buffer}` — did you mean `:{close}`?")
                 } else {
-                    result
-                },
-            });
+                    format!(
+                        "unknown type `:{buffer}`; valid primitive types: \
+                         int, float, char, boolean, void; \
+                         generic: array<T,N>, list<T>, struct<Name>"
+                    )
+                };
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(colon_pos),
+                    buffer.len() + 1,
+                    "E005",
+                    &format!("unknown type `:{}` ", buffer),
+                    "not a recognised type",
+                    &hint,
+                );
+                had_error = true;
+            } else {
+                tokens.push(Token { token_type: result });
+            }
             continue;
         }
 
         if chars[index] == '"' {
+            let str_start = token_start;
             index += 1;
             let mut buf = String::new();
-            while index < chars.len() && chars[index] != '"' {
-                if chars[index] == '\\' && index + 1 < chars.len() {
+            let mut closed = false;
+
+            while index < chars.len() {
+                if chars[index] == '"' {
+                    closed = true;
                     index += 1;
-                    buf.push(match chars[index] {
+                    break;
+                }
+                if chars[index] == '\n' {
+                    break;
+                }
+                if chars[index] == '\\' {
+                    if index + 1 >= chars.len() {
+                        break;
+                    }
+                    index += 1;
+                    let escaped = match chars[index] {
                         'n' => '\n',
                         't' => '\t',
                         'r' => '\r',
                         '\\' => '\\',
                         '"' => '"',
-                        c => c,
-                    });
-                } else {
-                    buf.push(chars[index]);
+                        '0' => '\0',
+                        c => {
+                            emit_error(
+                                program, source_file,
+                                byte_off!(index - 1), 2,
+                                "E006",
+                                &format!("unknown escape sequence `\\{c}`"),
+                                "invalid escape",
+                                "valid escapes: `\\n` (newline), `\\t` (tab), `\\r` (carriage return), \
+                                 `\\\\` (backslash), `\\\"` (quote), `\\0` (null)",
+                            );
+                            had_error = true;
+                            c
+                        }
+                    };
+                    buf.push(escaped);
+                    index += 1;
+                    continue;
                 }
+                buf.push(chars[index]);
                 index += 1;
             }
-            if index < chars.len() {
-                index += 1;
+
+            if !closed {
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(str_start),
+                    1,
+                    "E007",
+                    "unterminated string literal",
+                    "string starts here, never closed",
+                    "add a closing `\"` at the end of the string; \
+                     strings cannot span multiple lines",
+                );
+                had_error = true;
+            } else {
+                tokens.push(Token {
+                    token_type: TokenType::StringLit(buf),
+                });
             }
-            tokens.push(Token {
-                token_type: TokenType::StringLit(buf),
-            });
             continue;
         }
 
         if chars[index] == '\'' {
+            let char_start = token_start;
             index += 1;
-            let char_val = if index < chars.len() {
-                if chars[index] == '\\' && index + 1 < chars.len() {
-                    index += 1;
-                    let c = match chars[index] {
-                        'n' => '\n',
-                        't' => '\t',
-                        'r' => '\r',
-                        '\\' => '\\',
-                        '\'' => '\'',
-                        c => c,
-                    };
-                    index += 1;
-                    c
+
+            if index >= chars.len() {
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(char_start),
+                    1,
+                    "E008",
+                    "unterminated character literal",
+                    "char literal started here, never closed",
+                    "a char literal must contain exactly one character: `'a'`, `'\\n'`",
+                );
+                had_error = true;
+                continue;
+            }
+
+            if chars[index] == '\'' {
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(char_start),
+                    2,
+                    "E009",
+                    "empty character literal `''`",
+                    "no character inside the literal",
+                    "a char literal must contain exactly one character, e.g. `'a'`",
+                );
+                had_error = true;
+                index += 1;
+                continue;
+            }
+
+            let char_val = if chars[index] == '\\' {
+                if index + 1 >= chars.len() {
+                    emit_error(
+                        program,
+                        source_file,
+                        byte_off!(index),
+                        1,
+                        "E006",
+                        "unterminated escape sequence in char literal",
+                        "escape started here",
+                        "valid escapes: `\\n`, `\\t`, `\\r`, `\\\\`, `\\'`, `\\0`",
+                    );
+                    had_error = true;
+                    '\0'
                 } else {
-                    let c = chars[index];
                     index += 1;
-                    c
+                    match chars[index] {
+                        'n' => {
+                            index += 1;
+                            '\n'
+                        }
+                        't' => {
+                            index += 1;
+                            '\t'
+                        }
+                        'r' => {
+                            index += 1;
+                            '\r'
+                        }
+                        '\\' => {
+                            index += 1;
+                            '\\'
+                        }
+                        '\'' => {
+                            index += 1;
+                            '\''
+                        }
+                        '0' => {
+                            index += 1;
+                            '\0'
+                        }
+                        c => {
+                            emit_error(
+                                program,
+                                source_file,
+                                byte_off!(index - 1),
+                                2,
+                                "E006",
+                                &format!("unknown escape sequence `\\{c}` in char literal"),
+                                "invalid escape",
+                                "valid escapes: `\\n`, `\\t`, `\\r`, `\\\\`, `\\'`, `\\0`",
+                            );
+                            had_error = true;
+                            index += 1;
+                            c
+                        }
+                    }
                 }
             } else {
-                '\0'
+                let c = chars[index];
+                index += 1;
+                c
             };
+
             if index < chars.len() && chars[index] == '\'' {
                 index += 1;
+                tokens.push(Token {
+                    token_type: TokenType::CharLit(char_val),
+                });
+            } else if index < chars.len() && chars[index] != '\'' {
+                let extra_start = index;
+                while index < chars.len() && chars[index] != '\'' && chars[index] != '\n' {
+                    index += 1;
+                }
+                let extra_len = index - extra_start + 1;
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(char_start),
+                    extra_len,
+                    "E010",
+                    "character literal contains more than one character",
+                    "too many characters",
+                    "a char literal holds exactly one character; \
+                     for strings use double quotes: `\"...\"`",
+                );
+                had_error = true;
+                if index < chars.len() && chars[index] == '\'' {
+                    index += 1;
+                }
+            } else {
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(char_start),
+                    1,
+                    "E008",
+                    "unterminated character literal",
+                    "char literal started here, never closed",
+                    "close the literal with a single quote: `'a'`",
+                );
+                had_error = true;
             }
-            tokens.push(Token {
-                token_type: TokenType::CharLit(char_val),
-            });
             continue;
         }
 
@@ -457,12 +807,26 @@ pub fn tokenize(program: &str) -> Vec<Token> {
             let result = operator_map(&one);
             if !matches!(result, TokenType::NoMatch) {
                 tokens.push(Token { token_type: result });
+            } else {
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(token_start),
+                    1,
+                    "E011",
+                    &format!("unexpected operator character `{}`", chars[index]),
+                    "not a valid operator",
+                    "check the operator list; assignment uses `=`, equality uses `==`, \
+                     not-equal uses `~=`",
+                );
+                had_error = true;
             }
             index += 1;
             continue;
         }
 
         let mut buffer = String::new();
+        let buf_start = index;
         while index < chars.len() {
             let c = chars[index];
             if c.is_whitespace() || c == '!' || c == ':' || c == '$' {
@@ -487,15 +851,164 @@ pub fn tokenize(program: &str) -> Vec<Token> {
                     break;
                 }
             }
+
+            if (c == 'e' || c == 'E') && buffer.contains('.') {
+                let buf_is_numeric = buffer
+                    .chars()
+                    .next()
+                    .map(|ch| ch.is_ascii_digit())
+                    .unwrap_or(false);
+                if buf_is_numeric {
+                    let sign_or_digit = chars.get(index + 1).copied();
+                    let after_sign = chars.get(index + 2).copied();
+                    match sign_or_digit {
+                        Some(d) if d.is_ascii_digit() => {
+                            buffer.push(c);
+                            index += 1;
+                            continue;
+                        }
+                        Some(s @ '-') | Some(s @ '+')
+                            if after_sign.map_or(false, |d| d.is_ascii_digit()) =>
+                        {
+                            buffer.push(c);
+                            buffer.push(s);
+                            index += 2;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
             if is_operator_char(c) {
                 break;
             }
             buffer.push(c);
             index += 1;
         }
-        if !buffer.is_empty() {
-            tokens.push(handle_token(&buffer));
+
+        if buffer.is_empty() {
+            let c = chars[index];
+            emit_error(
+                program,
+                source_file,
+                byte_off!(token_start),
+                1,
+                "E012",
+                &format!("unexpected character `{}`", c),
+                "not a valid token start",
+                &format!(
+                    "the character `{c}` (U+{:04X}) is not valid here; \
+                     remove it or check for a copy-paste artefact",
+                    c as u32
+                ),
+            );
+            had_error = true;
+            index += 1;
+            continue;
         }
+
+        let tok = if buffer.starts_with("0b") && buffer.len() > 2 {
+            let digits = &buffer[2..];
+            if digits.chars().any(|c| c != '0' && c != '1') {
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(buf_start),
+                    buffer.len(),
+                    "E013",
+                    &format!("invalid binary literal `{}`", buffer),
+                    "contains non-binary digit",
+                    "binary literals may only contain `0` and `1`, e.g. `0b1010`",
+                );
+                had_error = true;
+                Token {
+                    token_type: TokenType::NoMatch,
+                }
+            } else {
+                handle_token(&buffer)
+            }
+        } else if buffer.starts_with("0o") && buffer.len() > 2 {
+            let digits = &buffer[2..];
+            if digits.chars().any(|c| !('0'..='7').contains(&c)) {
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(buf_start),
+                    buffer.len(),
+                    "E014",
+                    &format!("invalid octal literal `{}`", buffer),
+                    "contains non-octal digit",
+                    "octal literals may only contain digits 0–7, e.g. `0o755`",
+                );
+                had_error = true;
+                Token {
+                    token_type: TokenType::NoMatch,
+                }
+            } else {
+                handle_token(&buffer)
+            }
+        } else if buffer.starts_with("0x") && buffer.len() > 2 {
+            let digits = &buffer[2..];
+            if digits.chars().any(|c| !c.is_ascii_hexdigit()) {
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(buf_start),
+                    buffer.len(),
+                    "E015",
+                    &format!("invalid hexadecimal literal `{}`", buffer),
+                    "contains non-hex character",
+                    "hex literals use digits 0–9 and letters A–F, e.g. `0xFF`",
+                );
+                had_error = true;
+                Token {
+                    token_type: TokenType::NoMatch,
+                }
+            } else {
+                handle_token(&buffer)
+            }
+        } else {
+            let t = handle_token(&buffer);
+            if matches!(t.token_type, TokenType::NoMatch) {
+                let hint = if buffer.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                    format!(
+                        "`{buffer}` looks like a number but contains non-numeric characters; \
+                         identifiers cannot start with a digit"
+                    )
+                } else {
+                    format!(
+                        "`{buffer}` is not a valid identifier or literal; \
+                         identifiers must start with a letter or `_` and contain only \
+                         letters, digits, and `_`"
+                    )
+                };
+                emit_error(
+                    program,
+                    source_file,
+                    byte_off!(buf_start),
+                    buffer.len(),
+                    "E016",
+                    &format!("unrecognised token `{}`", buffer),
+                    "cannot be tokenised",
+                    &hint,
+                );
+                had_error = true;
+            }
+            t
+        };
+
+        if !matches!(tok.token_type, TokenType::NoMatch) {
+            tokens.push(tok);
+        }
+    }
+
+    if had_error {
+        eprintln!(
+            "\x1b[1;31maborting\x1b[0m: lexical error(s) in `{source_file}`; \
+             fix the above before continuing\n"
+        );
+        std::process::exit(1);
     }
 
     tokens

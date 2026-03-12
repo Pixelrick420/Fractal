@@ -5,10 +5,6 @@
     :float e = 2.71828;
     :float phi = 1.61;
 
-    !func sqrt(:float x) -> :float {
-        !return x;
-    }
-
     !func calculate() -> :float {
         !return constants::golden_ratio;
     }

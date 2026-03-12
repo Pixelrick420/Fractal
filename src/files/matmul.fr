@@ -1,0 +1,68 @@
+!start
+    :struct<Matrix> {
+        :int rows;
+        :int cols;
+        :list<:list<:int>> data;
+    };
+    !func make_matrix(:int rows, :int cols) -> :struct<Matrix> {
+        :struct<Matrix> m;
+        m::rows = rows;
+        m::cols = cols;
+        m::data = [];
+        !for (:int i, 0, rows, 1) {
+            :list<:int> row = [];
+            !for (:int j, 0, cols, 1) {
+                append(row, 0);
+            }
+            append(m::data, row);
+        }
+        !return m;
+    }
+    !func set_val(:struct<Matrix> m, :int r, :int c, :int v) -> :void {
+        m::data[r][c] = v;
+    }
+    !func get_val(:struct<Matrix> m, :int r, :int c) -> :int {
+        !return m::data[r][c];
+    }
+    !func multiply(:struct<Matrix> a, :struct<Matrix> b) -> :struct<Matrix> {
+        :struct<Matrix> result = make_matrix(a::rows, b::cols);
+        !for (:int i, 0, a::rows, 1) {
+            !for (:int j, 0, b::cols, 1) {
+                :int sum = 0;
+                !for (:int k, 0, a::cols, 1) {
+                    sum += get_val(a, i, k) * get_val(b, k, j);
+                }
+                set_val(result, i, j, sum);
+            }
+        }
+        !return result;
+    }
+    !func print_matrix(:struct<Matrix> m) -> :void {
+        !for (:int i, 0, m::rows, 1) {
+            !for (:int j, 0, m::cols, 1) {
+                print("{} ", get_val(m, i, j));
+            }
+            print("\n");
+        }
+    }
+    !func transpose(:struct<Matrix> m) -> :struct<Matrix> {
+        :struct<Matrix> t = make_matrix(m::cols, m::rows);
+        !for (:int i, 0, m::rows, 1) {
+            !for (:int j, 0, m::cols, 1) {
+                set_val(t, j, i, get_val(m, i, j));
+            }
+        }
+        !return t;
+    }
+    :struct<Matrix> a = make_matrix(2, 3);
+    set_val(a, 0, 0, 1); set_val(a, 0, 1, 2); set_val(a, 0, 2, 3);
+    set_val(a, 1, 0, 4); set_val(a, 1, 1, 5); set_val(a, 1, 2, 6);
+    :struct<Matrix> b = make_matrix(3, 2);
+    set_val(b, 0, 0, 7);  set_val(b, 0, 1, 8);
+    set_val(b, 1, 0, 9);  set_val(b, 1, 1, 10);
+    set_val(b, 2, 0, 11); set_val(b, 2, 1, 12);
+    :struct<Matrix> c = multiply(a, b);
+    print_matrix(c);
+    :struct<Matrix> at = transpose(a);
+    print_matrix(at);
+!end

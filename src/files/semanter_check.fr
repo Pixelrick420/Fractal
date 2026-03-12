@@ -7,7 +7,7 @@
     :int c = int(3.2);
 
     :array<:char, 10> string = "hello 1234";
-    :list<:int> nums = [1, 2,2.3];
+    :list<:int> nums = [1, 2,3];
     :boolean res = true;
     a += 100;
 
@@ -17,3 +17,5 @@
 #import 
 #built in functions
 #functions once
+#buildin functions print input append
+#store function names and check if they appear twice in one scope

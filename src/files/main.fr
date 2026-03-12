@@ -1,4 +1,5 @@
 !start
+    !import "math";
     :struct<Node> {
         :int a;
         :int b;
@@ -46,8 +47,8 @@
     }
 
     !func hello(:int a, :float b, :list<:float> c) -> :boolean {
-        :float sqrtOfB = sqrt(b);
-        :float sqrtOfC = sqrt(c[0]);
+        :float sqrtOfB = math::sqrt(b);
+        :float sqrtOfC = math::sqrt(c[0]);
         c[0] = 0.0;
         !return (sqrtOfB > sqrtOfC);
     }
@@ -69,7 +70,7 @@
             b = i * 5
         };
         :int z = 0;
-        !for (:int j, a, b, 1) {
+        !for (:int j, a, node::b, 1) {
             node::arr[z] = j;
             z += 1;
         }
@@ -89,6 +90,7 @@
 
     :array<:list<:int>, 100> values;
     :int index = 0;
+    :int hehe = cur::a;
     traverse(root, values, index);
 
 !end

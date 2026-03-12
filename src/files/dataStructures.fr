@@ -266,8 +266,9 @@
         p::addr::zip = pzip;
         !return p;
     }
-
-    :struct<Person> bob = make_person("Bob", 35, "Oak Ave", 67890);
+    :array<:char,20> name = "Bob";
+    :array<:char,30> x= "Oak";
+    :struct<Person> bob = make_person(name, 35, x, 67890);
     print("person name   = {}", bob::name);
     print("person street = {}", bob::addr::street);
     print("person zip    = {}", bob::addr::zip);

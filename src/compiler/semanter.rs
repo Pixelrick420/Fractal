@@ -150,12 +150,13 @@ impl ScopeStack {
         self.frames.pop().unwrap_or_default()
     }
     fn declare(&mut self, sym: Symbol) -> Result<(), SemanticError> {
-        let frame = self.frames.last_mut().unwrap();
-        // overwrite silently — re-declaration replaces the previous binding
-        frame.insert(sym.name.clone(), sym);
-        Ok(())
-  
-    }
+            let frame = self.frames.last_mut().unwrap();
+            if frame.contains_key(&sym.name) {
+                return Err(SemanticError::new(format!("'{}' already declared in this scope", sym.name)));
+            }
+            frame.insert(sym.name.clone(), sym);
+            Ok(())
+        }
     fn inject(&mut self, sym: Symbol) {
         self.frames.last_mut().unwrap().insert(sym.name.clone(), sym);
     }

@@ -1,5 +1,5 @@
 !start
-    !import "math.fr";
+    !import "./math.fr";
     :int a = 5;
     :float b = math::pi;
     :float d = math::calculate();
@@ -11,13 +11,18 @@
     a += 100;
     :int x1 = :int(b);
     :float x2 = :float(a);
-    :array<:char,1> x3 ="a";
-    :char x3= "b";
+    :array<:char,1> x31 ="a";
+    :char x33= "b";
+    :char x3=x33;
+    :int x44 = :int(x3);
     :float x4 = :float(x3);
     :char x5 = :char(65);
     :char x6 = :char(65.0);
     :float x7 = :float(true);
     :boolean x8 = :boolean(1.0);
+    :int x9 = :int(false);
+    :boolean x10 = :boolean(0);
+    
     !func add(:int a, :int b) -> :int {
         !return a + b;
     }

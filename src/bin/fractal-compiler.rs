@@ -38,18 +38,12 @@ fn main() {
     };
 
     let processed_program: String = preprocessor::preprocess(&contents, &args[1]);
-    println!("Processed:\n{}", processed_program);
     let tokens: Vec<Token> = lexer::tokenize(&processed_program);
-
-    for token in &tokens {
-        println!("{:?}", token);
-    }
 
     match parser::parse(tokens) {
         Ok(node) => {
             pretty_print_root(&node);
-        
-            
+
             let result = analyze(&node);
             result.print_symbol_table();
             result.print_errors();

@@ -21,21 +21,17 @@ use std::thread;
 use std::time::Instant;
 
 const AUTOSAVE_INTERVAL_SECS: u64 = 120;
-/// Maximum number of entries kept in the recent files list.
+
 const MAX_RECENT_FILES: usize = 10;
-/// Name of the session state file stored alongside the user profile.
+
 const SESSION_FILE: &str = "fractal_session.json";
 
-// ── Session persistence ──────────────────────────────────────────────────────
-
-/// Minimal data we persist between runs.
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct SessionState {
-    /// Absolute paths of all open tabs (unsaved/Untitled tabs are skipped).
     open_files: Vec<PathBuf>,
-    /// Index of the tab that was active when the editor closed.
+
     active_index: usize,
-    /// Recently opened files (most-recent first).
+
     recent_files: Vec<PathBuf>,
 }
 
@@ -67,8 +63,6 @@ impl SessionState {
     }
 }
 
-// ── Main editor struct ───────────────────────────────────────────────────────
-
 struct FractalEditor {
     profile: UserProfile,
     theme: Theme,
@@ -93,7 +87,6 @@ struct FractalEditor {
     success_message: Option<String>,
     last_autosave: Instant,
 
-    /// Recently opened files, most-recent first.
     recent_files: Vec<PathBuf>,
 }
 
@@ -105,7 +98,6 @@ impl FractalEditor {
         let mut file_dialog = FileDialog::new();
         file_dialog.update_theme(theme);
 
-        // Restore previous session
         let session = SessionState::load();
         let recent_files = session.recent_files.clone();
 
@@ -135,7 +127,6 @@ impl FractalEditor {
             recent_files,
         };
 
-        // Re-open files from the last session
         if !session.open_files.is_empty() {
             let mut opened_any = false;
             for path in &session.open_files {
@@ -145,18 +136,15 @@ impl FractalEditor {
                 }
             }
             if opened_any {
-                // Remove the blank starter tab that open_file may have replaced
-                // (open_file already handles the pristine-new case, so just
-                // set the active index to what was saved).
-                let saved_idx = session.active_index.min(editor.tabs.len().saturating_sub(1));
+                let saved_idx = session
+                    .active_index
+                    .min(editor.tabs.len().saturating_sub(1));
                 editor.active_tab = saved_idx;
             }
         }
 
         editor
     }
-
-    // ── Theme ─────────────────────────────────────────────────────────────
 
     fn apply_theme(&mut self, variant: ThemeVariant) {
         self.profile.theme = variant;
@@ -169,8 +157,6 @@ impl FractalEditor {
         self.settings_panel.update_theme(self.theme);
         self.file_dialog.update_theme(self.theme);
     }
-
-    // ── File operations ───────────────────────────────────────────────────
 
     fn open_file(&mut self, path: &PathBuf) {
         if let Some(i) = self
@@ -232,16 +218,11 @@ impl FractalEditor {
         self.last_autosave = Instant::now();
     }
 
-    // ── Recent files ──────────────────────────────────────────────────────
-
-    /// Push `path` to the front of the recent-files list, deduplicating.
     fn push_recent(&mut self, path: PathBuf) {
         self.recent_files.retain(|p| p != &path);
         self.recent_files.insert(0, path);
         self.recent_files.truncate(MAX_RECENT_FILES);
     }
-
-    // ── Session persistence ───────────────────────────────────────────────
 
     fn save_session(&self) {
         let open_files: Vec<PathBuf> = self
@@ -257,8 +238,6 @@ impl FractalEditor {
         }
         .save();
     }
-
-    // ── Tab management ────────────────────────────────────────────────────
 
     fn close_tab(&mut self, index: usize) {
         if self.tabs.is_empty() {
@@ -279,9 +258,6 @@ impl FractalEditor {
         }
     }
 
-    // ── Search / Replace ──────────────────────────────────────────────────
-
-    /// Apply search result: advance `current_match` forward or backward.
     fn search_navigate(&mut self, forward: bool) {
         if self.search_bar.total_matches == 0 {
             return;
@@ -290,12 +266,10 @@ impl FractalEditor {
         if forward {
             self.search_bar.current_match = (self.search_bar.current_match + 1) % n;
         } else {
-            self.search_bar.current_match =
-                (self.search_bar.current_match + n - 1) % n;
+            self.search_bar.current_match = (self.search_bar.current_match + n - 1) % n;
         }
     }
 
-    /// Replace the current match in the active tab's code.
     fn replace_current(&mut self) {
         if self.tabs.is_empty() || self.search_bar.query.is_empty() {
             return;
@@ -305,7 +279,6 @@ impl FractalEditor {
         let replacement = self.search_bar.replace_text.clone();
         let match_case = self.search_bar.match_case;
 
-        // Find the nth occurrence and replace just that one
         let idx = self.search_bar.current_match;
         let code = tab.code.clone();
 
@@ -330,9 +303,10 @@ impl FractalEditor {
                 new_code.push_str(&replacement);
                 new_code.push_str(&code[abs_pos + query.len()..]);
                 tab.code = new_code;
-                // Re-count after replacement
-                self.search_bar.current_match =
-                    idx.saturating_sub(0).min(self.search_bar.total_matches.saturating_sub(1));
+
+                self.search_bar.current_match = idx
+                    .saturating_sub(0)
+                    .min(self.search_bar.total_matches.saturating_sub(1));
                 return;
             }
             found += 1;
@@ -340,7 +314,6 @@ impl FractalEditor {
         }
     }
 
-    /// Replace all occurrences in the active tab's code.
     fn replace_all(&mut self) {
         if self.tabs.is_empty() || self.search_bar.query.is_empty() {
             return;
@@ -352,7 +325,6 @@ impl FractalEditor {
         let new_code = if self.search_bar.match_case {
             tab.code.replace(query.as_str(), &replacement)
         } else {
-            // Case-insensitive replace: rebuild manually
             let lower_code = tab.code.to_lowercase();
             let lower_query = query.to_lowercase();
             let mut result = String::with_capacity(tab.code.len());
@@ -382,8 +354,6 @@ impl FractalEditor {
         self.search_bar.current_match = 0;
         self.success_message = Some(format!("Replaced {count} occurrence(s)."));
     }
-
-    // ── Running code ──────────────────────────────────────────────────────
 
     fn run_code(&mut self, ctx: &egui::Context) {
         if self.tabs.is_empty() {
@@ -483,8 +453,6 @@ impl FractalEditor {
         }
     }
 
-    // ── Dialog handlers ───────────────────────────────────────────────────
-
     fn handle_close_confirm(&mut self, ctx: &egui::Context) {
         match self.close_confirm.show(ctx) {
             CloseConfirmAction::Cancel => {}
@@ -517,8 +485,6 @@ impl FractalEditor {
             QuitConfirmAction::Pending => {}
         }
     }
-
-    // ── Status bar ────────────────────────────────────────────────────────
 
     fn show_status_bar(&mut self, ctx: &egui::Context) {
         let t = self.theme;
@@ -614,7 +580,7 @@ impl FractalEditor {
                             .size(11.0)
                             .color(t.status_bar_fg),
                         );
-                        // Show match count in status bar when search is active
+
                         if self.search_bar.visible && !self.search_bar.query.is_empty() {
                             ui.separator();
                             ui.label(
@@ -637,8 +603,6 @@ impl FractalEditor {
     }
 }
 
-// ── eframe::App ──────────────────────────────────────────────────────────────
-
 impl eframe::App for FractalEditor {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.save_session();
@@ -648,7 +612,6 @@ impl eframe::App for FractalEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_compiler_output();
 
-        // ── Close / quit handling ──────────────────────────────────────────
         let close_requested = ctx.input(|i| i.viewport().close_requested());
         if close_requested && !self.allow_quit {
             let dirty: Vec<String> = self
@@ -665,14 +628,12 @@ impl eframe::App for FractalEditor {
             }
         }
 
-        // ── Global keyboard shortcuts ──────────────────────────────────────
         ctx.input_mut(|i| {
             if (i.modifiers.ctrl || i.modifiers.mac_cmd) && i.key_pressed(egui::Key::Backtick) {
                 self.terminal.toggle_minimized();
             }
         });
 
-        // ── Autosave ───────────────────────────────────────────────────────
         let needs_autosave = self
             .tabs
             .get(self.active_tab)
@@ -686,7 +647,6 @@ impl eframe::App for FractalEditor {
             self.autosave();
         }
 
-        // ── Repaint strategy ───────────────────────────────────────────────
         let is_running = self
             .tabs
             .get(self.active_tab)
@@ -700,7 +660,6 @@ impl eframe::App for FractalEditor {
 
         apply_egui_style(ctx, &self.theme);
 
-        // ── Menu bar ───────────────────────────────────────────────────────
         let current_file = self
             .tabs
             .get(self.active_tab)
@@ -751,21 +710,16 @@ impl eframe::App for FractalEditor {
                 self.docs_window.open = false;
             }
             MenuAction::Search => {
-                // Ctrl+F: open in search-only mode. If already open, do nothing.
                 if !self.search_bar.visible {
                     self.search_bar.open_search();
                 }
-                // second+ Ctrl+F: no change
             }
             MenuAction::Replace => {
                 if !self.search_bar.visible {
-                    // Bar is closed → open with replace row visible
                     self.search_bar.open_replace();
                 } else if self.search_bar.replace_mode {
-                    // Replace row is showing → hide it (back to search only)
                     self.search_bar.replace_mode = false;
                 } else {
-                    // Search-only showing → show replace row
                     self.search_bar.replace_mode = true;
                     self.search_bar.focus_replace = true;
                 }
@@ -773,7 +727,6 @@ impl eframe::App for FractalEditor {
             MenuAction::None => {}
         }
 
-        // ── Tab bar ────────────────────────────────────────────────────────
         if !self.tabs.is_empty() {
             match show_tab_bar(ctx, &self.tabs, self.active_tab, &self.theme) {
                 TabBarAction::Activate(i) => {
@@ -790,8 +743,6 @@ impl eframe::App for FractalEditor {
             }
         }
 
-        // ── Search bar (rendered between tab bar and editor) ───────────────
-        // Update match counts first so the bar shows current numbers.
         if self.search_bar.visible {
             if let Some(tab) = self.tabs.get(self.active_tab) {
                 let code = tab.code.clone();
@@ -804,11 +755,10 @@ impl eframe::App for FractalEditor {
             SearchBarAction::FindPrev => self.search_navigate(false),
             SearchBarAction::ReplaceOne => self.replace_current(),
             SearchBarAction::ReplaceAll => self.replace_all(),
-            SearchBarAction::Close => {} // already handled inside show()
+            SearchBarAction::Close => {}
             SearchBarAction::None => {}
         }
 
-        // ── Dialogs ────────────────────────────────────────────────────────
         self.handle_close_confirm(ctx);
         self.handle_quit_confirm(ctx);
 
@@ -835,11 +785,9 @@ impl eframe::App for FractalEditor {
             self.apply_theme(v);
         }
 
-        // ── Status bar + terminal ──────────────────────────────────────────
         self.show_status_bar(ctx);
         self.terminal.show(ctx);
 
-        // ── Central editor panel ───────────────────────────────────────────
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(self.theme.editor_bg))
             .show(ctx, |ui| {
@@ -862,8 +810,6 @@ impl eframe::App for FractalEditor {
             });
     }
 }
-
-// ── egui style ───────────────────────────────────────────────────────────────
 
 fn apply_egui_style(ctx: &egui::Context, t: &Theme) {
     let mut s = (*ctx.style()).clone();
@@ -929,8 +875,6 @@ fn apply_egui_style(ctx: &egui::Context, t: &Theme) {
 
     ctx.set_style(s);
 }
-
-// ── Entry point ───────────────────────────────────────────────────────────────
 
 fn main() -> Result<(), eframe::Error> {
     eframe::run_native(

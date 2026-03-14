@@ -15,3 +15,9 @@ main
 
 web/.next/
 web/node_modules/
+web/out
+web/.env
+web/.env.*
+web/npm-debug.log*
+web/yarn-debug.log*
+web/yarn-error.log*

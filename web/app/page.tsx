@@ -206,24 +206,72 @@ function Pill({ label }: { label: string }) {
 }
 
 /* ── Download card ─────────────────────────────────────────── */
-function DownloadCard({
-  icon, name, desc, href,
-}: { icon: string; name: string; desc: string; href: string }) {
+const REPO = 'Pixelrick420/Fractal';
+
+type ReleaseAsset = { name: string; browser_download_url: string; size: number };
+type Release = { tag_name: string; published_at: string; assets: ReleaseAsset[] };
+
+function useLatestRelease() {
+  const [release, setRelease] = useState<Release | null>(null);
+  const [error, setError]     = useState(false);
+
+  useEffect(() => {
+    fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+      headers: { Accept: 'application/vnd.github+json' },
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.tag_name) setRelease(data);
+        else setError(true);
+      })
+      .catch(() => setError(true));
+  }, []);
+
+  return { release, error };
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+const BINARY_META: Record<string, { icon: string; desc: string }> = {
+  'fractal-compiler': { icon: '⚙', desc: 'Compile .fr files from the command line' },
+  'fractal-editor':   { icon: '🖥', desc: 'Full GUI editor with syntax highlighting & terminal' },
+};
+
+function DownloadCard({ asset }: { asset: ReleaseAsset }) {
+  const meta = BINARY_META[asset.name] ?? { icon: '📦', desc: 'Binary' };
   return (
-    <a href={href} className={styles.dlCard} download>
-      <span className={styles.dlIcon}>{icon}</span>
+    <a href={asset.browser_download_url} className={styles.dlCard} download>
+      <span className={styles.dlIcon}>{meta.icon}</span>
       <div className={styles.dlInfo}>
-        <span className={styles.dlName}>{name}</span>
-        <span className={styles.dlDesc}>{desc}</span>
+        <span className={styles.dlName}>{asset.name}</span>
+        <span className={styles.dlDesc}>{meta.desc}</span>
+        <span className={styles.dlSize}>{formatBytes(asset.size)}</span>
       </div>
       <span className={styles.dlArrow}>↓</span>
     </a>
   );
 }
 
+function DownloadCardSkeleton() {
+  return (
+    <div className={styles.dlCardSkeleton}>
+      <span className={styles.dlIcon}>⋯</span>
+      <div className={styles.dlInfo}>
+        <span className={`${styles.dlName} ${styles.skeletonBar}`} style={{ width: '140px' }} />
+        <span className={`${styles.dlDesc} ${styles.skeletonBar}`} style={{ width: '200px' }} />
+      </div>
+    </div>
+  );
+}
+
 /* ── Page ──────────────────────────────────────────────────── */
 export default function Home() {
   const [scrolled, setScrolled] = useState(false);
+  const { release, error } = useLatestRelease();
+
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 50);
     window.addEventListener('scroll', fn);
@@ -425,19 +473,44 @@ export default function Home() {
           Two binaries. No installer. Just download, make executable, and run.
         </p>
 
+        {/* Release badge */}
+        <div className={styles.releaseBadge}>
+          {release ? (
+            <>
+              <span className={styles.releaseDot} />
+              <span className={styles.releaseTag}>{release.tag_name}</span>
+              <span className={styles.releaseDate}>
+                · released {new Date(release.published_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+              </span>
+            </>
+          ) : error ? (
+            <span className={styles.releaseErr}>Could not fetch release info</span>
+          ) : (
+            <span className={styles.releaseFetching}>fetching latest release…</span>
+          )}
+        </div>
+
         <div className={styles.dlCards}>
-          <DownloadCard
-            icon="⚙"
-            name="fractal-compiler"
-            desc="Compile .fr files from the command line"
-            href="https://github.com/Pixelrick420/Fractal/releases/download/release/fractal-compiler"
-          />
-          <DownloadCard
-            icon="🖥"
-            name="fractal-editor"
-            desc="Full GUI editor with syntax highlighting & terminal"
-            href="https://github.com/Pixelrick420/Fractal/releases/download/release/fractal-editor"
-          />
+          {release ? (
+            release.assets
+              .filter(a => a.name === 'fractal-compiler' || a.name === 'fractal-editor')
+              .map(a => <DownloadCard key={a.name} asset={a} />)
+          ) : error ? (
+            /* Fallback to direct latest-release page if API fails */
+            <a
+              href={`https://github.com/${REPO}/releases/latest`}
+              target="_blank"
+              rel="noreferrer"
+              className={styles.dlFallback}
+            >
+              Open latest release on GitHub →
+            </a>
+          ) : (
+            <>
+              <DownloadCardSkeleton />
+              <DownloadCardSkeleton />
+            </>
+          )}
         </div>
 
         <div className={styles.dlSteps}>
@@ -467,7 +540,7 @@ export default function Home() {
         </div>
 
         <a
-          href="https://github.com/Pixelrick420/Fractal/releases"
+          href={`https://github.com/${REPO}/releases`}
           target="_blank"
           rel="noreferrer"
           className={styles.allReleases}

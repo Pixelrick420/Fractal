@@ -1,0 +1,98 @@
+name: Build and Release Fractal
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Fractal Binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libgl1-mesa-dev \
+            pkg-config
+
+      - name: Build release binaries
+        run: cargo build --release
+
+      - name: Prepare executables folder
+        run: |
+          mkdir -p executable
+          cp target/release/fractal-compiler executable/fractal-compiler
+          cp target/release/fractal-editor   executable/fractal-editor
+          chmod +x executable/fractal-compiler executable/fractal-editor
+
+      - name: Compute version tag
+        id: version
+        run: |
+          SHORT=$(git rev-parse --short HEAD)
+          DATE=$(date +'%Y.%m.%d')
+          echo "tag=v${DATE}-${SHORT}" >> $GITHUB_OUTPUT
+          echo "short=${SHORT}"        >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Fractal ${{ steps.version.outputs.tag }}"
+          body: |
+            ## Fractal Language — ${{ steps.version.outputs.tag }}
+
+            Built from commit `${{ steps.version.outputs.short }}` on branch `${{ github.ref_name }}`.
+
+            ### Downloads
+            | Binary | Description |
+            |--------|-------------|
+            | `fractal-compiler` | Compiles `.fr` source files |
+            | `fractal-editor`   | GUI editor with syntax highlighting |
+
+            ### Usage
+            ```bash
+            chmod +x fractal-compiler fractal-editor
+            ./fractal-compiler your_program.fr
+            ./fractal-editor
+            ```
+          files: |
+            executable/fractal-compiler
+            executable/fractal-editor
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,10 +1,8 @@
-/* ── Root ───────────────────────────────────────────────────── */
 .root {
     min-height: 100vh;
     background: var(--bg);
 }
 
-/* ── NAV ────────────────────────────────────────────────────── */
 .nav {
     position: fixed;
     top: 0;
@@ -74,7 +72,6 @@
     color: #000 !important;
 }
 
-/* ── HERO ───────────────────────────────────────────────────── */
 .hero {
     min-height: 100vh;
     display: grid;
@@ -224,7 +221,6 @@
     color: var(--syn-type);
 }
 
-/* ── CODE WINDOW ────────────────────────────────────────────── */
 .codeWindow {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -337,7 +333,6 @@
     }
 }
 
-/* ── SYNTAX TOKENS ──────────────────────────────────────────── */
 .syn_kw {
     color: var(--syn-keyword);
     font-weight: 500;
@@ -359,7 +354,6 @@
     color: var(--syn-var);
 }
 
-/* ── SECTIONS ───────────────────────────────────────────────── */
 .section {
     max-width: 1200px;
     margin: 0 auto;
@@ -400,7 +394,6 @@
     margin-bottom: 3.5rem;
 }
 
-/* ── PROBLEM GRID ───────────────────────────────────────────── */
 .problemGrid {
     display: grid;
     grid-template-columns: 1fr 1.15fr 1fr;
@@ -461,7 +454,6 @@
     letter-spacing: 0.05em;
 }
 
-/* ── SYNTAX SECTION ─────────────────────────────────────────── */
 .syntaxLayout {
     display: grid;
     grid-template-columns: 1fr 1.4fr;
@@ -514,7 +506,6 @@
     font-size: 0.85em;
 }
 
-/* ── COMPARE BLOCK ──────────────────────────────────────────── */
 .compareBlock {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -609,7 +600,6 @@
     color: var(--accent);
 }
 
-/* ── ERROR SECTION ──────────────────────────────────────────── */
 .errorLayout {
     display: grid;
     grid-template-columns: 1.1fr 1fr;
@@ -734,7 +724,6 @@
     font-weight: 300;
 }
 
-/* ── EDITOR FEATURES ────────────────────────────────────────── */
 .editorFeatures {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -789,7 +778,6 @@
     font-weight: 300;
 }
 
-/* ── DOWNLOAD SECTION ───────────────────────────────────────── */
 .dlSection {
     max-width: 1200px;
     margin: 0 auto;
@@ -1032,7 +1020,7 @@
 .allReleases:hover {
     color: var(--accent) !important;
 }
-/* ── FOOTER ─────────────────────────────────────────────────── */
+
 .footer {
     display: flex;
     align-items: center;

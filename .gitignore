@@ -12,3 +12,6 @@ output
 main
 
 .zed/*
+
+web/.next/
+web/node_modules/

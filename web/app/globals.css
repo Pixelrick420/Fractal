@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap');
+
+:root {
+  /* Core palette — deep navy */
+  --bg:           #0e1117;
+  --bg-2:         #10131b;
+  --bg-3:         #181f2e;
+  --surface:      #121723;
+  --surface-2:    #222b3d;
+  --border:       #2a3650;
+  --border-light: #252d44;
+
+  /* Accent — warm amber: approachable, "learning" energy */
+  /* Accent — green */
+  --accent:       #15ce43;
+  --accent-dim:   #00cc33;
+  --accent-glow:  rgba(0, 255, 65, 0.10);
+  --accent-glow2: rgba(0, 255, 65, 0.25);
+
+  /* Syntax colours matching .fr file style */
+  --syn-keyword:  #ff7b72;   /* !start !end  — coral red  */
+  --syn-type:     #79c0ff;   /* :int :float  — sky blue   */
+  --syn-value:    #a5d6a7;   /* 10, 8.0      — soft green */
+  --syn-op:       #d2a8ff;   /* = + ()       — lavender   */
+  --syn-comment:  #6a7f9e;   /* // comments  — muted      */
+  --syn-var:      #ffa657;   /* identifiers  — orange     */
+
+  /* Text */
+  --text:         #e2e8f6;
+  --text-dim:     #8fa3c0;
+  --text-muted:   #4a5e7a;
+
+  /* Fonts */
+  --mono:    'DM Mono', monospace;
+  --display: 'Syne', sans-serif;
+  --body:    'DM Sans', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: var(--bg-2); }
+::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+::selection { background: var(--accent); color: #000; }
+a { color: var(--accent); text-decoration: none; }
+button { cursor: pointer; font-family: var(--body); }

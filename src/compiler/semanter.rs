@@ -159,7 +159,7 @@ impl SemanticResult {
 
     pub fn print_errors(&self) {
         if self.errors.is_empty() {
-            println!("\x1b[1;32m✓  No semantic errors.\x1b[0m\n");
+            println!("\x1b[1;32m No semantic errors.\x1b[0m\n");
         } else {
             println!("\x1b[1;31m✗  {} error(s):\x1b[0m", self.errors.len());
             for e in &self.errors {
@@ -240,6 +240,23 @@ impl Analyzer {
                 &[SemType::Unknown, SemType::Unknown],
                 SemType::Unknown,
             ),
+            (
+                "insert",
+                &[SemType::Unknown, SemType::Unknown],
+                SemType::Void,
+            ),
+            ("delete", &[SemType::Unknown, SemType::Int], SemType::Void),
+            ("find", &[SemType::Unknown, SemType::Unknown], SemType::Int),
+            (
+                "starts",
+                &[SemType::Unknown, SemType::Unknown],
+                SemType::Boolean,
+            ),
+            (
+                "ends",
+                &[SemType::Unknown, SemType::Unknown],
+                SemType::Boolean,
+            ),
             ("to_int", &[SemType::Unknown], SemType::Int),
             ("to_float", &[SemType::Unknown], SemType::Float),
             (
@@ -315,10 +332,6 @@ impl Analyzer {
             return true;
         }
 
-        if matches!(a, SemType::Float) && matches!(b, SemType::Int) {
-            return true;
-        }
-
         if let (SemType::List { elem: ea }, SemType::List { elem: eb }) = (a, b) {
             if matches!(ea.as_ref(), SemType::Unknown) || matches!(eb.as_ref(), SemType::Unknown) {
                 return true;
@@ -326,19 +339,16 @@ impl Analyzer {
             return Self::types_compatible(ea, eb);
         }
 
-        if let SemType::List { .. } = a {
-            if let SemType::Array { elem, size: 0 } = b {
-                if matches!(elem.as_ref(), SemType::Unknown) {
-                    return true;
-                }
-            }
+        if let (SemType::Array { elem: ae, .. }, SemType::Array { elem: be, .. }) = (a, b) {
+            return Self::types_compatible(ae, be);
         }
-        if let SemType::List { .. } = b {
-            if let SemType::Array { elem, size: 0 } = a {
-                if matches!(elem.as_ref(), SemType::Unknown) {
-                    return true;
-                }
-            }
+
+        if let (SemType::Array { elem: ae, .. }, SemType::List { elem: le }) = (a, b) {
+            return Self::types_compatible(ae, le);
+        }
+
+        if let (SemType::List { elem: le }, SemType::Array { elem: ae, .. }) = (a, b) {
+            return Self::types_compatible(le, ae);
         }
         false
     }
@@ -455,11 +465,66 @@ impl Analyzer {
                             }
                         },
                         AccessStep::Call(args) => {
-                            for a in args {
-                                self.infer_expr(a);
-                            }
+                            let arg_types: Vec<SemType> =
+                                args.iter().map(|a| self.infer_expr(a)).collect();
 
-                            SemType::Unknown
+                            let func_sym = self.scopes.lookup(base).cloned();
+
+                            if let Some(Symbol {
+                                kind:
+                                    SymbolKind::Function {
+                                        params: ref param_types,
+                                    },
+                                sem_type: ref ret,
+                                ..
+                            }) = func_sym
+                            {
+                                let variadic = param_types.len() == 1
+                                    && matches!(param_types[0], SemType::Unknown);
+
+                                if !variadic && arg_types.len() != param_types.len() {
+                                    self.error(format!(
+                                        "function `{}` expects {} argument(s), got {}",
+                                        base,
+                                        param_types.len(),
+                                        arg_types.len()
+                                    ));
+                                }
+
+                                if !variadic {
+                                    for (i, (pt, at)) in
+                                        param_types.iter().zip(arg_types.iter()).enumerate()
+                                    {
+                                        if matches!(pt, SemType::Unknown) {
+                                            continue;
+                                        }
+                                        if !Self::types_compatible(pt, at) {
+                                            self.error(format!(
+                                                "argument {} of `{}` expects type `{}`, got `{}`",
+                                                i + 1,
+                                                base,
+                                                pt.display(),
+                                                at.display()
+                                            ));
+                                        }
+                                    }
+                                }
+
+                                if base == "pop" {
+                                    if let Some(at) = arg_types.first() {
+                                        if !matches!(at, SemType::List { .. } | SemType::Unknown) {
+                                            self.error(format!(
+                                                "`pop` requires a `:list<T>` argument, got `{}`",
+                                                at.display()
+                                            ));
+                                        }
+                                    }
+                                }
+
+                                ret.clone()
+                            } else {
+                                SemType::Unknown
+                            }
                         }
                     };
                 }
@@ -467,8 +532,34 @@ impl Analyzer {
             }
 
             ParseNode::Cast { target_type, expr } => {
-                self.infer_expr(expr);
-                self.resolve_type_node(target_type)
+                let src = self.infer_expr(expr);
+                let tgt = self.resolve_type_node(target_type);
+
+                let legal = matches!(src, SemType::Unknown)
+                    || matches!(tgt, SemType::Unknown)
+                    || matches!(
+                        (&src, &tgt),
+                        (SemType::Int, SemType::Int)
+                            | (SemType::Float, SemType::Float)
+                            | (SemType::Char, SemType::Char)
+                            | (SemType::Boolean, SemType::Boolean)
+                            | (SemType::Int, SemType::Float)
+                            | (SemType::Float, SemType::Int)
+                            | (SemType::Int, SemType::Char)
+                            | (SemType::Char, SemType::Int)
+                            | (SemType::Int, SemType::Boolean)
+                            | (SemType::Boolean, SemType::Int)
+                            | (SemType::Float, SemType::Boolean)
+                            | (SemType::Boolean, SemType::Float)
+                    );
+                if !legal {
+                    self.error(format!(
+                        "illegal cast from `{}` to `{}`; `:char` can only be cast to/from `:int`, and `:float`↔`:char` is not defined",
+                        src.display(),
+                        tgt.display()
+                    ));
+                }
+                tgt
             }
 
             ParseNode::ArrayLit(elems) => {
@@ -488,8 +579,9 @@ impl Analyzer {
                     }
                 }
 
-                SemType::List {
+                SemType::Array {
                     elem: Box::new(elem_ty),
+                    size: elem_types.len() as i64,
                 }
             }
 
@@ -830,6 +922,21 @@ impl Analyzer {
                                 decl_ty.display(),
                                 init_ty.display()
                             ));
+                        } else if let (
+                            SemType::Array {
+                                size: decl_size, ..
+                            },
+                            SemType::Array {
+                                size: init_size, ..
+                            },
+                        ) = (&decl_ty, &init_ty)
+                        {
+                            if decl_size != init_size {
+                                self.error(format!(
+                                    "array `{}` declared with size {}, but initializer has {} element(s)",
+                                    name, decl_size, init_size
+                                ));
+                            }
                         }
                     }
                 }

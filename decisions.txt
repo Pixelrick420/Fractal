@@ -30,11 +30,15 @@
         1. 'a' -> single quoted char
         2. '\n' -> special char
 
-    d) array
+    d) boolean
+        1. true  -> boolean true  (bare literal, NOT a keyword; no ! prefix)
+        2. false -> boolean false (bare literal, NOT a keyword; no ! prefix)
+
+    e) array
         1. [1, 2, 3, 4, 5] -> int array
         2. ['a', 'b', 'c'] or "abcd" -> char array (double quote if no [])
 
-    e) list
+    f) list
         1. same as array but declared as :list
 
 
@@ -180,6 +184,11 @@
         4. find
         5. delete
 
+# EXPLICIT CASTS: (no others allowed)
+    :int ↔ :float (numeric)
+    :int ↔ :char (codepoint)
+    :int ↔ :boolean (0/nonzero)
+    :float ↔ :boolean (0.0/nonzero — needed by 0.fr)
 
 # SAMPLE PROGRAM
 

@@ -38,12 +38,13 @@ fn main() {
     };
 
     let processed_program = preprocessor::preprocess(&contents, source_file);
+    // println!("{:?}", processed_program);
     let tokens = lexer::tokenize_with_source(&processed_program, source_file);
 
     match parser::parse_with_source(tokens, source_file) {
         Ok(node) => {
             let result = analyze(&node);
-            result.print_symbol_table();
+            // result.print_symbol_table();
             result.print_errors();
             if result.has_errors() {
                 process::exit(1);

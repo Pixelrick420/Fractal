@@ -86,6 +86,8 @@ pub enum TokenType {
 
     ModuleStart(String),
     ModuleEnd(String),
+
+    FileMap(String, usize),
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +95,7 @@ pub struct Token {
     pub token_type: TokenType,
     pub line: usize,
     pub col: usize,
+    pub file: String,
 }
 
 fn offset_to_line_col(src: &str, offset: usize) -> (usize, usize) {
@@ -382,6 +385,15 @@ fn parse_module_marker(chars: &[char], start_index: usize) -> Option<(TokenType,
     if let Some(name) = marker.strip_prefix("MODULE_END:") {
         return Some((TokenType::ModuleEnd(name.to_string()), i));
     }
+    if let Some(rest) = marker.strip_prefix("SRCMAP:") {
+        if let Some(colon) = rest.rfind(':') {
+            let file = &rest[..colon];
+            let line_str = &rest[colon + 1..];
+            if let Ok(line) = line_str.parse::<usize>() {
+                return Some((TokenType::FileMap(file.to_string(), line), i));
+            }
+        }
+    }
     None
 }
 
@@ -391,43 +403,9 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
     let mut index: usize = 0;
     let mut had_error = false;
 
-    let mut char_line: Vec<usize> = Vec::with_capacity(chars.len());
-    let mut char_col: Vec<usize> = Vec::with_capacity(chars.len());
-    {
-        let mut ln = 1usize;
-        let mut cl = 1usize;
-        for &c in &chars {
-            char_line.push(ln);
-            char_col.push(cl);
-            if c == '\n' {
-                ln += 1;
-                cl = 1;
-            } else {
-                cl += 1;
-            }
-        }
-    }
-
-    macro_rules! tok_line {
-        ($ci:expr) => {
-            char_line.get($ci).copied().unwrap_or(1)
-        };
-    }
-    macro_rules! tok_col {
-        ($ci:expr) => {
-            char_col.get($ci).copied().unwrap_or(1)
-        };
-    }
-
-    macro_rules! make_tok {
-        ($tt:expr, $ci:expr) => {
-            Token {
-                token_type: $tt,
-                line: tok_line!($ci),
-                col: tok_col!($ci),
-            }
-        };
-    }
+    let mut map_file = source_file.to_string();
+    let mut map_line: usize = 1;
+    let mut map_col: usize = 1;
 
     let char_offsets: Vec<usize> = {
         let mut offs = Vec::with_capacity(chars.len() + 1);
@@ -454,6 +432,12 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
 
     while index < chars.len() {
         while index < chars.len() && chars[index].is_whitespace() {
+            if chars[index] == '\n' {
+                map_line += 1;
+                map_col = 1;
+            } else {
+                map_col += 1;
+            }
             index += 1;
         }
         if index >= chars.len() {
@@ -461,17 +445,37 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
         }
 
         let token_start = index;
+        let tok_line = map_line;
+        let tok_col = map_col;
 
         if chars[index] == '$' {
             if let Some((tt, new_index)) = parse_module_marker(&chars, index) {
-                tokens.push(make_tok!(tt, token_start));
+                for i in index..new_index {
+                    if chars[i] == '\n' {
+                        map_line += 1;
+                        map_col = 1;
+                    } else {
+                        map_col += 1;
+                    }
+                }
                 index = new_index;
+                if let TokenType::FileMap(ref file, line) = tt {
+                    map_file = file.clone();
+                    map_line = line;
+                    map_col = 1;
+                } else {
+                    tokens.push(Token {
+                        token_type: tt,
+                        line: tok_line,
+                        col: tok_col,
+                        file: map_file.clone(),
+                    });
+                }
                 continue;
             }
-
             emit_error(
                 program,
-                source_file,
+                &map_file,
                 byte_off!(token_start),
                 1,
                 "E001",
@@ -480,18 +484,26 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 "the `$` character is reserved for internal module markers; remove it",
             );
             had_error = true;
+            map_col += 1;
             index += 1;
             continue;
         }
 
         if chars[index] == ':' && peek!(1) == Some(':') {
-            tokens.push(make_tok!(TokenType::ColonColon, token_start));
+            tokens.push(Token {
+                token_type: TokenType::ColonColon,
+                line: tok_line,
+                col: tok_col,
+                file: map_file.clone(),
+            });
+            map_col += 2;
             index += 2;
             continue;
         }
 
         if chars[index] == '!' {
             let bang_pos = token_start;
+            map_col += 1;
             index += 1;
             let mut buffer = String::new();
             while index < chars.len()
@@ -499,13 +511,13 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 && !is_operator_char(chars[index])
             {
                 buffer.push(chars[index]);
+                map_col += 1;
                 index += 1;
             }
-
             if buffer.is_empty() {
                 emit_error(
                     program,
-                    source_file,
+                    &map_file,
                     byte_off!(bang_pos),
                     1,
                     "E002",
@@ -517,7 +529,6 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 had_error = true;
                 continue;
             }
-
             let result = keyword_map(&buffer);
             if matches!(result, TokenType::NoMatch) {
                 let hint = if let Some(close) = closest_keyword(&buffer) {
@@ -531,7 +542,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 };
                 emit_error(
                     program,
-                    source_file,
+                    &map_file,
                     byte_off!(bang_pos),
                     buffer.len() + 1,
                     "E003",
@@ -541,13 +552,19 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 );
                 had_error = true;
             } else {
-                tokens.push(make_tok!(result, bang_pos));
+                tokens.push(Token {
+                    token_type: result,
+                    line: tok_line,
+                    col: tok_col,
+                    file: map_file.clone(),
+                });
             }
             continue;
         }
 
         if chars[index] == ':' {
             let colon_pos = token_start;
+            map_col += 1;
             index += 1;
             let mut buffer = String::new();
             while index < chars.len()
@@ -556,73 +573,78 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 && chars[index] != '<'
             {
                 buffer.push(chars[index]);
+                map_col += 1;
                 index += 1;
             }
-
             if buffer.is_empty() {
                 emit_error(
                     program,
-                    source_file,
+                    &map_file,
                     byte_off!(colon_pos),
                     1,
                     "E004",
                     "bare `:` with no type name",
                     "expected a type name after `:`",
                     "types are written as `:int`, `:float`, `:char`, `:boolean`, \
-                     `:array<T,N>`, `:list<T>`, `:struct<Name>`, `:void`; \
-                     for field access use `::`",
+                     `:array<T,N>`, `:list<T>`, `:struct<n>`, `:void`; for field access use `::`",
                 );
                 had_error = true;
                 continue;
             }
-
             let result = type_map(&buffer);
             if matches!(result, TokenType::NoMatch) {
                 let hint = if let Some(close) = closest_type(&buffer) {
                     format!("unknown type `:{buffer}` — did you mean `:{close}`?")
                 } else {
-                    format!(
-                        "unknown type `:{buffer}`; valid primitive types: \
-                         int, float, char, boolean, void; \
-                         generic: array<T,N>, list<T>, struct<Name>"
-                    )
+                    format!("unknown type `:{buffer}`; valid primitive types: \
+                         int, float, char, boolean, void; generic: array<T,N>, list<T>, struct<Name>")
                 };
                 emit_error(
                     program,
-                    source_file,
+                    &map_file,
                     byte_off!(colon_pos),
                     buffer.len() + 1,
                     "E005",
-                    &format!("unknown type `:{}` ", buffer),
+                    &format!("unknown type `:{}`", buffer),
                     "not a recognised type",
                     &hint,
                 );
                 had_error = true;
             } else {
-                tokens.push(make_tok!(result, colon_pos));
+                tokens.push(Token {
+                    token_type: result,
+                    line: tok_line,
+                    col: tok_col,
+                    file: map_file.clone(),
+                });
             }
             continue;
         }
 
         if chars[index] == '"' {
             let str_start = token_start;
+            map_col += 1;
             index += 1;
             let mut buf = String::new();
             let mut closed = false;
-
             while index < chars.len() {
                 if chars[index] == '"' {
                     closed = true;
+                    map_col += 1;
                     index += 1;
                     break;
                 }
                 if chars[index] == '\n' {
+                    map_line += 1;
+                    map_col = 1;
+                    index += 1;
                     break;
                 }
                 if chars[index] == '\\' {
                     if index + 1 >= chars.len() {
                         break;
                     }
+                    map_col += 1;
                     index += 1;
                     let escaped = match chars[index] {
                         'n' => '\n',
@@ -633,53 +655,52 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                         '0' => '\0',
                         c => {
                             emit_error(
-                                program, source_file,
-                                byte_off!(index - 1), 2,
+                                program,
+                                &map_file,
+                                byte_off!(index - 1),
+                                2,
                                 "E006",
                                 &format!("unknown escape sequence `\\{c}`"),
                                 "invalid escape",
-                                "valid escapes: `\\n` (newline), `\\t` (tab), `\\r` (carriage return), \
-                                 `\\\\` (backslash), `\\\"` (quote), `\\0` (null)",
+                                "valid escapes: `\\n` `\\t` `\\r` `\\\\` `\\\"` `\\0`",
                             );
                             had_error = true;
                             c
                         }
                     };
                     buf.push(escaped);
+                    map_col += 1;
                     index += 1;
                     continue;
                 }
                 buf.push(chars[index]);
+                map_col += 1;
                 index += 1;
             }
-
             if !closed {
-                emit_error(
-                    program,
-                    source_file,
-                    byte_off!(str_start),
-                    1,
-                    "E007",
-                    "unterminated string literal",
-                    "string starts here, never closed",
-                    "add a closing `\"` at the end of the string; \
-                     strings cannot span multiple lines",
-                );
+                emit_error(program, &map_file, byte_off!(str_start), 1, "E007",
+                    "unterminated string literal", "string starts here, never closed",
+                    "add a closing `\"` at the end of the string; strings cannot span multiple lines");
                 had_error = true;
             } else {
-                tokens.push(make_tok!(TokenType::StringLit(buf), str_start));
+                tokens.push(Token {
+                    token_type: TokenType::StringLit(buf),
+                    line: tok_line,
+                    col: tok_col,
+                    file: map_file.clone(),
+                });
             }
             continue;
         }
 
         if chars[index] == '\'' {
             let char_start = token_start;
+            map_col += 1;
             index += 1;
-
             if index >= chars.len() {
                 emit_error(
                     program,
-                    source_file,
+                    &map_file,
                     byte_off!(char_start),
                     1,
                     "E008",
@@ -690,11 +711,10 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 had_error = true;
                 continue;
             }
-
             if chars[index] == '\'' {
                 emit_error(
                     program,
-                    source_file,
+                    &map_file,
                     byte_off!(char_start),
                     2,
                     "E009",
@@ -703,15 +723,15 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                     "a char literal must contain exactly one character, e.g. `'a'`",
                 );
                 had_error = true;
+                map_col += 1;
                 index += 1;
                 continue;
             }
-
             let char_val = if chars[index] == '\\' {
                 if index + 1 >= chars.len() {
                     emit_error(
                         program,
-                        source_file,
+                        &map_file,
                         byte_off!(index),
                         1,
                         "E006",
@@ -722,37 +742,23 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                     had_error = true;
                     '\0'
                 } else {
+                    map_col += 1;
                     index += 1;
-                    match chars[index] {
-                        'n' => {
-                            index += 1;
-                            '\n'
-                        }
-                        't' => {
-                            index += 1;
-                            '\t'
-                        }
-                        'r' => {
-                            index += 1;
-                            '\r'
-                        }
-                        '\\' => {
-                            index += 1;
-                            '\\'
-                        }
-                        '\'' => {
-                            index += 1;
-                            '\''
-                        }
-                        '0' => {
-                            index += 1;
-                            '\0'
-                        }
-                        c => {
+                    let c = chars[index];
+                    map_col += 1;
+                    index += 1;
+                    match c {
+                        'n' => '\n',
+                        't' => '\t',
+                        'r' => '\r',
+                        '\\' => '\\',
+                        '\'' => '\'',
+                        '0' => '\0',
+                        _ => {
                             emit_error(
                                 program,
-                                source_file,
-                                byte_off!(index - 1),
+                                &map_file,
+                                byte_off!(index - 2),
                                 2,
                                 "E006",
                                 &format!("unknown escape sequence `\\{c}` in char literal"),
@@ -760,45 +766,44 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                                 "valid escapes: `\\n`, `\\t`, `\\r`, `\\\\`, `\\'`, `\\0`",
                             );
                             had_error = true;
-                            index += 1;
                             c
                         }
                     }
                 }
             } else {
                 let c = chars[index];
+                map_col += 1;
                 index += 1;
                 c
             };
-
             if index < chars.len() && chars[index] == '\'' {
+                map_col += 1;
                 index += 1;
-                tokens.push(make_tok!(TokenType::CharLit(char_val), char_start));
+                tokens.push(Token {
+                    token_type: TokenType::CharLit(char_val),
+                    line: tok_line,
+                    col: tok_col,
+                    file: map_file.clone(),
+                });
             } else if index < chars.len() && chars[index] != '\'' {
                 let extra_start = index;
                 while index < chars.len() && chars[index] != '\'' && chars[index] != '\n' {
+                    map_col += 1;
                     index += 1;
                 }
                 let extra_len = index - extra_start + 1;
-                emit_error(
-                    program,
-                    source_file,
-                    byte_off!(char_start),
-                    extra_len,
-                    "E010",
-                    "character literal contains more than one character",
-                    "too many characters",
-                    "a char literal holds exactly one character; \
-                     for strings use double quotes: `\"...\"`",
-                );
+                emit_error(program, &map_file, byte_off!(char_start), extra_len, "E010",
+                    "character literal contains more than one character", "too many characters",
+                    "a char literal holds exactly one character; for strings use double quotes: `\"...\"`");
                 had_error = true;
                 if index < chars.len() && chars[index] == '\'' {
+                    map_col += 1;
                     index += 1;
                 }
             } else {
                 emit_error(
                     program,
-                    source_file,
+                    &map_file,
                     byte_off!(char_start),
                     1,
                     "E008",
@@ -816,7 +821,13 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 let two = format!("{}{}", chars[index], chars[index + 1]);
                 let result = operator_map(&two);
                 if !matches!(result, TokenType::NoMatch) {
-                    tokens.push(make_tok!(result, token_start));
+                    tokens.push(Token {
+                        token_type: result,
+                        line: tok_line,
+                        col: tok_col,
+                        file: map_file.clone(),
+                    });
+                    map_col += 2;
                     index += 2;
                     continue;
                 }
@@ -824,72 +835,72 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
             let one = chars[index].to_string();
             let result = operator_map(&one);
             if !matches!(result, TokenType::NoMatch) {
-                tokens.push(make_tok!(result, token_start));
+                tokens.push(Token {
+                    token_type: result,
+                    line: tok_line,
+                    col: tok_col,
+                    file: map_file.clone(),
+                });
             } else {
-                emit_error(
-                    program,
-                    source_file,
-                    byte_off!(token_start),
-                    1,
-                    "E011",
+                emit_error(program, &map_file, byte_off!(token_start), 1, "E011",
                     &format!("unexpected operator character `{}`", chars[index]),
                     "not a valid operator",
-                    "check the operator list; assignment uses `=`, equality uses `==`, \
-                     not-equal uses `~=`",
-                );
+                    "check the operator list; assignment uses `=`, equality uses `==`, not-equal uses `~=`");
                 had_error = true;
             }
+            map_col += 1;
             index += 1;
             continue;
         }
 
         let mut buffer = String::new();
         let buf_start = index;
+        let buf_line = map_line;
+        let buf_col = map_col;
         while index < chars.len() {
             let c = chars[index];
             if c.is_whitespace() || c == '!' || c == ':' || c == '$' {
                 break;
             }
-
             if c == '.' {
-                let buf_is_numeric = buffer
+                let buf_numeric = buffer
                     .chars()
                     .next()
                     .map(|ch| ch.is_ascii_digit())
                     .unwrap_or(false);
-                let next_is_digit = chars
+                let next_digit = chars
                     .get(index + 1)
                     .map(|&nc| nc.is_ascii_digit())
                     .unwrap_or(false);
-                if buf_is_numeric && next_is_digit {
+                if buf_numeric && next_digit {
                     buffer.push(c);
+                    map_col += 1;
                     index += 1;
                     continue;
                 } else {
                     break;
                 }
             }
-
             if (c == 'e' || c == 'E') && buffer.contains('.') {
-                let buf_is_numeric = buffer
+                let buf_numeric = buffer
                     .chars()
                     .next()
                     .map(|ch| ch.is_ascii_digit())
                     .unwrap_or(false);
-                if buf_is_numeric {
-                    let sign_or_digit = chars.get(index + 1).copied();
-                    let after_sign = chars.get(index + 2).copied();
-                    match sign_or_digit {
+                if buf_numeric {
+                    match chars.get(index + 1).copied() {
                         Some(d) if d.is_ascii_digit() => {
                             buffer.push(c);
+                            map_col += 1;
                             index += 1;
                             continue;
                         }
                         Some(s @ '-') | Some(s @ '+')
-                            if after_sign.map_or(false, |d| d.is_ascii_digit()) =>
+                            if chars.get(index + 2).map_or(false, |d| d.is_ascii_digit()) =>
                         {
                             buffer.push(c);
                             buffer.push(s);
+                            map_col += 2;
                             index += 2;
                             continue;
                         }
@@ -897,11 +908,11 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                     }
                 }
             }
-
             if is_operator_char(c) {
                 break;
             }
             buffer.push(c);
+            map_col += 1;
             index += 1;
         }
 
@@ -909,7 +920,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
             let c = chars[index];
             emit_error(
                 program,
-                source_file,
+                &map_file,
                 byte_off!(token_start),
                 1,
                 "E012",
@@ -917,21 +928,21 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 "not a valid token start",
                 &format!(
                     "the character `{c}` (U+{:04X}) is not valid here; \
-                     remove it or check for a copy-paste artefact",
+                          remove it or check for a copy-paste artefact",
                     c as u32
                 ),
             );
             had_error = true;
+            map_col += 1;
             index += 1;
             continue;
         }
 
-        let tok = if buffer.starts_with("0b") && buffer.len() > 2 {
-            let digits = &buffer[2..];
-            if digits.chars().any(|c| c != '0' && c != '1') {
+        let tt = if buffer.starts_with("0b") && buffer.len() > 2 {
+            if buffer[2..].chars().any(|c| c != '0' && c != '1') {
                 emit_error(
                     program,
-                    source_file,
+                    &map_file,
                     byte_off!(buf_start),
                     buffer.len(),
                     "E013",
@@ -940,16 +951,15 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                     "binary literals may only contain `0` and `1`, e.g. `0b1010`",
                 );
                 had_error = true;
-                make_tok!(TokenType::NoMatch, buf_start)
+                TokenType::NoMatch
             } else {
-                make_tok!(classify_buffer(&buffer), buf_start)
+                classify_buffer(&buffer)
             }
         } else if buffer.starts_with("0o") && buffer.len() > 2 {
-            let digits = &buffer[2..];
-            if digits.chars().any(|c| !('0'..='7').contains(&c)) {
+            if buffer[2..].chars().any(|c| !('0'..='7').contains(&c)) {
                 emit_error(
                     program,
-                    source_file,
+                    &map_file,
                     byte_off!(buf_start),
                     buffer.len(),
                     "E014",
@@ -958,16 +968,15 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                     "octal literals may only contain digits 0–7, e.g. `0o755`",
                 );
                 had_error = true;
-                make_tok!(TokenType::NoMatch, buf_start)
+                TokenType::NoMatch
             } else {
-                make_tok!(classify_buffer(&buffer), buf_start)
+                classify_buffer(&buffer)
             }
         } else if buffer.starts_with("0x") && buffer.len() > 2 {
-            let digits = &buffer[2..];
-            if digits.chars().any(|c| !c.is_ascii_hexdigit()) {
+            if buffer[2..].chars().any(|c| !c.is_ascii_hexdigit()) {
                 emit_error(
                     program,
-                    source_file,
+                    &map_file,
                     byte_off!(buf_start),
                     buffer.len(),
                     "E015",
@@ -976,9 +985,9 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                     "hex literals use digits 0–9 and letters A–F, e.g. `0xFF`",
                 );
                 had_error = true;
-                make_tok!(TokenType::NoMatch, buf_start)
+                TokenType::NoMatch
             } else {
-                make_tok!(classify_buffer(&buffer), buf_start)
+                classify_buffer(&buffer)
             }
         } else {
             let tt = classify_buffer(&buffer);
@@ -986,18 +995,15 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 let hint = if buffer.chars().next().map_or(false, |c| c.is_ascii_digit()) {
                     format!(
                         "`{buffer}` looks like a number but contains non-numeric characters; \
-                         identifiers cannot start with a digit"
+                             identifiers cannot start with a digit"
                     )
                 } else {
-                    format!(
-                        "`{buffer}` is not a valid identifier or literal; \
-                         identifiers must start with a letter or `_` and contain only \
-                         letters, digits, and `_`"
-                    )
+                    format!("`{buffer}` is not a valid identifier or literal; \
+                             identifiers must start with a letter or `_` and contain only letters, digits, and `_`")
                 };
                 emit_error(
                     program,
-                    source_file,
+                    &map_file,
                     byte_off!(buf_start),
                     buffer.len(),
                     "E016",
@@ -1007,11 +1013,16 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 );
                 had_error = true;
             }
-            make_tok!(tt, buf_start)
+            tt
         };
 
-        if !matches!(tok.token_type, TokenType::NoMatch) {
-            tokens.push(tok);
+        if !matches!(tt, TokenType::NoMatch) {
+            tokens.push(Token {
+                token_type: tt,
+                line: buf_line,
+                col: buf_col,
+                file: map_file.clone(),
+            });
         }
     }
 
@@ -1022,7 +1033,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
             .unwrap_or(source_file);
         eprintln!(
             "\x1b[1;31maborting\x1b[0m: lexical error(s) in `{display_file}`; \
-             fix the above before continuing\n"
+                   fix the above before continuing\n"
         );
         std::process::exit(1);
     }

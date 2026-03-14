@@ -279,6 +279,12 @@ fn traverse(
     let mut module_blocks = String::new();
     let mut own_body = String::new();
 
+    own_body.push_str(&format!(
+        "$SRCMAP:{}:{}$\n",
+        current_file,
+        line.saturating_sub(1)
+    ));
+
     while index < chars.len() {
         if chars[index] == '#' {
             if index + 2 < chars.len() && chars[index + 1] == '#' && chars[index + 2] == '#' {
@@ -307,6 +313,12 @@ fn traverse(
                     blank_line();
                     process::exit(1);
                 }
+
+                own_body.push_str(&format!(
+                    "$SRCMAP:{}:{}$\n",
+                    current_file,
+                    line.saturating_sub(1)
+                ));
                 continue;
             } else {
                 while index < chars.len() && chars[index] != '\n' {
@@ -464,6 +476,12 @@ fn traverse(
                             own_body.push_str(&module_blocks);
                             module_blocks.clear();
                         }
+
+                        own_body.push_str(&format!(
+                            "$SRCMAP:{}:{}$\n",
+                            current_file,
+                            line.saturating_sub(1)
+                        ));
                     }
                     Err(_) => {
                         process::exit(1);

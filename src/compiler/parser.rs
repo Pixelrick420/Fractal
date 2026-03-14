@@ -238,7 +238,7 @@ impl ParseError {
         }
     }
 
-    pub fn emit(&self, source: &str) {
+    pub fn emit(&self, _preprocessed: &str) {
         let display_file = if self.source_file.is_empty() {
             "<unknown>".to_string()
         } else {
@@ -260,7 +260,13 @@ impl ParseError {
             return;
         }
 
-        let src_line = source.lines().nth(self.line - 1).unwrap_or("");
+        let original = if !self.source_file.is_empty() {
+            std::fs::read_to_string(&self.source_file).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        let src_line = original.lines().nth(self.line - 1).unwrap_or("");
         let line_str = self.line.to_string();
         let pad = " ".repeat(line_str.len());
         let caret_pad = " ".repeat(self.col.saturating_sub(1));
@@ -383,6 +389,7 @@ impl Parser {
             TokenType::Null => "`!null`",
             TokenType::ModuleStart(_) => "module-start marker",
             TokenType::ModuleEnd(_) => "module-end marker",
+            TokenType::FileMap(_, _) => "file-map marker",
             TokenType::NoMatch => "<unrecognised token>",
         }
     }

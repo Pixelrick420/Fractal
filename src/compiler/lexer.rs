@@ -91,6 +91,8 @@ pub enum TokenType {
 #[derive(Debug, Clone)]
 pub struct Token {
     pub token_type: TokenType,
+    pub line: usize,
+    pub col: usize,
 }
 
 fn offset_to_line_col(src: &str, offset: usize) -> (usize, usize) {
@@ -132,6 +134,11 @@ fn emit_error(
     let underline = "^".repeat(underline_len);
     let caret_pad = " ".repeat(col.saturating_sub(1));
 
+    let display_file = std::path::Path::new(source_file)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(source_file);
+
     eprintln!(
         "\x1b[1;31merror[{code}]\x1b[0m\x1b[1m: {title}\x1b[0m",
         code = code,
@@ -139,7 +146,7 @@ fn emit_error(
     );
     eprintln!(
         " \x1b[1;34m-->\x1b[0m {file}:{line}:{col}",
-        file = source_file,
+        file = display_file,
         line = line,
         col = col
     );
@@ -333,40 +340,23 @@ fn type_map(s: &str) -> TokenType {
     }
 }
 
-fn handle_token(buffer: &str) -> Token {
+fn classify_buffer(buffer: &str) -> TokenType {
     match buffer {
-        "true" => {
-            return Token {
-                token_type: TokenType::BoolLit(true),
-            }
-        }
-        "false" => {
-            return Token {
-                token_type: TokenType::BoolLit(false),
-            }
-        }
+        "true" => return TokenType::BoolLit(true),
+        "false" => return TokenType::BoolLit(false),
         _ => {}
-    }
-
-    let op = operator_map(buffer);
-    if !matches!(op, TokenType::NoMatch) {
-        return Token { token_type: op };
     }
 
     let num = parse_number_literal(buffer);
     if !matches!(num, TokenType::NoMatch) {
-        return Token { token_type: num };
+        return num;
     }
 
     if is_identifier(buffer) {
-        return Token {
-            token_type: TokenType::Identifier(buffer.to_string()),
-        };
+        return TokenType::Identifier(buffer.to_string());
     }
 
-    Token {
-        token_type: TokenType::NoMatch,
-    }
+    TokenType::NoMatch
 }
 
 fn parse_module_marker(chars: &[char], start_index: usize) -> Option<(TokenType, usize)> {
@@ -395,15 +385,49 @@ fn parse_module_marker(chars: &[char], start_index: usize) -> Option<(TokenType,
     None
 }
 
-pub fn tokenize(program: &str) -> Vec<Token> {
-    tokenize_with_source(program, "<input>")
-}
-
 pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
     let chars: Vec<char> = program.chars().collect();
     let mut tokens: Vec<Token> = Vec::new();
     let mut index: usize = 0;
     let mut had_error = false;
+
+    let mut char_line: Vec<usize> = Vec::with_capacity(chars.len());
+    let mut char_col: Vec<usize> = Vec::with_capacity(chars.len());
+    {
+        let mut ln = 1usize;
+        let mut cl = 1usize;
+        for &c in &chars {
+            char_line.push(ln);
+            char_col.push(cl);
+            if c == '\n' {
+                ln += 1;
+                cl = 1;
+            } else {
+                cl += 1;
+            }
+        }
+    }
+
+    macro_rules! tok_line {
+        ($ci:expr) => {
+            char_line.get($ci).copied().unwrap_or(1)
+        };
+    }
+    macro_rules! tok_col {
+        ($ci:expr) => {
+            char_col.get($ci).copied().unwrap_or(1)
+        };
+    }
+
+    macro_rules! make_tok {
+        ($tt:expr, $ci:expr) => {
+            Token {
+                token_type: $tt,
+                line: tok_line!($ci),
+                col: tok_col!($ci),
+            }
+        };
+    }
 
     let char_offsets: Vec<usize> = {
         let mut offs = Vec::with_capacity(chars.len() + 1);
@@ -440,7 +464,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
 
         if chars[index] == '$' {
             if let Some((tt, new_index)) = parse_module_marker(&chars, index) {
-                tokens.push(Token { token_type: tt });
+                tokens.push(make_tok!(tt, token_start));
                 index = new_index;
                 continue;
             }
@@ -461,9 +485,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
         }
 
         if chars[index] == ':' && peek!(1) == Some(':') {
-            tokens.push(Token {
-                token_type: TokenType::ColonColon,
-            });
+            tokens.push(make_tok!(TokenType::ColonColon, token_start));
             index += 2;
             continue;
         }
@@ -519,7 +541,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 );
                 had_error = true;
             } else {
-                tokens.push(Token { token_type: result });
+                tokens.push(make_tok!(result, bang_pos));
             }
             continue;
         }
@@ -577,7 +599,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 );
                 had_error = true;
             } else {
-                tokens.push(Token { token_type: result });
+                tokens.push(make_tok!(result, colon_pos));
             }
             continue;
         }
@@ -645,9 +667,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 );
                 had_error = true;
             } else {
-                tokens.push(Token {
-                    token_type: TokenType::StringLit(buf),
-                });
+                tokens.push(make_tok!(TokenType::StringLit(buf), str_start));
             }
             continue;
         }
@@ -753,9 +773,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
 
             if index < chars.len() && chars[index] == '\'' {
                 index += 1;
-                tokens.push(Token {
-                    token_type: TokenType::CharLit(char_val),
-                });
+                tokens.push(make_tok!(TokenType::CharLit(char_val), char_start));
             } else if index < chars.len() && chars[index] != '\'' {
                 let extra_start = index;
                 while index < chars.len() && chars[index] != '\'' && chars[index] != '\n' {
@@ -798,7 +816,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 let two = format!("{}{}", chars[index], chars[index + 1]);
                 let result = operator_map(&two);
                 if !matches!(result, TokenType::NoMatch) {
-                    tokens.push(Token { token_type: result });
+                    tokens.push(make_tok!(result, token_start));
                     index += 2;
                     continue;
                 }
@@ -806,7 +824,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
             let one = chars[index].to_string();
             let result = operator_map(&one);
             if !matches!(result, TokenType::NoMatch) {
-                tokens.push(Token { token_type: result });
+                tokens.push(make_tok!(result, token_start));
             } else {
                 emit_error(
                     program,
@@ -922,11 +940,9 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                     "binary literals may only contain `0` and `1`, e.g. `0b1010`",
                 );
                 had_error = true;
-                Token {
-                    token_type: TokenType::NoMatch,
-                }
+                make_tok!(TokenType::NoMatch, buf_start)
             } else {
-                handle_token(&buffer)
+                make_tok!(classify_buffer(&buffer), buf_start)
             }
         } else if buffer.starts_with("0o") && buffer.len() > 2 {
             let digits = &buffer[2..];
@@ -942,11 +958,9 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                     "octal literals may only contain digits 0–7, e.g. `0o755`",
                 );
                 had_error = true;
-                Token {
-                    token_type: TokenType::NoMatch,
-                }
+                make_tok!(TokenType::NoMatch, buf_start)
             } else {
-                handle_token(&buffer)
+                make_tok!(classify_buffer(&buffer), buf_start)
             }
         } else if buffer.starts_with("0x") && buffer.len() > 2 {
             let digits = &buffer[2..];
@@ -962,15 +976,13 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                     "hex literals use digits 0–9 and letters A–F, e.g. `0xFF`",
                 );
                 had_error = true;
-                Token {
-                    token_type: TokenType::NoMatch,
-                }
+                make_tok!(TokenType::NoMatch, buf_start)
             } else {
-                handle_token(&buffer)
+                make_tok!(classify_buffer(&buffer), buf_start)
             }
         } else {
-            let t = handle_token(&buffer);
-            if matches!(t.token_type, TokenType::NoMatch) {
+            let tt = classify_buffer(&buffer);
+            if matches!(tt, TokenType::NoMatch) {
                 let hint = if buffer.chars().next().map_or(false, |c| c.is_ascii_digit()) {
                     format!(
                         "`{buffer}` looks like a number but contains non-numeric characters; \
@@ -995,7 +1007,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                 );
                 had_error = true;
             }
-            t
+            make_tok!(tt, buf_start)
         };
 
         if !matches!(tok.token_type, TokenType::NoMatch) {
@@ -1004,8 +1016,12 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
     }
 
     if had_error {
+        let display_file = std::path::Path::new(source_file)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(source_file);
         eprintln!(
-            "\x1b[1;31maborting\x1b[0m: lexical error(s) in `{source_file}`; \
+            "\x1b[1;31maborting\x1b[0m: lexical error(s) in `{display_file}`; \
              fix the above before continuing\n"
         );
         std::process::exit(1);

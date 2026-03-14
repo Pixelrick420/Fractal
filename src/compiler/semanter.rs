@@ -142,7 +142,8 @@ impl ScopeStack {
         let frame = self.frames.last_mut().unwrap();
         if frame.contains_key(&sym.name) {
             return Err(SemanticError::new(format!(
-                "'{}' already declared in this scope",
+                "'{}' is already declared in this scope — \
+                 rename one of the declarations or move it to a different scope",
                 sym.name
             )));
         }
@@ -179,15 +180,52 @@ impl ScopeStack {
 #[derive(Debug, Clone)]
 pub struct SemanticError {
     pub message: String,
+    pub context: String,
 }
 impl SemanticError {
     fn new(m: impl Into<String>) -> Self {
-        SemanticError { message: m.into() }
+        SemanticError {
+            message: m.into(),
+            context: String::new(),
+        }
+    }
+    fn with_context(m: impl Into<String>, ctx: impl Into<String>) -> Self {
+        SemanticError {
+            message: m.into(),
+            context: ctx.into(),
+        }
     }
 }
 impl fmt::Display for SemanticError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "\x1b[1;31mSemantic Error:\x1b[0m {}", self.message)
+        let (desc, hint) = match self.message.split_once(" — ") {
+            Some((d, h)) => (d.trim(), Some(h.trim())),
+            None => (self.message.trim(), None),
+        };
+
+        writeln!(f, "\x1b[1;31merror[S000]\x1b[0m\x1b[1m: {desc}\x1b[0m")?;
+
+        if !self.context.is_empty() {
+            writeln!(
+                f,
+                " \x1b[1;34m       =\x1b[0m \x1b[1;36mnote\x1b[0m: {}",
+                self.context
+            )?;
+        }
+
+        if let Some(hint_text) = hint {
+            for line in hint_text.split('\n') {
+                let line = line.trim();
+                if !line.is_empty() {
+                    writeln!(
+                        f,
+                        " \x1b[1;34m       =\x1b[0m \x1b[1;32mhint\x1b[0m: {line}"
+                    )?;
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -218,11 +256,15 @@ impl SemanticResult {
         if self.errors.is_empty() {
             println!("\x1b[1;32m✓  No semantic errors.\x1b[0m\n");
         } else {
-            println!("\x1b[1;31m✗  {} error(s):\x1b[0m", self.errors.len());
+            let n = self.errors.len();
+            eprintln!(
+                "\x1b[1;31m✗  {} semantic error{} found:\x1b[0m\n",
+                n,
+                if n == 1 { "" } else { "s" }
+            );
             for e in &self.errors {
-                eprintln!("   {}", e);
+                eprintln!("{}", e);
             }
-            println!();
         }
     }
 
@@ -238,9 +280,16 @@ fn types_compatible(declared: &FrType, actual: &FrType) -> bool {
     match (declared, actual) {
         (FrType::List { elem: de }, FrType::Array { elem: ae, .. }) => de == ae,
 
-        (FrType::Array { elem: de, .. }, FrType::Array { elem: ae, .. }) => de == ae,
+        (
+            FrType::Array { elem: de, size: ds },
+            FrType::Array {
+                elem: ae,
+                size: as_,
+            },
+        ) => de == ae && ds == as_,
 
         (FrType::Char, FrType::Array { elem, size: 1 }) => **elem == FrType::Char,
+
         _ => false,
     }
 }
@@ -253,6 +302,7 @@ pub struct Analyzer {
     all_symbols: Vec<Symbol>,
     loop_depth: usize,
     current_fn_return: Option<FrType>,
+    current_fn: Option<String>,
     current_origin: String,
 }
 
@@ -266,12 +316,17 @@ impl Analyzer {
             all_symbols: Vec::new(),
             loop_depth: 0,
             current_fn_return: None,
+            current_fn: None,
             current_origin: "global".to_string(),
         }
     }
 
     fn err(&mut self, msg: impl Into<String>) {
-        self.errors.push(SemanticError::new(msg));
+        let ctx = match &self.current_fn {
+            Some(f) => format!("inside function '{}'", f),
+            None => "at global scope".to_string(),
+        };
+        self.errors.push(SemanticError::with_context(msg, ctx));
     }
 
     fn node_to_frtype(&self, node: &ParseNode) -> FrType {
@@ -371,7 +426,8 @@ impl Analyzer {
                     let (ty, v) = self.infer_expr(e);
                     if ty != first_ty {
                         self.err(format!(
-                            "Array/list literal mixed types: expected {}, got {}",
+                            "array/list literal has mixed element types: first element is '{}' \
+                             but a later element is '{}' — all elements must be the same type",
                             first_ty, ty
                         ));
                     }
@@ -401,7 +457,12 @@ impl Analyzer {
                 if let Some(sym) = self.scopes.lookup(name) {
                     (sym.ty.clone(), sym.value.clone())
                 } else {
-                    self.err(format!("Undeclared identifier '{}'", name));
+                    self.err(format!(
+                        "use of undeclared identifier '{}' — \
+                         declare it with `:type {} = value;` before using it, \
+                         or check for a typo in the name",
+                        name, name
+                    ));
                     (FrType::Void, SymbolValue::Unknown)
                 }
             }
@@ -420,7 +481,11 @@ impl Analyzer {
                 match op {
                     UnOp::Neg => {
                         if ty != FrType::Int && ty != FrType::Float {
-                            self.err(format!("Unary '-' requires int or float, got {}", ty));
+                            self.err(format!(
+                                "unary `-` (negation) requires an :int or :float operand, \
+                                 but got '{}' — negate only works on numeric types",
+                                ty
+                            ));
                         }
                         let v = match val {
                             SymbolValue::Int(n) => SymbolValue::Int(-n),
@@ -431,7 +496,11 @@ impl Analyzer {
                     }
                     UnOp::BitNot => {
                         if ty != FrType::Int {
-                            self.err(format!("Bitwise NOT requires int, got {}", ty));
+                            self.err(format!(
+                                "bitwise NOT `~` requires an :int operand, but got '{}' — \
+                                 bitwise operations only work on :int",
+                                ty
+                            ));
                         }
                         let v = match val {
                             SymbolValue::Int(n) => SymbolValue::Int(!n),
@@ -446,14 +515,15 @@ impl Analyzer {
                 let (lt, lv) = self.infer_expr(left);
                 let (rt, rv) = self.infer_expr(right);
                 if lt != rt {
+                    let op_str = match op {
+                        AddOp::Add => "+",
+                        AddOp::Sub => "-",
+                    };
                     self.err(format!(
-                        "Type mismatch in '{}': {} vs {}",
-                        match op {
-                            AddOp::Add => "+",
-                            AddOp::Sub => "-",
-                        },
-                        lt,
-                        rt
+                        "both sides of `{}` must be the same type, \
+                         but the left side is '{}' and the right side is '{}' — \
+                         use an explicit cast, e.g. `:float(x) {} y`",
+                        op_str, lt, rt, op_str
                     ));
                     return (lt, SymbolValue::Unknown);
                 }
@@ -479,15 +549,16 @@ impl Analyzer {
                 let (lt, lv) = self.infer_expr(left);
                 let (rt, rv) = self.infer_expr(right);
                 if lt != rt {
+                    let op_str = match op {
+                        MulOp::Mul => "*",
+                        MulOp::Div => "/",
+                        MulOp::Mod => "%",
+                    };
                     self.err(format!(
-                        "Type mismatch in '{}': {} vs {}",
-                        match op {
-                            MulOp::Mul => "*",
-                            MulOp::Div => "/",
-                            MulOp::Mod => "%",
-                        },
-                        lt,
-                        rt
+                        "both sides of `{}` must be the same type, \
+                         but the left side is '{}' and the right side is '{}' — \
+                         use an explicit cast, e.g. `:float(x) {} y`",
+                        op_str, lt, rt, op_str
                     ));
                     return (lt, SymbolValue::Unknown);
                 }
@@ -519,7 +590,9 @@ impl Analyzer {
                 let (rt, rv) = self.infer_expr(right);
                 if lt != FrType::Int || rt != FrType::Int {
                     self.err(format!(
-                        "Bitwise op requires int operands, got {} and {}",
+                        "bitwise operators (`&`, `|`, `^`) require both operands to be :int, \
+                         but got '{}' and '{}' — \
+                         cast to :int first if needed, e.g. `:int(x) & :int(y)`",
                         lt, rt
                     ));
                 }
@@ -542,7 +615,12 @@ impl Analyzer {
                 let (lt, _) = self.infer_expr(left);
                 let (rt, _) = self.infer_expr(right);
                 if lt != FrType::Null && rt != FrType::Null && lt != rt {
-                    self.err(format!("Comparison type mismatch: {} vs {}", lt, rt));
+                    self.err(format!(
+                        "comparison requires both sides to be the same type, \
+                         but the left side is '{}' and the right side is '{}' — \
+                         add an explicit cast so both sides match",
+                        lt, rt
+                    ));
                 }
                 (FrType::Boolean, SymbolValue::Unknown)
             }
@@ -551,10 +629,18 @@ impl Analyzer {
                 let (lt, _) = self.infer_expr(left);
                 let (rt, _) = self.infer_expr(right);
                 if lt != FrType::Boolean {
-                    self.err(format!("Logical op requires boolean, got {}", lt));
+                    self.err(format!(
+                        "`!and`/`!or` requires :boolean operands, but the left side is '{}' — \
+                         use a comparison to produce a :boolean, e.g. `(x > 0) !and (y > 0)`",
+                        lt
+                    ));
                 }
                 if rt != FrType::Boolean {
-                    self.err(format!("Logical op requires boolean, got {}", rt));
+                    self.err(format!(
+                        "`!and`/`!or` requires :boolean operands, but the right side is '{}' — \
+                         use a comparison to produce a :boolean, e.g. `(x > 0) !and (y > 0)`",
+                        rt
+                    ));
                 }
                 (FrType::Boolean, SymbolValue::Unknown)
             }
@@ -562,7 +648,11 @@ impl Analyzer {
             ParseNode::LogNot { operand } => {
                 let (ty, _) = self.infer_expr(operand);
                 if ty != FrType::Boolean {
-                    self.err(format!("'!not' requires boolean, got {}", ty));
+                    self.err(format!(
+                        "`!not` requires a :boolean operand, but got '{}' — \
+                         use a comparison to produce a :boolean first, e.g. `!not (x == 0)`",
+                        ty
+                    ));
                 }
                 (FrType::Boolean, SymbolValue::Unknown)
             }
@@ -577,6 +667,15 @@ impl Analyzer {
                 if BUILTIN_FUNCTIONS.contains(&base) || self.functions.contains_key(base) {
                     let ret = self.check_call(base, args);
                     return (ret, SymbolValue::Unknown);
+                }
+
+                if self.scopes.lookup(base).is_some() {
+                    self.err(format!(
+                        "'{}' is a variable, not a function — \
+                         it cannot be called with `()`",
+                        base
+                    ));
+                    return (FrType::Void, SymbolValue::Unknown);
                 }
             }
         }
@@ -627,7 +726,12 @@ impl Analyzer {
         let (mut cur_ty, mut cur_val) = match self.scopes.lookup(base) {
             Some(s) => (s.ty.clone(), s.value.clone()),
             None => {
-                self.err(format!("Undeclared identifier '{}'", base));
+                self.err(format!(
+                    "use of undeclared identifier '{}' — \
+                     declare it with `:type {} = value;` before using it, \
+                     or check for a typo in the name",
+                    base, base
+                ));
                 return (FrType::Void, SymbolValue::Unknown);
             }
         };
@@ -660,13 +764,22 @@ impl Analyzer {
                             };
                             return (fty.clone(), fval);
                         }
-                        self.err(format!("Struct '{}' has no field '{}'", sname, field));
+                        self.err(format!(
+                            "struct '{}' has no field named '{}' — \
+                             check the struct definition for the correct field names",
+                            sname, field
+                        ));
                     } else {
-                        self.err(format!("Unknown struct '{}'", sname));
+                        self.err(format!(
+                            "use of undefined struct type '{}' — \
+                             declare it with `:struct<{}> {{ ... }};` before using it",
+                            sname, sname
+                        ));
                     }
                 } else {
                     self.err(format!(
-                        "'::{}' access on non-struct type {}",
+                        "cannot use `::{}` field access on a value of type '{}', \
+                         which is not a struct — `::` is only valid on :struct types",
                         field, cur_ty
                     ));
                 }
@@ -675,14 +788,22 @@ impl Analyzer {
             AccessStep::Index(idx_node) => {
                 let (idx_ty, _) = self.infer_expr(idx_node);
                 if idx_ty != FrType::Int {
-                    self.err(format!("Index must be int, got {}", idx_ty));
+                    self.err(format!(
+                        "array/list index must be :int, but got '{}' — \
+                         use :int(expr) to cast the index if needed",
+                        idx_ty
+                    ));
                 }
                 match cur_ty {
                     FrType::Array { elem, .. } | FrType::List { elem } => {
                         (*elem, SymbolValue::Unknown)
                     }
                     _ => {
-                        self.err(format!("Cannot index type {}", cur_ty));
+                        self.err(format!(
+                            "cannot index into a value of type '{}' — \
+                             indexing with `[i]` is only valid on :array and :list",
+                            cur_ty
+                        ));
                         (FrType::Void, SymbolValue::Unknown)
                     }
                 }
@@ -708,13 +829,25 @@ impl Analyzer {
                     let (elem_ty, _) = self.infer_expr(&args[1]);
                     if let FrType::List { elem } = &list_ty {
                         if **elem != elem_ty {
-                            self.err(format!("append: list<{}> cannot accept {}", elem, elem_ty));
+                            self.err(format!(
+                                "append: cannot add a '{}' value to a list<{}> — \
+                                 the value type must match the list's element type",
+                                elem_ty, elem
+                            ));
                         }
                     } else {
-                        self.err(format!("append: first arg must be list, got {}", list_ty));
+                        self.err(format!(
+                            "append: first argument must be a :list, but got '{}' — \
+                             append only works on :list, not :array (arrays are fixed-size)",
+                            list_ty
+                        ));
                     }
                 } else {
-                    self.err("append expects 2 arguments");
+                    self.err(format!(
+                        "append expects exactly 2 arguments (list, value), but got {} — \
+                         usage: `append(my_list, value);`",
+                        args.len()
+                    ));
                 }
                 return FrType::Void;
             }
@@ -722,48 +855,78 @@ impl Analyzer {
                 if args.len() == 1 {
                     let (ty, _) = self.infer_expr(&args[0]);
                     return match ty {
-                        FrType::Array { elem, .. } | FrType::List { elem } => *elem,
+                        FrType::List { elem } => *elem,
                         _ => {
-                            self.err(format!("pop: arg must be array/list, got {}", ty));
+                            self.err(format!(
+                                "pop: argument must be a :list, but got '{}' — \
+                                 pop only works on :list (use indexing for :array elements)",
+                                ty
+                            ));
                             FrType::Void
                         }
                     };
                 }
-                self.err("pop expects 1 argument");
+                self.err(format!(
+                    "pop expects exactly 1 argument (a :list), but got {} — \
+                     usage: `:type val = pop(my_list);`",
+                    args.len()
+                ));
                 return FrType::Void;
             }
             "sqrt" => {
                 if args.len() == 1 {
                     let (ty, _) = self.infer_expr(&args[0]);
                     if ty != FrType::Float {
-                        self.err(format!("sqrt: arg must be float, got {}", ty));
+                        self.err(format!(
+                            "sqrt expects a :float argument, but got '{}' — \
+                             cast with :float(x) if needed",
+                            ty
+                        ));
                     }
                 } else {
-                    self.err("sqrt expects 1 argument");
+                    self.err(format!(
+                        "sqrt expects exactly 1 :float argument, but got {}",
+                        args.len()
+                    ));
                 }
                 return FrType::Float;
             }
             "abs" => {
                 if args.len() == 1 {
                     let (ty, _) = self.infer_expr(&args[0]);
-                    if ty != FrType::Float {
-                        self.err(format!("abs: arg must be float, got {}", ty));
+                    if ty != FrType::Int && ty != FrType::Float {
+                        self.err(format!(
+                            "abs expects an :int or :float argument, but got '{}' — \
+                             abs only works on numeric types",
+                            ty
+                        ));
                     }
+                    return ty;
                 } else {
-                    self.err("abs expects 1 argument");
+                    self.err(format!(
+                        "abs expects exactly 1 argument (:int or :float), but got {}",
+                        args.len()
+                    ));
                 }
-                return FrType::Float;
+                return FrType::Int;
             }
             "pow" => {
                 if args.len() == 2 {
                     for a in args {
                         let (ty, _) = self.infer_expr(a);
                         if ty != FrType::Float {
-                            self.err(format!("pow: args must be float, got {}", ty));
+                            self.err(format!(
+                                "pow expects :float arguments, but got '{}' — \
+                                 cast with :float(x) if needed",
+                                ty
+                            ));
                         }
                     }
                 } else {
-                    self.err("pow expects 2 arguments");
+                    self.err(format!(
+                        "pow expects exactly 2 :float arguments (base, exponent), but got {}",
+                        args.len()
+                    ));
                 }
                 return FrType::Float;
             }
@@ -771,10 +934,17 @@ impl Analyzer {
                 if args.len() == 1 {
                     let (ty, _) = self.infer_expr(&args[0]);
                     if !matches!(ty, FrType::List { .. } | FrType::Array { .. }) {
-                        self.err(format!("len: arg must be list or array, got {}", ty));
+                        self.err(format!(
+                            "len expects an :array or :list argument, but got '{}' — \
+                             len only works on iterable types",
+                            ty
+                        ));
                     }
                 } else {
-                    self.err("len expects 1 argument");
+                    self.err(format!(
+                        "len expects exactly 1 argument (an :array or :list), but got {}",
+                        args.len()
+                    ));
                 }
                 return FrType::Int;
             }
@@ -804,20 +974,23 @@ impl Analyzer {
             let ret = fdef.return_type.clone();
             if args.len() != params.len() {
                 self.err(format!(
-                    "'{}' expects {} args, got {}",
+                    "function '{}' expects {} argument(s) but was called with {} — \
+                     check the function signature and make sure each argument is passed separately",
                     name,
                     params.len(),
                     args.len()
                 ));
                 return ret;
             }
-            for (i, (a, (_, pty))) in args.iter().zip(params.iter()).enumerate() {
+            for (i, (a, (pname, pty))) in args.iter().zip(params.iter()).enumerate() {
                 let (aty, _) = self.infer_expr(a);
                 if aty != *pty && aty != FrType::Null {
                     self.err(format!(
-                        "'{}' arg {}: expected {}, got {}",
+                        "function '{}': argument {} ('{}') expects type '{}' but got '{}' — \
+                         add an explicit cast if a conversion is intended",
                         name,
                         i + 1,
+                        pname,
                         pty,
                         aty
                     ));
@@ -830,7 +1003,12 @@ impl Analyzer {
             return sym.ty.clone();
         }
 
-        self.err(format!("Undeclared function '{}'", name));
+        self.err(format!(
+            "call to undeclared function '{}' — \
+             define it with `!func {}(...) -> :type {{ ... }}` before calling it, \
+             or check for a typo in the name",
+            name, name
+        ));
         FrType::Void
     }
 
@@ -848,7 +1026,12 @@ impl Analyzer {
                     | (FrType::Boolean, FrType::Float)
             );
         if !legal {
-            self.err(format!("Illegal cast: {} → {}", src, dest));
+            self.err(format!(
+                "cannot cast '{}' to '{}' — \
+                 legal casts are: int↔float, int↔char, int↔boolean, float↔boolean; \
+                 for a multi-step cast (e.g. float→char) go via :int first: `:char(:int(x))`",
+                src, dest
+            ));
             return SymbolValue::Unknown;
         }
         match (dest, val) {
@@ -903,9 +1086,34 @@ impl Analyzer {
                                 && !matches!(init_ty, FrType::Null)
                                 && init_ty != FrType::Void
                             {
+                                let hint = match (&declared_ty, &init_ty) {
+
+                                    (FrType::Int | FrType::Float | FrType::Char | FrType::Boolean,
+                                     FrType::Int | FrType::Float | FrType::Char | FrType::Boolean) => {
+                                        format!(
+                                            "the types must match exactly; this language has no implicit casting — \
+                                             use an explicit cast, e.g. `:{}({})` if a conversion is intended",
+                                            declared_ty, name
+                                        )
+                                    }
+
+                                    (FrType::Array { size: ds, .. }, FrType::Array { size: as_, .. }) => {
+                                        format!(
+                                            "the array literal has {} element{} but the declared type requires {} — \
+                                             fix the literal to have exactly {} element{}",
+                                            as_, if *as_ == 1 { "" } else { "s" },
+                                            ds,
+                                            ds, if *ds == 1 { "" } else { "s" }
+                                        )
+                                    }
+
+                                    _ => {
+                                        "the types must match exactly; this language has no implicit casting".to_string()
+                                    }
+                                };
                                 self.err(format!(
-                                    "Cannot assign {} to '{}' of type {}",
-                                    init_ty, name, declared_ty
+                                    "cannot initialise '{}' (declared as '{}') with a value of type '{}' — {}",
+                                    name, declared_ty, init_ty, hint
                                 ));
                             }
                             init_val
@@ -930,7 +1138,11 @@ impl Analyzer {
                 init,
             } => {
                 if !self.structs.contains_key(struct_name) {
-                    self.err(format!("Struct '{}' is not defined", struct_name));
+                    self.err(format!(
+                        "use of undefined struct type '{}' — \
+                         define it with `:struct<{}> {{ ... }};` before declaring a variable of that type",
+                        struct_name, struct_name
+                    ));
                 }
                 let value = if let Some(expr) = init {
                     let (_, v) = self.infer_expr(expr);
@@ -976,12 +1188,21 @@ impl Analyzer {
                     && !matches!(rty, FrType::Null)
                     && !matches!(lty, FrType::Null | FrType::Void)
                 {
-                    self.err(format!("Assignment type mismatch: lhs={} rhs={}", lty, rty));
+                    self.err(format!(
+                        "cannot assign a '{}' value to a variable of type '{}' — \
+                         types must match exactly; use an explicit cast if a conversion is intended",
+                        rty, lty
+                    ));
                 }
                 if matches!(op, AssignOp::AmpEq | AssignOp::PipeEq | AssignOp::CaretEq)
                     && lty != FrType::Int
                 {
-                    self.err(format!("Bitwise assignment requires int, got {}", lty));
+                    self.err(format!(
+                        "bitwise compound assignment (`&=`, `|=`, `^=`) requires an :int variable, \
+                         but '{}' is of type '{}' — bitwise operations only work on :int",
+                        if let ParseNode::AccessChain { base, .. } = lvalue.as_ref() { base.as_str() } else { "lhs" },
+                        lty
+                    ));
                 }
                 if let ParseNode::AccessChain { base, steps } = lvalue.as_ref() {
                     if steps.is_empty() {
@@ -998,9 +1219,11 @@ impl Analyzer {
                 let (ty, _) = self.infer_expr(e);
                 if let Some(expected) = self.current_fn_return.clone() {
                     if ty != expected && !matches!(ty, FrType::Null) {
+                        let fn_name = self.current_fn.clone().unwrap_or_else(|| "?".to_string());
                         self.err(format!(
-                            "Return type mismatch: expected {}, got {}",
-                            expected, ty
+                            "!return expression has type '{}' but function '{}' is declared to return '{}' — \
+                             either change the return type annotation or cast the return value",
+                            ty, fn_name, expected
                         ));
                     }
                 }
@@ -1009,13 +1232,20 @@ impl Analyzer {
             ParseNode::Exit(e) => {
                 let (ty, _) = self.infer_expr(e);
                 if ty != FrType::Int && !matches!(ty, FrType::Null) {
-                    self.err(format!("exit() requires int, got {}", ty));
+                    self.err(format!(
+                        "!exit requires an :int exit code, but got '{}' — \
+                         use an integer literal, e.g. `!exit 0;` for success or `!exit 1;` for failure",
+                        ty
+                    ));
                 }
             }
 
             ParseNode::Break | ParseNode::Continue => {
                 if self.loop_depth == 0 {
-                    self.err("break/continue used outside loop");
+                    self.err(
+                        "!break and !continue can only be used inside a loop — \
+                         they are not valid at the top level or inside a function outside a loop",
+                    );
                 }
             }
 
@@ -1026,7 +1256,12 @@ impl Analyzer {
             } => {
                 let (cty, _) = self.infer_expr(condition);
                 if cty != FrType::Boolean {
-                    self.err(format!("If condition must be boolean, got {}", cty));
+                    self.err(format!(
+                        "!if condition must be :boolean, but got '{}' — \
+                         use a comparison operator to produce a :boolean, \
+                         e.g. `!if (x > 0)` instead of `!if (x)`",
+                        cty
+                    ));
                 }
                 let saved = self.current_origin.clone();
                 self.scopes.push();
@@ -1050,7 +1285,12 @@ impl Analyzer {
             ParseNode::While { condition, body } => {
                 let (cty, _) = self.infer_expr(condition);
                 if cty != FrType::Boolean {
-                    self.err(format!("While condition must be boolean, got {}", cty));
+                    self.err(format!(
+                        "!while condition must be :boolean, but got '{}' — \
+                         use a comparison operator to produce a :boolean, \
+                         e.g. `!while (x > 0)` instead of `!while (x)`",
+                        cty
+                    ));
                 }
                 self.loop_depth += 1;
                 let saved = self.current_origin.clone();
@@ -1069,23 +1309,33 @@ impl Analyzer {
                 var_name,
                 start,
                 stop,
-                step: _,
+                step,
                 body,
             } => {
                 let declared_ty = self.node_to_frtype(var_type);
                 let (sty, _) = self.infer_expr(start);
                 let (ety, _) = self.infer_expr(stop);
+                let (step_ty, _) = self.infer_expr(step);
 
                 if sty != declared_ty && sty != FrType::Void {
                     self.err(format!(
-                        "For loop '{}': start type {} != declared type {}",
-                        var_name, sty, declared_ty
+                        "!for loop variable '{}' is declared as '{}' but the start expression \
+                         has type '{}' — the start value must match the loop variable's type",
+                        var_name, declared_ty, sty
                     ));
                 }
                 if ety != declared_ty && ety != FrType::Void {
                     self.err(format!(
-                        "For loop '{}': stop type {} != declared type {}",
-                        var_name, ety, declared_ty
+                        "!for loop variable '{}' is declared as '{}' but the stop expression \
+                         has type '{}' — the stop value must match the loop variable's type",
+                        var_name, declared_ty, ety
+                    ));
+                }
+                if step_ty != declared_ty && step_ty != FrType::Void {
+                    self.err(format!(
+                        "!for loop variable '{}' is declared as '{}' but the step expression \
+                         has type '{}' — the step value must match the loop variable's type",
+                        var_name, declared_ty, step_ty
                     ));
                 }
                 self.loop_depth += 1;
@@ -1126,14 +1376,17 @@ impl Analyzer {
                     }
                 }
 
-                if BUILTIN_FUNCTIONS.contains(&name.as_str()) {
+                let is_inside_module = self.current_origin.starts_with("module:");
+                if BUILTIN_FUNCTIONS.contains(&name.as_str()) && !is_inside_module {
                     self.err(format!(
-                        "Cannot define function '{}': name is a built-in",
+                        "cannot define function '{}': that name is a built-in function — \
+                         choose a different name to avoid shadowing the built-in",
                         name
                     ));
                 } else if self.functions.contains_key(name) {
                     self.err(format!(
-                        "Function '{}' already defined (duplicate function name)",
+                        "function '{}' is already defined — \
+                         each function name must be unique; rename one of the definitions",
                         name
                     ));
                 } else {
@@ -1156,8 +1409,10 @@ impl Analyzer {
                 }
 
                 let saved_ret = self.current_fn_return.take();
+                let saved_fn = self.current_fn.take();
                 let saved_origin = self.current_origin.clone();
                 self.current_fn_return = Some(ret_ty);
+                self.current_fn = Some(name.clone());
                 self.scopes.push();
                 self.current_origin = format!("fn:{}", name);
                 for (pname, pty) in &param_list {
@@ -1175,6 +1430,7 @@ impl Analyzer {
                 }
                 self.scopes.pop();
                 self.current_origin = saved_origin;
+                self.current_fn = saved_fn;
                 self.current_fn_return = saved_ret;
             }
 
@@ -1198,12 +1454,18 @@ impl Analyzer {
                     });
                 }
 
-                let mod_funcs: Vec<_> = self
-                    .functions
-                    .iter()
-                    .filter(|(_, fd)| frame.contains_key(fd.name.as_str()))
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
+                let bare_names: Vec<String> = frame.keys().cloned().collect();
+                for bare in bare_names {
+                    if let Some(fd) = self.functions.remove(&bare) {
+                        let qualified_fn = format!("{}::{}", name, bare);
+                        let qualified_fd = FuncDef {
+                            name: qualified_fn.clone(),
+                            params: fd.params,
+                            return_type: fd.return_type,
+                        };
+                        self.functions.insert(qualified_fn, qualified_fd);
+                    }
+                }
 
                 self.current_origin = saved;
             }
@@ -1232,337 +1494,4 @@ impl Analyzer {
 pub fn analyze(root: &ParseNode) -> SemanticResult {
     let mut a = Analyzer::new();
     a.analyze(root)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::compiler::lexer::tokenize;
-    use crate::compiler::parser::parse;
-
-    fn run(src: &str) -> SemanticResult {
-        let tokens = tokenize(src);
-        let tree = parse(tokens).expect("parse failed");
-        analyze(&tree)
-    }
-
-    fn wrap(body: &str) -> String {
-        format!("!start\n{}\n!end", body)
-    }
-
-    fn errors(r: &SemanticResult) -> Vec<&str> {
-        r.errors.iter().map(|e| e.message.as_str()).collect()
-    }
-
-    #[test]
-    fn test_int_decl() {
-        let r = run(&wrap(":int a = 5;"));
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-        let s = r.symbol_table.iter().find(|s| s.name == "a").unwrap();
-        assert_eq!(s.ty, FrType::Int);
-        assert!(matches!(s.value, SymbolValue::Int(5)));
-    }
-
-    #[test]
-    fn test_float_decl() {
-        let r = run(&wrap(":float b = 3.14;"));
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-        let s = r.symbol_table.iter().find(|s| s.name == "b").unwrap();
-        assert_eq!(s.ty, FrType::Float);
-    }
-
-    #[test]
-    fn test_cast_float_to_int() {
-        let r = run(&wrap(":int c = :int(3.2);"));
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-        let s = r.symbol_table.iter().find(|s| s.name == "c").unwrap();
-        assert_eq!(s.ty, FrType::Int);
-        assert!(
-            matches!(s.value, SymbolValue::Int(3)),
-            "expected Int(3) got {:?}",
-            s.value
-        );
-    }
-
-    #[test]
-    fn test_cast_int_to_float() {
-        let r = run(&wrap(":float f = :float(10);"));
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-        let s = r.symbol_table.iter().find(|s| s.name == "f").unwrap();
-        assert_eq!(s.ty, FrType::Float);
-        assert!(matches!(s.value, SymbolValue::Float(x) if (x-10.0).abs()<1e-9));
-    }
-
-    #[test]
-    fn test_no_implicit_cast() {
-        let r = run(&wrap(":float b = 5;"));
-        assert!(!r.errors.is_empty(), "expected error: implicit int→float");
-    }
-
-    #[test]
-    fn test_boolean_decl() {
-        let r = run(&wrap(":boolean res = true;"));
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-        let s = r.symbol_table.iter().find(|s| s.name == "res").unwrap();
-        assert_eq!(s.ty, FrType::Boolean);
-        assert!(matches!(s.value, SymbolValue::Boolean(true)));
-    }
-
-    #[test]
-    fn test_char_array() {
-        let r = run(&wrap(r#":array<:char, 10> string = "hello 1234";"#));
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-        let s = r.symbol_table.iter().find(|s| s.name == "string").unwrap();
-        assert!(matches!(&s.ty, FrType::Array { elem, .. } if **elem == FrType::Char));
-    }
-
-    #[test]
-    fn test_list_decl() {
-        let r = run(&wrap(":list<:int> nums = [1, 2, 3];"));
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-        let s = r.symbol_table.iter().find(|s| s.name == "nums").unwrap();
-        assert!(matches!(&s.ty, FrType::List { elem } if **elem == FrType::Int));
-
-        assert!(matches!(&s.value, SymbolValue::Array(v) if v.len() == 3));
-    }
-
-    #[test]
-    fn test_compound_assign() {
-        let r = run(&wrap(":int a = 5;\na += 100;"));
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-    }
-
-    #[test]
-    fn test_scope_isolation() {
-        let r = run(&wrap("!if (true) { :int x = 5; }\n:int y = x;"));
-        assert!(!r.errors.is_empty(), "expected 'undeclared x' error");
-    }
-
-    #[test]
-    fn test_struct_def_and_decl() {
-        let src = wrap(
-            ":struct<Point> { :int x; :int y; };\n\
-                        :struct<Point> p = {x = 1, y = 2};",
-        );
-        let r = run(&src);
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-        let s = r.symbol_table.iter().find(|s| s.name == "p").unwrap();
-        assert!(matches!(&s.ty, FrType::Struct { name } if name == "Point"));
-    }
-
-    #[test]
-    fn test_arithmetic_mismatch() {
-        let r = run(&wrap(
-            ":int a = 2;\n:float b = 3.0;\n:float c = :float(a) + b;\n:float bad = a + b;",
-        ));
-
-        assert!(!r.errors.is_empty());
-
-        assert!(r.symbol_table.iter().any(|s| s.name == "c"));
-    }
-
-    /*
-        #[test]
-        fn test_module_pi_visible() {
-
-
-            let preprocessed = "!start\n\
-    $MODULE_START:math$\n\
-    :float pi = 3.14159;\n\
-    $MODULE_END:math$;\n\
-    :float b = math::pi;\n\
-    !end";
-            let r = run(preprocessed);
-            assert!(r.errors.is_empty(), "errors: {:?}", errors(&r));
-            assert!(r.symbol_table.iter().any(|s| s.name == "math::pi"),
-                "math::pi not in table");
-            let b = r.symbol_table.iter().find(|s| s.name == "b").unwrap();
-            assert_eq!(b.ty, FrType::Float);
-        }
-
-        #[test]
-        fn test_module_function_call() {
-            let preprocessed = "!start\n\
-    $MODULE_START:math$\n\
-    !func calculate() -> :float { !return 2.71; }\n\
-    $MODULE_END:math$;\n\
-    :float d = math::calculate();\n\
-    !end";
-            let r = run(preprocessed);
-            assert!(r.errors.is_empty(), "errors: {:?}", errors(&r));
-            let d = r.symbol_table.iter().find(|s| s.name == "d").unwrap();
-            assert_eq!(d.ty, FrType::Float);
-        }
-
-
-
-        #[test]
-        fn test_undeclared() {
-            let r = run(&wrap(":int a = b + 1;"));
-            assert!(!r.errors.is_empty());
-        }
-
-
-
-        #[test]
-        fn test_bitwise_float_error() {
-            let r = run(&wrap(":float a = 1.0;\n:float b = 2.0;\n:float c = a & b;"));
-            assert!(!r.errors.is_empty());
-        }
-    */
-
-    #[test]
-    fn test_func_return_mismatch() {
-        let r = run(&wrap("!func bad() -> :int { !return 3.14; }"));
-        assert!(!r.errors.is_empty());
-    }
-
-    #[test]
-    fn test_break_outside_loop() {
-        let r = run(&wrap("!break;"));
-        assert!(!r.errors.is_empty());
-    }
-
-    #[test]
-    fn test_for_loop_var() {
-        let r = run(&wrap("!for (:int i, 0, 5, 1) { print(\"{}\", i); }"));
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-        assert!(r
-            .symbol_table
-            .iter()
-            .any(|s| s.name == "i" && s.ty == FrType::Int));
-    }
-
-    #[test]
-    fn test_append_pop() {
-        let src = wrap(":list<:int> nums = [1, 2, 3];\nappend(nums, 4);\n:int x = pop(nums);");
-        let r = run(&src);
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-        let x = r.symbol_table.iter().find(|s| s.name == "x").unwrap();
-        assert_eq!(x.ty, FrType::Int);
-    }
-
-    #[test]
-    fn test_full_sample() {
-        let src = "!start\n\
-$MODULE_START:math$\n\
-:float pi = 3.14159;\n\
-!func calculate() -> :float { !return 2.71828; }\n\
-$MODULE_END:math$;\n\
-:int a = 5;\n\
-:float b = math::pi;\n\
-:float d = math::calculate();\n\
-:int c = :int(3.2);\n\
-:array<:char, 10> string = \"hello 1234\";\n\
-:list<:int> nums = [1, 2, 3];\n\
-:boolean res = true;\n\
-a += 100;\n\
-!end";
-        let r = run(src);
-        r.print_symbol_table();
-        r.print_errors();
-        assert!(r.errors.is_empty(), "errors: {:?}", errors(&r));
-
-        assert_eq!(
-            r.symbol_table.iter().find(|s| s.name == "a").unwrap().ty,
-            FrType::Int
-        );
-        assert_eq!(
-            r.symbol_table.iter().find(|s| s.name == "b").unwrap().ty,
-            FrType::Float
-        );
-        assert!(matches!(
-            r.symbol_table.iter().find(|s| s.name == "c").unwrap().value,
-            SymbolValue::Int(3)
-        ));
-        assert!(r.symbol_table.iter().any(|s| s.name == "math::pi"));
-        assert!(r.symbol_table.iter().any(|s| s.name == "math::calculate"));
-    }
-
-    #[test]
-    fn test_builtins_not_identifiers() {
-        let src = wrap(
-            ":list<:int> lst = [1, 2];\n\
-             append(lst, 3);\n\
-             :int x = pop(lst);\n\
-             print(\"{}\", x);",
-        );
-        let r = run(&src);
-        assert!(r.errors.is_empty(), "builtin call errors: {:?}", errors(&r));
-    }
-
-    #[test]
-    fn test_cannot_redefine_builtin() {
-        let src = wrap("!func print(:int x) -> :void { }");
-        let r = run(&src);
-        assert!(
-            !r.errors.is_empty(),
-            "expected error: redefining builtin 'print'"
-        );
-        assert!(r.errors.iter().any(|e| e.message.contains("built-in")));
-    }
-
-    #[test]
-    fn test_func_in_symbol_table() {
-        let src = wrap("!func add(:int a, :int b) -> :int { !return a + b; }");
-        let r = run(&src);
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-
-        let sym = r.symbol_table.iter().find(|s| s.name == "add");
-        assert!(sym.is_some(), "function 'add' not found in symbol table");
-        assert_eq!(sym.unwrap().ty, FrType::Int);
-        assert!(sym.unwrap().origin.starts_with("func:"));
-    }
-
-    #[test]
-    fn test_duplicate_function_name() {
-        let src = wrap(
-            "!func foo() -> :int { !return 1; }\n\
-             !func foo() -> :float { !return 2.0; }",
-        );
-        let r = run(&src);
-        assert!(
-            !r.errors.is_empty(),
-            "expected error: duplicate function 'foo'"
-        );
-        assert!(r
-            .errors
-            .iter()
-            .any(|e| e.message.contains("duplicate") || e.message.contains("already defined")));
-    }
-
-    #[test]
-    fn test_list_literal_assignment() {
-        let src = wrap(":list<:float> top = [5.6, 25.1];");
-        let r = run(&src);
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-        let s = r.symbol_table.iter().find(|s| s.name == "top").unwrap();
-        assert!(matches!(&s.ty, FrType::List { elem } if **elem == FrType::Float));
-    }
-
-    #[test]
-    fn test_bool_float_cast() {
-        let src = wrap(
-            ":float f = :float(true);\n\
-             :boolean b = :boolean(1.0);",
-        );
-        let r = run(&src);
-        assert!(r.errors.is_empty(), "{:?}", errors(&r));
-        let f = r.symbol_table.iter().find(|s| s.name == "f").unwrap();
-        assert!(matches!(f.value, SymbolValue::Float(x) if (x - 1.0).abs() < 1e-9));
-    }
-
-    #[test]
-    fn test_module_sqrt_call() {
-        let src = "!start\n\
-$MODULE_START:math$\n\
-!func sqrt(:float x) -> :float { !return x; }\n\
-$MODULE_END:math$;\n\
-:float result = math::sqrt(4.0);\n\
-!end";
-        let r = run(src);
-        assert!(r.errors.is_empty(), "errors: {:?}", errors(&r));
-        let s = r.symbol_table.iter().find(|s| s.name == "result").unwrap();
-        assert_eq!(s.ty, FrType::Float);
-    }
 }

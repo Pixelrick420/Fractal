@@ -56,11 +56,15 @@ fn module_search(
         match file_path.extension().and_then(|e| e.to_str()) {
             Some("fr") => {}
             Some(ext) => {
-                print_error_header("P001", &format!("unsupported file extension `.{ext}`"));
+                print_error_header(
+                    "P001",
+                    &format!("cannot import file with extension `.{ext}`"),
+                );
                 print_location(current_file, Some(import_line));
                 print_hint(&format!(
-                    "only `.fr` files can be imported; \
-                     rename the file or remove the `.{ext}` extension from the import"
+                    "only `.fr` source files can be imported — \
+                     rename the file to have a `.fr` extension, \
+                     or remove `.{ext}` from the import path (the compiler adds `.fr` automatically)"
                 ));
                 blank_line();
                 return Err(io::Error::new(
@@ -82,9 +86,15 @@ fn module_search(
         if canonical_path.exists() && canonical_path.is_file() {
             let file_contents = fs::read_to_string(&canonical_path).map_err(|e| {
                 let path_str = canonical_path.display().to_string();
-                print_error_header("P002", &format!("could not read file `{path_str}`"));
+                print_error_header(
+                    "P002",
+                    &format!("failed to read imported file `{path_str}`"),
+                );
                 print_location(current_file, Some(import_line));
-                print_hint(&format!("check file permissions; OS error: {e}"));
+                print_hint(&format!(
+                    "the file was found but could not be read — \
+                     check that the process has read permission on this file; OS error: {e}"
+                ));
                 blank_line();
                 e
             })?;
@@ -93,18 +103,19 @@ fn module_search(
         }
 
         let display = canonical_path.display().to_string();
-        print_error_header("P003", &format!("module file not found: `{display}`"));
+        print_error_header("P003", &format!("imported file not found: `{display}`"));
         print_location(current_file, Some(import_line));
         eprintln!(" \x1b[1;34m  |\x1b[0m   \x1b[1;31m!import {module_name};\x1b[0m");
         eprintln!(
-            " \x1b[1;34m  |\x1b[0m          \x1b[1;31m{caret}\x1b[0m file not found here",
+            " \x1b[1;34m  |\x1b[0m          \x1b[1;31m{caret}\x1b[0m no file at this path",
             caret = "^".repeat(module_name.len())
         );
         print_hint(&format!(
-            "make sure the file exists at `{display}`; \
-             paths are resolved relative to the importing file"
+            "the path `{display}` does not exist — \
+             check for typos in the filename, and note that paths are resolved \
+             relative to the importing file, not the working directory"
         ));
-        print_note(&format!("searched in: `{}`", base_path.display()));
+        print_note(&format!("searched relative to: `{}`", base_path.display()));
         blank_line();
 
         Err(io::Error::new(
@@ -117,10 +128,13 @@ fn module_search(
             let contents = fs::read_to_string(&lib_path).map_err(|e| {
                 print_error_header(
                     "P002",
-                    &format!("could not read standard library module `{module_name}`"),
+                    &format!("failed to read standard library module `{module_name}`"),
                 );
                 print_location(current_file, Some(import_line));
-                print_hint(&format!("OS error: {e}"));
+                print_hint(&format!(
+                    "the module file was found at `{lib_path}` but could not be read — \
+                     check file permissions; OS error: {e}"
+                ));
                 blank_line();
                 e
             })?;
@@ -128,21 +142,22 @@ fn module_search(
         } else {
             print_error_header(
                 "P004",
-                &format!("standard library module `{module_name}` not found"),
+                &format!("unknown standard library module `{module_name}`"),
             );
             print_location(current_file, Some(import_line));
             eprintln!(" \x1b[1;34m  |\x1b[0m   \x1b[1;31m!import {module_name};\x1b[0m");
             eprintln!(
-                " \x1b[1;34m  |\x1b[0m          \x1b[1;31m{caret}\x1b[0m unknown module\n",
+                " \x1b[1;34m  |\x1b[0m          \x1b[1;31m{caret}\x1b[0m not a known standard library module",
                 caret = "^".repeat(module_name.len())
             );
             print_hint(&format!(
-                "if this is a local file, wrap the name in quotes: `!import \"{module_name}\"` \
-                 so the path is resolved relative to the current file"
+                "`{module_name}` is not in the standard library — \
+                 if this is a local file, quote the path: `!import \"{module_name}.fr\";` \
+                 so it is resolved relative to the current file instead"
             ));
             print_note(&format!(
                 "standard library modules are looked up in `{lib_dir}/`; \
-                 if this directory is wrong, update `lib_dir` in the compiler"
+                 if that directory is wrong, update `lib_dir` in the compiler source"
             ));
             blank_line();
 
@@ -162,10 +177,53 @@ fn get_module_name_from_path(path: &str) -> String {
         .to_string()
 }
 
+fn is_standalone_marker(text: &str, pos: usize, marker_len: usize) -> bool {
+    if pos > 0 {
+        let before = text[..pos].chars().next_back().unwrap_or(' ');
+        if !before.is_whitespace() {
+            return false;
+        }
+    }
+
+    let after_pos = pos + marker_len;
+    if after_pos < text.len() {
+        let after = text[after_pos..].chars().next().unwrap_or(' ');
+        if !after.is_whitespace() {
+            return false;
+        }
+    }
+    true
+}
+
+fn find_standalone(text: &str, marker: &str) -> Option<usize> {
+    let mut search_from = 0;
+    while let Some(rel) = text[search_from..].find(marker) {
+        let pos = search_from + rel;
+        if is_standalone_marker(text, pos, marker.len()) {
+            return Some(pos);
+        }
+        search_from = pos + 1;
+    }
+    None
+}
+
+fn rfind_standalone(text: &str, marker: &str) -> Option<usize> {
+    let mut last = None;
+    let mut search_from = 0;
+    while let Some(rel) = text[search_from..].find(marker) {
+        let pos = search_from + rel;
+        if is_standalone_marker(text, pos, marker.len()) {
+            last = Some(pos);
+        }
+        search_from = pos + 1;
+    }
+    last
+}
+
 fn strip_start_end(chars: &[char], source_file: &str) -> Vec<char> {
     let text: String = chars.iter().collect();
 
-    let after_start = if let Some(pos) = text.find("!start") {
+    let after_start = if let Some(pos) = find_standalone(&text, "!start") {
         let end = pos + "!start".len();
         if text[end..].starts_with('\n') {
             &text[end + 1..]
@@ -185,7 +243,7 @@ fn strip_start_end(chars: &[char], source_file: &str) -> Vec<char> {
         &text
     };
 
-    let before_end = if let Some(pos) = after_start.rfind("!end") {
+    let before_end = if let Some(pos) = rfind_standalone(after_start, "!end") {
         let chunk = &after_start[..pos];
         if chunk.ends_with('\n') {
             &chunk[..chunk.len() - 1]
@@ -239,13 +297,13 @@ fn traverse(
                     index += 1;
                 }
                 if !closed {
-                    print_error_header("P005", "unterminated block comment `###`");
+                    print_error_header("P005", "unterminated block comment");
                     print_location(current_file, Some(comment_start_line));
                     eprintln!(
-                        " \x1b[1;34m  |\x1b[0m   block comment opened on line \
-                         {comment_start_line}, never closed"
+                        " \x1b[1;34m  |\x1b[0m   block comment opened here with `###`, \
+                         but no matching `###` closing marker was found before end of file"
                     );
-                    print_hint("close the block comment with `###`");
+                    print_hint("add a closing `###` on its own line to end the block comment");
                     blank_line();
                     process::exit(1);
                 }
@@ -284,11 +342,14 @@ fn traverse(
                 }
 
                 if index >= chars.len() || chars[index] == '\n' || chars[index] == ';' {
-                    print_error_header("P006", "`!import` with no module name");
+                    print_error_header("P006", "`!import` statement has no module name");
                     print_location(current_file, Some(import_line));
+                    eprintln!(" \x1b[1;34m  |\x1b[0m   \x1b[1;31m!import;\x1b[0m");
+                    eprintln!(" \x1b[1;34m  |\x1b[0m          \x1b[1;31m^ module name missing here\x1b[0m");
                     print_hint(
-                        "provide a module name: `!import \"path/to/file\";` \
-                         for a local file, or `!import modname;` for a standard library module",
+                        "supply a module name after `!import`: \
+                         use `!import \"./path/to/file\";` for a local file \
+                         or `!import modname;` for a standard library module",
                     );
                     blank_line();
                     process::exit(1);
@@ -304,15 +365,18 @@ fn traverse(
                 if index >= chars.len() || chars[index] == '\n' {
                     print_error_header(
                         "P007",
-                        &format!("missing `;` after `!import {module_name}`"),
+                        &format!("missing `;` at end of `!import {module_name}`"),
                     );
                     print_location(current_file, Some(import_line));
                     eprintln!(" \x1b[1;34m  |\x1b[0m   \x1b[1;31m!import {module_name}\x1b[0m");
                     eprintln!(
-                        " \x1b[1;34m  |\x1b[0m   {pad}\x1b[1;31m^ add `;` here\x1b[0m",
+                        " \x1b[1;34m  |\x1b[0m   {pad}\x1b[1;31m^ `;` required here\x1b[0m",
                         pad = " ".repeat(8 + module_name.len())
                     );
-                    print_hint("import statements must end with a semicolon: `!import \"mod\";`");
+                    print_hint(&format!(
+                        "every import statement must end with a semicolon — \
+                         write it as: `!import {module_name};`"
+                    ));
                     blank_line();
                     process::exit(1);
                 }
@@ -327,9 +391,14 @@ fn traverse(
                 {
                     print_error_header("P008", &format!("invalid module name `{module_name}`"));
                     print_location(current_file, Some(import_line));
+                    eprintln!(" \x1b[1;34m  |\x1b[0m   \x1b[1;31m!import {module_name};\x1b[0m");
+                    eprintln!(
+                        " \x1b[1;34m  |\x1b[0m          \x1b[1;31m{caret}\x1b[0m invalid name",
+                        caret = "^".repeat(module_name.len())
+                    );
                     print_hint(
-                        "local files must be quoted: `!import \"./mymod\"` \
-                         standard library modules use a bare name: `!import math`",
+                        "local file paths must be in double quotes: `!import \"./mymod\";` — \
+                         standard library module names must start with a letter or `_`: `!import math;`",
                     );
                     blank_line();
                     process::exit(1);
@@ -338,22 +407,26 @@ fn traverse(
                 match module_search(&module_name, current_file, import_line) {
                     Ok((module_raw, resolved_path)) => {
                         if import_chain.contains(&resolved_path) {
+                            let mod_name = get_module_name_from_path(&module_name);
                             print_error_header(
                                 "P009",
-                                &format!(
-                                    "circular dependency: `{}` imports itself",
-                                    get_module_name_from_path(&module_name)
-                                ),
+                                &format!("circular import detected: `{mod_name}` is already being imported"),
                             );
                             print_location(current_file, Some(import_line));
+                            eprintln!(
+                                " \x1b[1;34m  |\x1b[0m   \x1b[1;31m!import {module_name};\x1b[0m"
+                            );
+                            eprintln!(
+                                " \x1b[1;34m  |\x1b[0m          \x1b[1;31m{caret}\x1b[0m this import creates a cycle",
+                                caret = "^".repeat(module_name.len())
+                            );
                             print_import_chain(import_chain);
                             eprintln!(
-                                "       \x1b[1;31m└─ {resolved_path} \
-                                 ↩ already in the chain above\x1b[0m"
+                                "       \x1b[1;31m└─ {resolved_path} ↩ already in the chain above\x1b[0m"
                             );
                             print_hint(
-                                "restructure your modules so no file transitively imports itself; \
-                                 consider extracting shared code into a third module",
+                                "a file cannot directly or transitively import itself — \
+                                 extract the shared code into a separate module that neither file imports"
                             );
                             blank_line();
                             process::exit(1);

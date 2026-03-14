@@ -217,30 +217,86 @@ pub enum UnOp {
 pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    source_file: String,
 }
 
 #[derive(Debug)]
 pub struct ParseError {
     pub message: String,
+    pub line: usize,
+    pub col: usize,
+    pub source_file: String,
 }
 
 impl ParseError {
-    fn new(msg: impl Into<String>) -> Self {
+    fn new_at(msg: impl Into<String>, line: usize, col: usize, source_file: &str) -> Self {
         ParseError {
             message: msg.into(),
+            line,
+            col,
+            source_file: source_file.to_string(),
         }
+    }
+
+    pub fn emit(&self, source: &str) {
+        let display_file = if self.source_file.is_empty() {
+            "<unknown>".to_string()
+        } else {
+            std::path::Path::new(&self.source_file)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&self.source_file)
+                .to_string()
+        };
+
+        eprintln!(
+            "\x1b[1;31merror[P000]\x1b[0m\x1b[1m: {}\x1b[0m",
+            self.message
+        );
+
+        if self.line == 0 {
+            eprintln!(" \x1b[1;34m-->\x1b[0m {}", display_file);
+            eprintln!();
+            return;
+        }
+
+        let src_line = source.lines().nth(self.line - 1).unwrap_or("");
+        let line_str = self.line.to_string();
+        let pad = " ".repeat(line_str.len());
+        let caret_pad = " ".repeat(self.col.saturating_sub(1));
+
+        eprintln!(
+            " \x1b[1;34m-->\x1b[0m {}:{}:{}",
+            display_file, self.line, self.col
+        );
+        eprintln!(" \x1b[1;34m{pad} |\x1b[0m");
+        eprintln!(" \x1b[1;34m{line_str} |\x1b[0m {src_line}");
+        eprintln!(" \x1b[1;34m{pad} |\x1b[0m \x1b[1;31m{caret_pad}^ here\x1b[0m");
+        eprintln!();
     }
 }
 
 type PResult<T> = Result<T, ParseError>;
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
-        Parser { tokens, pos: 0 }
+    pub fn new(tokens: Vec<Token>, source_file: impl Into<String>) -> Self {
+        Parser {
+            tokens,
+            pos: 0,
+            source_file: source_file.into(),
+        }
     }
 
     fn peek(&self) -> Option<&TokenType> {
         self.tokens.get(self.pos).map(|t| &t.token_type)
+    }
+
+    fn cur_line(&self) -> usize {
+        self.tokens.get(self.pos).map(|t| t.line).unwrap_or(0)
+    }
+
+    fn cur_col(&self) -> usize {
+        self.tokens.get(self.pos).map(|t| t.col).unwrap_or(0)
     }
 
     fn advance(&mut self) -> Option<&TokenType> {
@@ -251,16 +307,144 @@ impl Parser {
         t
     }
 
+    fn err(&self, msg: impl Into<String>) -> ParseError {
+        ParseError::new_at(msg, self.cur_line(), self.cur_col(), &self.source_file)
+    }
+
+    fn token_name(tt: &TokenType) -> &'static str {
+        match tt {
+            TokenType::EndL => "`;`",
+            TokenType::LParen => "`(`",
+            TokenType::RParen => "`)`",
+            TokenType::LBrace => "`{`",
+            TokenType::RBrace => "`}`",
+            TokenType::LBracket => "`[`",
+            TokenType::RBracket => "`]`",
+            TokenType::Less => "`<`",
+            TokenType::Greater => "`>`",
+            TokenType::Comma => "`,`",
+            TokenType::Equals => "`=`",
+            TokenType::Arrow => "`->`",
+            TokenType::ColonColon => "`::`",
+            TokenType::Dot => "`.`",
+            TokenType::Plus => "`+`",
+            TokenType::Minus => "`-`",
+            TokenType::Star => "`*`",
+            TokenType::Slash => "`/`",
+            TokenType::Percent => "`%`",
+            TokenType::Ampersand => "`&`",
+            TokenType::Pipe => "`|`",
+            TokenType::Caret => "`^`",
+            TokenType::Tilde => "`~`",
+            TokenType::PlusEquals => "`+=`",
+            TokenType::MinusEquals => "`-=`",
+            TokenType::StarEquals => "`*=`",
+            TokenType::SlashEquals => "`/=`",
+            TokenType::PercentEquals => "`%=`",
+            TokenType::AmpersandEquals => "`&=`",
+            TokenType::PipeEquals => "`|=`",
+            TokenType::CaretEquals => "`^=`",
+            TokenType::EqualsEquals => "`==`",
+            TokenType::TildeEquals => "`~=`",
+            TokenType::GreaterEquals => "`>=`",
+            TokenType::LessEquals => "`<=`",
+            TokenType::Start => "`!start`",
+            TokenType::End => "`!end`",
+            TokenType::Exit => "`!exit`",
+            TokenType::If => "`!if`",
+            TokenType::Elif => "`!elif`",
+            TokenType::Else => "`!else`",
+            TokenType::For => "`!for`",
+            TokenType::While => "`!while`",
+            TokenType::Func => "`!func`",
+            TokenType::Return => "`!return`",
+            TokenType::Break => "`!break`",
+            TokenType::Continue => "`!continue`",
+            TokenType::Struct => "`!struct`",
+            TokenType::Import => "`!import`",
+            TokenType::Module => "`!module`",
+            TokenType::And => "`!and`",
+            TokenType::Or => "`!or`",
+            TokenType::Not => "`!not`",
+            TokenType::TypeInt => "`:int`",
+            TokenType::TypeFloat => "`:float`",
+            TokenType::TypeChar => "`:char`",
+            TokenType::TypeBoolean => "`:boolean`",
+            TokenType::TypeArray => "`:array`",
+            TokenType::TypeList => "`:list`",
+            TokenType::TypeStruct => "`:struct`",
+            TokenType::TypeVoid => "`:void`",
+            TokenType::Identifier(_) => "identifier",
+            TokenType::SIntLit(_) => "integer literal",
+            TokenType::FloatLit(_) => "float literal",
+            TokenType::CharLit(_) => "char literal",
+            TokenType::StringLit(_) => "string literal",
+            TokenType::BoolLit(_) => "`true` or `false`",
+            TokenType::Null => "`!null`",
+            TokenType::ModuleStart(_) => "module-start marker",
+            TokenType::ModuleEnd(_) => "module-end marker",
+            TokenType::NoMatch => "<unrecognised token>",
+        }
+    }
+
+    fn opt_token_name(tt: Option<&TokenType>) -> String {
+        match tt {
+            Some(t) => Self::token_name(t).to_string(),
+            None => "end of file".to_string(),
+        }
+    }
+
     fn expect(&mut self, expected: &TokenType) -> PResult<()> {
         match self.peek() {
             Some(tt) if tt == expected => {
                 self.advance();
                 Ok(())
             }
-            other => Err(ParseError::new(format!(
-                "Expected {:?}, got {:?}",
-                expected, other
-            ))),
+            other => {
+                let found = Self::opt_token_name(other);
+                let want = Self::token_name(expected);
+                let msg = match expected {
+                    TokenType::EndL =>
+                        format!("expected `;` to end the statement, but found {found}\n   \
+                                 note: every declaration and simple statement must end with `;`"),
+                    TokenType::Arrow =>
+                        format!("expected `->` before the return type, but found {found}\n   \
+                                 note: function syntax is `!func name(params) -> :type {{ ... }}`"),
+                    TokenType::LParen =>
+                        format!("expected `(` here, but found {found}"),
+                    TokenType::RParen =>
+                        format!("expected `)` to close the argument list or condition, but found {found}"),
+                    TokenType::LBrace =>
+                        format!("expected `{{` to open a block, but found {found}\n   \
+                                 note: the opening `{{` must be on the same line as the statement"),
+                    TokenType::RBrace =>
+                        format!("expected `}}` to close a block, but found {found}\n   \
+                                 note: every `{{` must have a matching `}}`"),
+                    TokenType::LBracket =>
+                        format!("expected `[` here, but found {found}"),
+                    TokenType::RBracket =>
+                        format!("expected `]` to close the index or array literal, but found {found}"),
+                    TokenType::Less =>
+                        format!("expected `<` to open a type parameter list, but found {found}\n   \
+                                 note: generic types are written as `:array<:int, 5>` or `:list<:float>`"),
+                    TokenType::Greater =>
+                        format!("expected `>` to close the type parameter list, but found {found}"),
+                    TokenType::Comma =>
+                        format!("expected `,` to separate items, but found {found}\n   \
+                                 note: for-loop syntax is `!for (:type var, start, stop, step) {{ }}`"),
+                    TokenType::Equals =>
+                        format!("expected `=` for assignment, but found {found}"),
+                    TokenType::Start =>
+                        format!("expected `!start` at the beginning of the program, but found {found}\n   \
+                                 note: every Fractal program must begin with `!start` and end with `!end`"),
+                    TokenType::End =>
+                        format!("expected `!end` to close the program, but found {found}\n   \
+                                 note: every Fractal program must begin with `!start` and end with `!end`"),
+                    _ =>
+                        format!("expected {want}, but found {found}"),
+                };
+                Err(self.err(msg))
+            }
         }
     }
 
@@ -270,10 +454,13 @@ impl Parser {
                 self.advance();
                 Ok(s)
             }
-            other => Err(ParseError::new(format!(
-                "Expected identifier, got {:?}",
-                other
-            ))),
+            other => {
+                let found = Self::opt_token_name(other.as_ref());
+                Err(self.err(format!(
+                    "expected an identifier (a name) here, but found {found}\n   \
+                     note: identifiers must start with a letter or `_` and contain only letters, digits, and `_`"
+                )))
+            }
         }
     }
 
@@ -283,10 +470,13 @@ impl Parser {
                 self.advance();
                 Ok(n)
             }
-            other => Err(ParseError::new(format!(
-                "Expected integer literal, got {:?}",
-                other
-            ))),
+            other => {
+                let found = Self::opt_token_name(other.as_ref());
+                Err(self.err(format!(
+                    "expected an integer literal for the array size, but found {found}\n   \
+                     note: array size must be a compile-time integer constant, e.g. `:array<:int, 5>`"
+                )))
+            }
         }
     }
 
@@ -321,9 +511,10 @@ impl Parser {
                     Some(TokenType::ModuleEnd(end_name)) => {
                         self.advance();
                         if end_name != name {
-                            return Err(ParseError::new(format!(
-                                "Module name mismatch: started '{}' but ended '{}'",
-                                name, end_name
+                            return Err(self.err(format!(
+                                "module name mismatch: opened with `$MODULE_START:{name}$` \
+                                 but closed with `$MODULE_END:{end_name}$`\n   \
+                                 note: the name in the closing marker must exactly match the opening marker"
                             )));
                         }
                         if self.at_endl() {
@@ -331,9 +522,10 @@ impl Parser {
                         }
                         Ok(ParseNode::Module { name, items })
                     }
-                    other => Err(ParseError::new(format!(
-                        "Expected ModuleEnd, got {:?}",
-                        other
+                    other => Err(self.err(format!(
+                        "expected the end of module `{name}`, but found {}\n   \
+                         note: every `$MODULE_START:name$` must have a matching `$MODULE_END:name$`",
+                        Self::opt_token_name(other.as_ref())
                     ))),
                 }
             }
@@ -457,9 +649,12 @@ impl Parser {
                 })
             }
 
-            other => Err(ParseError::new(format!(
-                "Expected '{{' or identifier after struct<Name>, got {:?}",
-                other
+            other => Err(self.err(format!(
+                "expected `{{` for a struct definition or a variable name for a struct declaration, \
+                 but found {}\n   \
+                 note: to define a struct:   `:struct<n> {{ :int field; }};`\n   \
+                 note: to declare a variable: `:struct<n> var = {{ field = value }};`",
+                Self::opt_token_name(other.as_ref())
             ))),
         }
     }
@@ -518,15 +713,17 @@ impl Parser {
             let val = self.parse_expression()?;
             fields.push((name, val));
 
-            match self.peek() {
+            match self.peek().cloned() {
                 Some(TokenType::Comma) => {
                     self.advance();
                 }
                 Some(TokenType::RBrace) => break,
                 other => {
-                    return Err(ParseError::new(format!(
-                        "Expected ',' or '}}' in struct literal, got {:?}",
-                        other
+                    return Err(self.err(format!(
+                        "expected `,` between fields or `}}` to end the struct literal, \
+                         but found {}\n   \
+                         note: struct literals look like `{{ field1 = val1, field2 = val2 }}`",
+                        Self::opt_token_name(other.as_ref())
                     )))
                 }
             }
@@ -555,9 +752,16 @@ impl Parser {
 
     fn parse_stmt_with_endl(&mut self) -> PResult<ParseNode> {
         let stmt = self.parse_stmt()?;
+
         if !matches!(
             stmt,
-            ParseNode::If { .. } | ParseNode::For { .. } | ParseNode::While { .. }
+            ParseNode::If { .. }
+                | ParseNode::For { .. }
+                | ParseNode::While { .. }
+                | ParseNode::Return(_)
+                | ParseNode::Exit(_)
+                | ParseNode::Break
+                | ParseNode::Continue
         ) {
             if self.at_endl() {
                 self.advance();
@@ -620,21 +824,25 @@ impl Parser {
             Some(TokenType::Return) => {
                 self.advance();
                 let expr = self.parse_expression()?;
+                self.expect(&TokenType::EndL)?;
                 Ok(ParseNode::Return(Box::new(expr)))
             }
 
             Some(TokenType::Exit) => {
                 self.advance();
                 let expr = self.parse_expression()?;
+                self.expect(&TokenType::EndL)?;
                 Ok(ParseNode::Exit(Box::new(expr)))
             }
 
             Some(TokenType::Break) => {
                 self.advance();
+                self.expect(&TokenType::EndL)?;
                 Ok(ParseNode::Break)
             }
             Some(TokenType::Continue) => {
                 self.advance();
+                self.expect(&TokenType::EndL)?;
                 Ok(ParseNode::Continue)
             }
 
@@ -715,8 +923,10 @@ impl Parser {
         let steps = self.parse_postfix_steps()?;
 
         if let Some(AccessStep::Call(_)) = steps.last() {
-            return Err(ParseError::new(
-                "Function call result is not a valid lvalue",
+            return Err(self.err(
+                "the result of a function call cannot be assigned to\n   \
+                 note: only variables, array elements, and struct fields are valid assignment targets\n   \
+                 note: if you need to modify the result, store it in a variable first"
             ));
         }
 
@@ -725,7 +935,18 @@ impl Parser {
 
     fn parse_postfix_steps(&mut self) -> PResult<Vec<AccessStep>> {
         let mut steps = Vec::new();
-        while steps.len() < 8 {
+        loop {
+            if steps.len() >= 8 {
+                match self.peek() {
+                    Some(TokenType::ColonColon | TokenType::LBracket | TokenType::LParen) => {
+                        return Err(self.err(
+                            "access chain exceeds the maximum depth of 8 steps\n   \
+                             note: break the expression into intermediate variables to simplify it",
+                        ));
+                    }
+                    _ => break,
+                }
+            }
             match self.peek() {
                 Some(TokenType::ColonColon) => {
                     self.advance();
@@ -743,7 +964,6 @@ impl Parser {
                     let args = self.parse_args()?;
                     self.expect(&TokenType::RParen)?;
                     steps.push(AccessStep::Call(args));
-
                     break;
                 }
                 _ => break,
@@ -823,9 +1043,11 @@ impl Parser {
                 Ok(ParseNode::TypeStruct { name })
             }
 
-            other => Err(ParseError::new(format!(
-                "Expected datatype, got {:?}",
-                other
+            other => Err(self.err(format!(
+                "expected a type name here, but found {}\n   \
+                 note: types must be prefixed with `:`, e.g. `:int`, `:float`, `:char`, `:boolean`, `:void`\n   \
+                 note: generic types: `:array<:int, 5>`, `:list<:float>`, `:struct<Name>`",
+                Self::opt_token_name(other.as_ref())
             ))),
         }
     }
@@ -1082,9 +1304,11 @@ impl Parser {
                 Ok(ParseNode::Null)
             }
 
-            other => Err(ParseError::new(format!(
-                "Unexpected token in expression: {:?}",
-                other
+            other => Err(self.err(format!(
+                "expected an expression here, but found {}\n   \
+                 note: expressions can be literals (`42`, `3.14`, `'a'`, `true`), \
+                 identifiers, function calls, or sub-expressions in `( )`",
+                Self::opt_token_name(other.as_ref())
             ))),
         }
     }
@@ -1105,8 +1329,10 @@ impl Parser {
                 self.peek(),
                 Some(TokenType::RParen) | Some(TokenType::RBracket) | None
             ) {
-                return Err(ParseError::new(
-                    "Trailing comma not allowed in argument list",
+                return Err(self.err(
+                    "trailing comma is not allowed in an argument list\n   \
+                     note: remove the `,` after the last argument\n   \
+                     note: valid call: `func(a, b, c)` — not `func(a, b, c,)`",
                 ));
             }
             args.push(self.parse_expression()?);
@@ -1116,7 +1342,12 @@ impl Parser {
 }
 
 pub fn parse(tokens: Vec<Token>) -> Result<ParseNode, ParseError> {
-    let mut parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens, "<source>");
+    parser.parse_program()
+}
+
+pub fn parse_with_source(tokens: Vec<Token>, source_file: &str) -> Result<ParseNode, ParseError> {
+    let mut parser = Parser::new(tokens, source_file);
     parser.parse_program()
 }
 
@@ -1399,12 +1630,13 @@ fn print_node_children(node: &ParseNode, prefix: &str) {
 
 #[cfg(test)]
 mod tests {
+    use super::parse_with_source;
     use super::*;
-    use crate::compiler::lexer::tokenize;
+    use crate::compiler::lexer::tokenize_with_source;
 
     fn parse_prog(src: &str) -> ParseNode {
-        let tokens = tokenize(src);
-        parse(tokens).expect("parse failed")
+        let tokens = tokenize_with_source(src, "<test>");
+        parse_with_source(tokens, "<test>").expect("parse failed")
     }
 
     fn wrap(body: &str) -> String {

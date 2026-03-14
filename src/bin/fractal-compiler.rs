@@ -3,8 +3,6 @@ use std::fs;
 use std::io::ErrorKind;
 use std::process;
 
-use fractal::compiler::lexer::Token;
-use fractal::compiler::parser::pretty_print_root;
 use fractal::compiler::semanter::analyze;
 use fractal::compiler::{lexer, parser, preprocessor};
 
@@ -19,35 +17,41 @@ fn main() {
         process::exit(1);
     }
 
-    let contents = match fs::read_to_string(&args[1]) {
+    let source_file = &args[1];
+
+    let contents = match fs::read_to_string(source_file) {
         Ok(data) => data,
         Err(err) => {
             match err.kind() {
                 ErrorKind::NotFound => {
-                    print_error("File not found");
+                    print_error(&format!("file not found: `{source_file}`"));
                 }
                 ErrorKind::PermissionDenied => {
-                    print_error("Permission denied");
+                    print_error(&format!("permission denied reading `{source_file}`"));
                 }
                 _ => {
-                    print_error(&format!("Reading file: {}", err));
+                    print_error(&format!("could not read `{source_file}`: {err}"));
                 }
             }
             process::exit(1);
         }
     };
 
-    let processed_program: String = preprocessor::preprocess(&contents, &args[1]);
-    let tokens: Vec<Token> = lexer::tokenize(&processed_program);
+    let processed_program = preprocessor::preprocess(&contents, source_file);
+    let tokens = lexer::tokenize_with_source(&processed_program, source_file);
 
-    match parser::parse(tokens) {
+    match parser::parse_with_source(tokens, source_file) {
         Ok(node) => {
-            pretty_print_root(&node);
-
             let result = analyze(&node);
             result.print_symbol_table();
             result.print_errors();
+            if result.has_errors() {
+                process::exit(1);
+            }
         }
-        Err(err) => eprintln!("Parse error: {:?}", err),
+        Err(err) => {
+            err.emit(&processed_program);
+            process::exit(1);
+        }
     }
 }

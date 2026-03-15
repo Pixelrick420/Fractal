@@ -112,6 +112,11 @@ pub enum ParseNode {
         left: Box<ParseNode>,
         right: Box<ParseNode>,
     },
+    BitShift {
+        left: Box<ParseNode>,
+        op: ShiftOp,
+        right: Box<ParseNode>,
+    },
 
     Add {
         left: Box<ParseNode>,
@@ -206,6 +211,12 @@ pub enum MulOp {
     Mul,
     Div,
     Mod,
+}
+
+#[derive(Debug, Clone)]
+pub enum ShiftOp {
+    Left,
+    Right,
 }
 
 #[derive(Debug, Clone)]
@@ -491,6 +502,19 @@ impl Parser {
         matches!(self.peek(), Some(TokenType::EndL))
     }
 
+    /// Parse a struct type name that may be namespace-qualified: `Foo` or `module::Foo`.
+    /// Used inside `:struct<...>` angle brackets.
+    fn parse_struct_type_name(&mut self) -> PResult<String> {
+        let first = self.expect_identifier()?;
+        if matches!(self.peek(), Some(TokenType::ColonColon)) {
+            self.advance();
+            let second = self.expect_identifier()?;
+            Ok(format!("{}::{}", first, second))
+        } else {
+            Ok(first)
+        }
+    }
+
     pub fn parse_program(&mut self) -> PResult<ParseNode> {
         self.expect(&TokenType::Start)?;
         let items = self.parse_item_list()?;
@@ -623,7 +647,7 @@ impl Parser {
     fn parse_struct_item(&mut self, consume_endl: bool) -> PResult<ParseNode> {
         self.expect(&TokenType::TypeStruct)?;
         self.expect(&TokenType::Less)?;
-        let type_name = self.expect_identifier()?;
+        let type_name = self.parse_struct_type_name()?;
         self.expect(&TokenType::Greater)?;
 
         match self.peek().cloned() {
@@ -695,7 +719,7 @@ impl Parser {
     fn parse_struct_field(&mut self) -> PResult<ParseNode> {
         self.expect(&TokenType::TypeStruct)?;
         self.expect(&TokenType::Less)?;
-        let type_name = self.expect_identifier()?;
+        let type_name = self.parse_struct_type_name()?;
         self.expect(&TokenType::Greater)?;
         let field_name = self.expect_identifier()?;
         self.expect(&TokenType::EndL)?;
@@ -1023,7 +1047,18 @@ impl Parser {
                 self.advance();
                 self.expect(&TokenType::Less)?;
                 let elem = self.parse_datatype()?;
-                self.expect(&TokenType::Comma)?;
+                match self.peek() {
+                    Some(TokenType::Comma) => { self.advance(); }
+                    other => {
+                        let found = Self::opt_token_name(other);
+                        return Err(self.err(format!(
+                            "`:array` requires a size: expected `,` followed by an integer size, but found {}\n   \
+                             note: arrays have a fixed size declared at compile time: `:array<:int, 5>`\n   \
+                             note: if you want a variable-length collection, use `:list<:int>` instead",
+                            found
+                        )));
+                    }
+                }
                 let size = self.expect_int_lit()?;
                 self.expect(&TokenType::Greater)?;
                 Ok(ParseNode::TypeArray {
@@ -1045,7 +1080,7 @@ impl Parser {
             Some(TokenType::TypeStruct) => {
                 self.advance();
                 self.expect(&TokenType::Less)?;
-                let name = self.expect_identifier()?;
+                let name = self.parse_struct_type_name()?;
                 self.expect(&TokenType::Greater)?;
                 Ok(ParseNode::TypeStruct { name })
             }
@@ -1147,12 +1182,37 @@ impl Parser {
     }
 
     fn parse_bitand(&mut self) -> PResult<ParseNode> {
-        let mut left = self.parse_add()?;
+        let mut left = self.parse_shift()?;
         while matches!(self.peek(), Some(TokenType::Ampersand)) {
             self.advance();
-            let right = self.parse_add()?;
+            let right = self.parse_shift()?;
             left = ParseNode::BitAnd {
                 left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
+    }
+
+    fn parse_shift(&mut self) -> PResult<ParseNode> {
+        let mut left = self.parse_add()?;
+        loop {
+            // << is two consecutive Less tokens; >> is two consecutive Greater tokens.
+            // We only consume them as shift operators in expression context (not inside <>).
+            let op = match (
+                self.peek(),
+                self.tokens.get(self.pos + 1).map(|t| &t.token_type),
+            ) {
+                (Some(TokenType::Less), Some(TokenType::Less)) => ShiftOp::Left,
+                (Some(TokenType::Greater), Some(TokenType::Greater)) => ShiftOp::Right,
+                _ => break,
+            };
+            self.advance(); // consume first < or >
+            self.advance(); // consume second < or >
+            let right = self.parse_add()?;
+            left = ParseNode::BitShift {
+                left: Box::new(left),
+                op,
                 right: Box::new(right),
             };
         }
@@ -1424,6 +1484,7 @@ fn node_label(node: &ParseNode) -> String {
         ParseNode::BitOr { .. } => "BitOr  \x1b[35m|\x1b[0m".into(),
         ParseNode::BitXor { .. } => "BitXor  \x1b[35m^\x1b[0m".into(),
         ParseNode::BitAnd { .. } => "BitAnd  \x1b[35m&\x1b[0m".into(),
+        ParseNode::BitShift { op, .. } => format!("BitShift  \x1b[35m{:?}\x1b[0m", op),
         ParseNode::Add { op, .. } => format!("Add  \x1b[35m{:?}\x1b[0m", op),
         ParseNode::Mul { op, .. } => format!("Mul  \x1b[35m{:?}\x1b[0m", op),
         ParseNode::Unary { op, .. } => format!("Unary  \x1b[35m{:?}\x1b[0m", op),
@@ -1601,6 +1662,10 @@ fn print_node_children(node: &ParseNode, prefix: &str) {
         | ParseNode::BitOr { left, right }
         | ParseNode::BitXor { left, right }
         | ParseNode::BitAnd { left, right } => {
+            print_node(left, prefix, false);
+            print_node(right, prefix, true);
+        }
+        ParseNode::BitShift { left, right, .. } => {
             print_node(left, prefix, false);
             print_node(right, prefix, true);
         }

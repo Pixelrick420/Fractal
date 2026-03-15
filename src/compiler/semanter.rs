@@ -1,4 +1,4 @@
-use crate::compiler::parser::{AccessStep, ParseNode};
+use crate::compiler::parser::{AccessStep, AssignOp, CmpOp, MulOp, ParseNode, UnOp};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -323,6 +323,42 @@ impl Analyzer {
         }
     }
 
+    fn qualify_struct_type(ty: &SemType, module: &str) -> SemType {
+        match ty {
+            SemType::Struct(n) if !n.contains("::") => {
+                SemType::Struct(format!("{}::{}", module, n))
+            }
+            SemType::Array { elem, size } => SemType::Array {
+                elem: Box::new(Self::qualify_struct_type(elem, module)),
+                size: *size,
+            },
+            SemType::List { elem } => SemType::List {
+                elem: Box::new(Self::qualify_struct_type(elem, module)),
+            },
+            other => other.clone(),
+        }
+    }
+
+    fn qualify_symbol_kind(kind: &SymbolKind, module: &str) -> SymbolKind {
+        match kind {
+            SymbolKind::Struct { fields } => {
+                let qfields = fields
+                    .iter()
+                    .map(|(fname, ftype)| (fname.clone(), Self::qualify_struct_type(ftype, module)))
+                    .collect();
+                SymbolKind::Struct { fields: qfields }
+            }
+            SymbolKind::Function { params } => {
+                let qparams = params
+                    .iter()
+                    .map(|p| Self::qualify_struct_type(p, module))
+                    .collect();
+                SymbolKind::Function { params: qparams }
+            }
+            SymbolKind::Variable => SymbolKind::Variable,
+        }
+    }
+
     fn types_compatible(a: &SemType, b: &SemType) -> bool {
         if a == b {
             return true;
@@ -468,7 +504,12 @@ impl Analyzer {
                             let arg_types: Vec<SemType> =
                                 args.iter().map(|a| self.infer_expr(a)).collect();
 
-                            let func_sym = self.scopes.lookup(base).cloned();
+                            let func_name = if let Some(ref qkey) = qualified_key {
+                                qkey.clone()
+                            } else {
+                                base.clone()
+                            };
+                            let func_sym = self.scopes.lookup(&func_name).cloned();
 
                             if let Some(Symbol {
                                 kind:
@@ -485,7 +526,7 @@ impl Analyzer {
                                 if !variadic && arg_types.len() != param_types.len() {
                                     self.error(format!(
                                         "function `{}` expects {} argument(s), got {}",
-                                        base,
+                                        func_name,
                                         param_types.len(),
                                         arg_types.len()
                                     ));
@@ -502,7 +543,7 @@ impl Analyzer {
                                             self.error(format!(
                                                 "argument {} of `{}` expects type `{}`, got `{}`",
                                                 i + 1,
-                                                base,
+                                                func_name,
                                                 pt.display(),
                                                 at.display()
                                             ));
@@ -510,7 +551,7 @@ impl Analyzer {
                                     }
                                 }
 
-                                if base == "pop" {
+                                if func_name == "pop" || func_name.ends_with("::pop") {
                                     if let Some(at) = arg_types.first() {
                                         if !matches!(at, SemType::List { .. } | SemType::Unknown) {
                                             self.error(format!(
@@ -554,7 +595,8 @@ impl Analyzer {
                     );
                 if !legal {
                     self.error(format!(
-                        "illegal cast from `{}` to `{}`; `:char` can only be cast to/from `:int`, and `:float`↔`:char` is not defined",
+                        "illegal cast from `{}` to `{}`; only these casts are allowed: \
+                         `:int`↔`:float`, `:int`↔`:char`, `:int`↔`:boolean`, `:float`↔`:boolean`",
                         src.display(),
                         tgt.display()
                     ));
@@ -621,9 +663,28 @@ impl Analyzer {
                 SemType::Boolean
             }
 
-            ParseNode::Cmp { left, right, .. } => {
-                self.infer_expr(left);
-                self.infer_expr(right);
+            ParseNode::Cmp { left, right, op } => {
+                let lt = self.infer_expr(left);
+                let rt = self.infer_expr(right);
+
+                if !matches!(lt, SemType::Unknown) && !matches!(rt, SemType::Unknown) {
+                    if !Self::types_compatible(&lt, &rt) {
+                        let op_str = match op {
+                            CmpOp::EqEq => "==",
+                            CmpOp::Ne => "~=",
+                            CmpOp::Gt => ">",
+                            CmpOp::Lt => "<",
+                            CmpOp::Ge => ">=",
+                            CmpOp::Le => "<=",
+                        };
+                        self.error(format!(
+                            "cannot compare `{}` with `{}` using `{}`; both operands must be the same type",
+                            lt.display(),
+                            rt.display(),
+                            op_str
+                        ));
+                    }
+                }
                 SemType::Boolean
             }
 
@@ -647,6 +708,24 @@ impl Analyzer {
                 SemType::Int
             }
 
+            ParseNode::BitShift { left, right, .. } => {
+                let lt = self.infer_expr(left);
+                let rt = self.infer_expr(right);
+                if !matches!(lt, SemType::Int | SemType::Unknown) {
+                    self.error(format!(
+                        "`<<`/`>>` left operand must be `:int`, got `{}`",
+                        lt.display()
+                    ));
+                }
+                if !matches!(rt, SemType::Int | SemType::Unknown) {
+                    self.error(format!(
+                        "`<<`/`>>` shift amount must be `:int`, got `{}`",
+                        rt.display()
+                    ));
+                }
+                SemType::Int
+            }
+
             ParseNode::Add { left, right, .. } => {
                 let lt = self.infer_expr(left);
                 let rt = self.infer_expr(right);
@@ -662,6 +741,13 @@ impl Analyzer {
                         rt.display()
                     ));
                 }
+                if lt.is_numeric() && rt.is_numeric() && lt != rt {
+                    self.error(format!(
+                        "type mismatch in arithmetic: `{}` and `{}` — use an explicit cast",
+                        lt.display(),
+                        rt.display()
+                    ));
+                }
                 if matches!(lt, SemType::Float) || matches!(rt, SemType::Float) {
                     SemType::Float
                 } else {
@@ -669,9 +755,24 @@ impl Analyzer {
                 }
             }
 
-            ParseNode::Mul { left, right, .. } => {
+            ParseNode::Mul { left, right, op } => {
                 let lt = self.infer_expr(left);
                 let rt = self.infer_expr(right);
+                if matches!(op, MulOp::Mod) {
+                    if !matches!(lt, SemType::Int | SemType::Unknown) {
+                        self.error(format!(
+                            "`%` left operand must be `:int`, got `{}`",
+                            lt.display()
+                        ));
+                    }
+                    if !matches!(rt, SemType::Int | SemType::Unknown) {
+                        self.error(format!(
+                            "`%` right operand must be `:int`, got `{}`",
+                            rt.display()
+                        ));
+                    }
+                    return SemType::Int;
+                }
                 if !lt.is_numeric() && !matches!(lt, SemType::Unknown) {
                     self.error(format!(
                         "multiplicative operand must be numeric, got `{}`",
@@ -684,6 +785,13 @@ impl Analyzer {
                         rt.display()
                     ));
                 }
+                if lt.is_numeric() && rt.is_numeric() && lt != rt {
+                    self.error(format!(
+                        "type mismatch in arithmetic: `{}` and `{}` — use an explicit cast",
+                        lt.display(),
+                        rt.display()
+                    ));
+                }
                 if matches!(lt, SemType::Float) || matches!(rt, SemType::Float) {
                     SemType::Float
                 } else {
@@ -691,15 +799,28 @@ impl Analyzer {
                 }
             }
 
-            ParseNode::Unary { operand, .. } => {
+            ParseNode::Unary { op, operand } => {
                 let t = self.infer_expr(operand);
-                if !t.is_numeric() && !matches!(t, SemType::Unknown) {
-                    self.error(format!(
-                        "unary operand must be numeric, got `{}`",
-                        t.display()
-                    ));
+                match op {
+                    UnOp::BitNot => {
+                        if !matches!(t, SemType::Int | SemType::Unknown) {
+                            self.error(format!(
+                                "`~` operand must be `:int`, got `{}`",
+                                t.display()
+                            ));
+                        }
+                        SemType::Int
+                    }
+                    UnOp::Neg => {
+                        if !t.is_numeric() && !matches!(t, SemType::Unknown) {
+                            self.error(format!(
+                                "unary `-` operand must be numeric, got `{}`",
+                                t.display()
+                            ));
+                        }
+                        t
+                    }
                 }
-                t
             }
 
             _ => SemType::Unknown,
@@ -790,10 +911,12 @@ impl Analyzer {
                         }
                         let qualified = format!("{}::{}", name, sym_name);
                         if !self.scopes.defined_in_current(&qualified) {
+                            let qualified_kind = Self::qualify_symbol_kind(&sym.kind, name);
+                            let qualified_sem_type = Self::qualify_struct_type(&sym.sem_type, name);
                             let qualified_sym = Symbol {
                                 name: qualified.clone(),
-                                kind: sym.kind.clone(),
-                                sem_type: sym.sem_type.clone(),
+                                kind: qualified_kind,
+                                sem_type: qualified_sem_type,
                                 scope_depth: self.scope_depth(),
                                 origin: format!("module:{}", name),
                             };
@@ -832,10 +955,12 @@ impl Analyzer {
                         continue;
                     }
                     let qualified = format!("{}::{}", name, sym_name);
+                    let qualified_kind = Self::qualify_symbol_kind(&sym.kind, name);
+                    let qualified_sem_type = Self::qualify_struct_type(&sym.sem_type, name);
                     let qualified_sym = Symbol {
                         name: qualified.clone(),
-                        kind: sym.kind.clone(),
-                        sem_type: sym.sem_type.clone(),
+                        kind: qualified_kind,
+                        sem_type: qualified_sem_type,
                         scope_depth: self.scope_depth(),
                         origin: format!("module:{}", name),
                     };
@@ -970,8 +1095,27 @@ impl Analyzer {
                 }
             }
 
-            ParseNode::Assign { lvalue, expr, .. } => {
+            ParseNode::Assign { lvalue, op, expr } => {
                 let lv_ty = self.infer_expr(lvalue);
+
+                let is_int_only_op = matches!(
+                    op,
+                    AssignOp::AmpEq | AssignOp::PipeEq | AssignOp::CaretEq | AssignOp::PercentEq
+                );
+                if is_int_only_op && !matches!(lv_ty, SemType::Int | SemType::Unknown) {
+                    let op_str = match op {
+                        AssignOp::AmpEq => "`&=`",
+                        AssignOp::PipeEq => "`|=`",
+                        AssignOp::CaretEq => "`^=`",
+                        AssignOp::PercentEq => "`%=`",
+                        _ => unreachable!(),
+                    };
+                    self.error(format!(
+                        "{} requires an `:int` target, got `{}`",
+                        op_str,
+                        lv_ty.display()
+                    ));
+                }
 
                 let is_empty_literal =
                     matches!(expr.as_ref(), ParseNode::ArrayLit(e) if e.is_empty());

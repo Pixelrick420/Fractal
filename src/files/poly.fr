@@ -1,25 +1,25 @@
 !start
     :struct<Poly> {
-        :list<:float> coeffs;
+        :list<:float> co;
         :int degree;
     };
     !func make_poly(:int degree) -> :struct<Poly> {
         :struct<Poly> p;
         p::degree = degree;
-        p::coeffs = [];
+        p::co = [];
         !for (:int i, 0, degree + 1, 1) {
-            append(p::coeffs, 0.0);
+            append(p::co, 0.0);
         }
         !return p;
     }
     !func set_coeff(:struct<Poly> p, :int i, :float v) -> :void {
-        p::coeffs[i] = v;
+        p::co[i] = v;
     }
     !func eval_poly(:struct<Poly> p, :float x) -> :float {
         :float result = 0.0;
         :float xpow = 1.0;
         !for (:int i, 0, p::degree + 1, 1) {
-            result = result + p::coeffs[i] * xpow;
+            result = result + p::co[i] * xpow;
             xpow = xpow * x;
         }
         !return result;
@@ -31,10 +31,10 @@
         }
         :struct<Poly> result = make_poly(deg);
         !for (:int i, 0, a::degree + 1, 1) {
-            result::coeffs[i] = result::coeffs[i] + a::coeffs[i];
+            result::co[i] = result::co[i] + a::co[i];
         }
         !for (:int i, 0, b::degree + 1, 1) {
-            result::coeffs[i] = result::coeffs[i] + b::coeffs[i];
+            result::co[i] = result::co[i] + b::co[i];
         }
         !return result;
     }
@@ -43,7 +43,7 @@
         :struct<Poly> result = make_poly(deg);
         !for (:int i, 0, a::degree + 1, 1) {
             !for (:int j, 0, b::degree + 1, 1) {
-                result::coeffs[i + j] = result::coeffs[i + j] + a::coeffs[i] * b::coeffs[j];
+                result::co[i + j] = result::co[i + j] + a::co[i] * b::co[j];
             }
         }
         !return result;
@@ -54,7 +54,7 @@
         }
         :struct<Poly> d = make_poly(p::degree - 1);
         !for (:int i, 1, p::degree + 1, 1) {
-            d::coeffs[i - 1] = :float(i) * p::coeffs[i];
+            d::co[i - 1] = :float(i) * p::co[i];
         }
         !return d;
     }

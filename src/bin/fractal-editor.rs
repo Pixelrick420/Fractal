@@ -159,6 +159,8 @@ impl FractalEditor {
     }
 
     fn open_file(&mut self, path: &PathBuf) {
+  
+     
         if let Some(i) = self
             .tabs
             .iter()
@@ -246,6 +248,10 @@ impl FractalEditor {
         self.tabs.remove(index);
         if self.active_tab >= self.tabs.len() && self.active_tab > 0 {
             self.active_tab = self.tabs.len().saturating_sub(1);
+        }
+        // Hide search/replace bar when all tabs are closed
+        if self.tabs.is_empty() {
+            self.search_bar.visible = false;
         }
     }
 
@@ -711,6 +717,7 @@ impl eframe::App for FractalEditor {
             MenuAction::ToggleDocs => self.docs_window.open = !self.docs_window.open,
             MenuAction::OpenSettings => self.settings_panel.open(),
             MenuAction::OpenRecent(path) => {
+             
                 self.open_file(&path.clone());
                 self.docs_window.open = false;
             }
@@ -748,6 +755,10 @@ impl eframe::App for FractalEditor {
             }
         }
 
+        if self.search_bar.visible && self.tabs.is_empty() {
+            self.search_bar.visible = false;
+        }
+        
         if self.search_bar.visible {
             if let Some(tab) = self.tabs.get(self.active_tab) {
                 let code = tab.code.clone();

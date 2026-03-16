@@ -37,8 +37,6 @@ pub fn show_menu_bar(
 ) -> MenuAction {
     let mut action = MenuAction::None;
 
-    // Only handle Ctrl+F / Ctrl+H here when the search bar is not already open.
-    // When the search bar IS open, it consumes those keys itself.
     ctx.input_mut(|i| {
         let ctrl = i.modifiers.ctrl || i.modifiers.mac_cmd;
         if ctrl && i.modifiers.shift && i.key_pressed(egui::Key::S) {
@@ -58,7 +56,6 @@ pub fn show_menu_bar(
         } else if ctrl && i.key_pressed(egui::Key::F) && !search_bar_visible {
             action = MenuAction::Search;
         } else if ctrl && i.key_pressed(egui::Key::H) {
-            // Always pass through — fractal-editor handles the toggle logic
             action = MenuAction::Replace;
         }
     });
@@ -108,7 +105,6 @@ pub fn show_menu_bar(
                     .rect_filled(div_rect, egui::Rounding::ZERO, t.border);
                 ui.add_space(10.0);
 
-                // ── File menu ─────────────────────────────────────────────
                 let file_id = ui.make_persistent_id("menu_file_popup");
                 let (file_rect, _) =
                     ui.allocate_exact_size(egui::vec2(BTN_W, BTN_H), egui::Sense::hover());
@@ -125,12 +121,10 @@ pub fn show_menu_bar(
 
                 paint_menu_button(ui, file_rect, "File", ic::FILE_OPEN, file_active, false, t);
 
-                // IDs for cross-frame state
                 let flyout_open_id = egui::Id::new("recent_flyout_open");
                 let flyout_row_rect_id = egui::Id::new("recent_row_rect");
                 let recent_clicked_id = egui::Id::new("recent_clicked_path");
 
-                // Read deferred click from previous frame
                 let deferred_open: Option<PathBuf> =
                     ctx.data_mut(|d| d.remove_temp(recent_clicked_id));
                 if let Some(path) = deferred_open {
@@ -169,16 +163,17 @@ pub fn show_menu_bar(
                             };
                             ui.memory_mut(|m| m.close_popup());
                         }
-                        if icon_menu_item(ui, ic::FILE_SAVE_AS, "Save As…", "Ctrl+⇧+S", t) {
+
+                        if icon_menu_item(ui, ic::FILE_SAVE_AS, "Save As…", "Ctrl+Shift+S", t) {
                             action = MenuAction::SaveDialog;
                             ui.memory_mut(|m| m.close_popup());
                         }
 
                         styled_separator(ui, t);
 
-                        // ── Recent row — hover state stored for flyout outside popup ──
-                        let flyout_was_hovered =
-                            ui.ctx().data(|d| d.get_temp::<bool>(flyout_open_id).unwrap_or(false));
+                        let flyout_was_hovered = ui
+                            .ctx()
+                            .data(|d| d.get_temp::<bool>(flyout_open_id).unwrap_or(false));
 
                         let (r_row, r_resp) = ui.allocate_exact_size(
                             egui::vec2(ui.available_width(), 28.0),
@@ -188,7 +183,8 @@ pub fn show_menu_bar(
                         let show_flyout = row_hovered || flyout_was_hovered;
 
                         if show_flyout {
-                            ui.painter().rect_filled(r_row, egui::Rounding::same(4.0), t.accent);
+                            ui.painter()
+                                .rect_filled(r_row, egui::Rounding::same(4.0), t.accent);
                         }
                         let row_fg = if show_flyout { t.tab_bar_bg } else { t.menu_fg };
                         ui.painter().text(
@@ -198,29 +194,28 @@ pub fn show_menu_bar(
                             egui::FontId::proportional(13.5),
                             row_fg,
                         );
+
                         ui.painter().text(
                             egui::pos2(r_row.right() - 10.0, r_row.center().y),
                             egui::Align2::RIGHT_CENTER,
-                            "▶",
-                            egui::FontId::proportional(11.0),
+                            ic::CARET_RIGHT,
+                            egui::FontId::proportional(13.0),
                             row_fg,
                         );
 
-                        // Save the row's screen rect so the flyout knows where to anchor
-                        ui.ctx().data_mut(|d| d.insert_temp(flyout_row_rect_id, r_row));
-                        // Save whether we should show the flyout next frame
+                        ui.ctx()
+                            .data_mut(|d| d.insert_temp(flyout_row_rect_id, r_row));
                         if row_hovered {
                             ui.ctx().data_mut(|d| d.insert_temp(flyout_open_id, true));
                         }
 
                         styled_separator(ui, t);
 
-                        // ── Find / Replace ─────────────────────────────────
-                        if icon_menu_item(ui, ic::DOCS, "Find…", "Ctrl+F", t) {
+                        if icon_menu_item(ui, ic::MAGNIFY, "Find…", "Ctrl+F", t) {
                             action = MenuAction::Search;
                             ui.memory_mut(|m| m.close_popup());
                         }
-                        if icon_menu_item(ui, ic::DOCS, "Replace…", "Ctrl+H", t) {
+                        if icon_menu_item(ui, ic::ARROWS_CLOCKWISE, "Replace…", "Ctrl+H", t) {
                             action = MenuAction::Replace;
                             ui.memory_mut(|m| m.close_popup());
                         }
@@ -236,12 +231,10 @@ pub fn show_menu_bar(
                     },
                 );
 
-                // ── Recent flyout — rendered OUTSIDE the popup so clicks aren't eaten ──
                 let popup_is_open = ui.memory(|m| m.is_popup_open(file_id));
                 let flyout_was_hovered =
                     ctx.data(|d| d.get_temp::<bool>(flyout_open_id).unwrap_or(false));
-                let row_rect: Option<egui::Rect> =
-                    ctx.data(|d| d.get_temp(flyout_row_rect_id));
+                let row_rect: Option<egui::Rect> = ctx.data(|d| d.get_temp(flyout_row_rect_id));
 
                 if popup_is_open && flyout_was_hovered {
                     if let Some(r_row) = row_rect {
@@ -282,7 +275,9 @@ pub fn show_menu_bar(
                                                 let name = path
                                                     .file_name()
                                                     .map(|n| n.to_string_lossy().to_string())
-                                                    .unwrap_or_else(|| path.to_string_lossy().to_string());
+                                                    .unwrap_or_else(|| {
+                                                        path.to_string_lossy().to_string()
+                                                    });
                                                 let full = path.to_string_lossy().to_string();
                                                 let short = if full.len() > 36 {
                                                     format!("…{}", &full[full.len() - 35..])
@@ -304,11 +299,17 @@ pub fn show_menu_bar(
                                                 let ifg = if ih { t.tab_bar_bg } else { t.menu_fg };
                                                 let ihint = if ih {
                                                     egui::Color32::from_rgba_premultiplied(
-                                                        t.tab_bar_bg.r(), t.tab_bar_bg.g(), t.tab_bar_bg.b(), 160,
+                                                        t.tab_bar_bg.r(),
+                                                        t.tab_bar_bg.g(),
+                                                        t.tab_bar_bg.b(),
+                                                        160,
                                                     )
                                                 } else {
                                                     egui::Color32::from_rgba_premultiplied(
-                                                        t.tab_inactive_fg.r(), t.tab_inactive_fg.g(), t.tab_inactive_fg.b(), 130,
+                                                        t.tab_inactive_fg.r(),
+                                                        t.tab_inactive_fg.g(),
+                                                        t.tab_inactive_fg.b(),
+                                                        130,
                                                     )
                                                 };
                                                 ui.painter().text(
@@ -326,10 +327,15 @@ pub fn show_menu_bar(
                                                     ihint,
                                                 );
                                                 if ir_resp.clicked() {
-                                                    // Store path as deferred — will be read next frame
-                                                    // after the popup has finished its close logic
-                                                    ctx.data_mut(|d| d.insert_temp(recent_clicked_id, path.clone()));
-                                                    ctx.data_mut(|d| d.insert_temp(flyout_open_id, false));
+                                                    ctx.data_mut(|d| {
+                                                        d.insert_temp(
+                                                            recent_clicked_id,
+                                                            path.clone(),
+                                                        )
+                                                    });
+                                                    ctx.data_mut(|d| {
+                                                        d.insert_temp(flyout_open_id, false)
+                                                    });
                                                     ui.memory_mut(|m| m.close_popup());
                                                 }
                                             }
@@ -337,18 +343,15 @@ pub fn show_menu_bar(
                                         ui.add_space(2.0);
                                     });
                             });
-                        // Update hover state for next frame
                         let still_hovered = area_resp.response.hovered();
                         ctx.data_mut(|d| d.insert_temp(flyout_open_id, still_hovered));
                     }
                 } else if !popup_is_open {
-                    // Popup closed — clear all flyout state
                     ctx.data_mut(|d| d.insert_temp(flyout_open_id, false));
                 }
 
                 ui.add_space(4.0);
 
-                // ── Run button ────────────────────────────────────────────
                 let run_label = if is_running { "Running…" } else { "Run" };
                 let run_icon = if is_running { ic::RUNNING } else { ic::RUN };
                 let run_id = egui::Id::new("menu_run_btn");
@@ -356,14 +359,21 @@ pub fn show_menu_bar(
                     ui.allocate_exact_size(egui::vec2(BTN_W, BTN_H), egui::Sense::hover());
                 let run_hovered = ui.rect_contains_pointer(run_rect) && !is_running;
 
-                paint_run_button(ui, run_rect, run_icon, run_label, is_running, run_hovered, t);
+                paint_run_button(
+                    ui,
+                    run_rect,
+                    run_icon,
+                    run_label,
+                    is_running,
+                    run_hovered,
+                    t,
+                );
 
                 let run_resp = ui.interact(run_rect, run_id, egui::Sense::click());
                 if run_resp.clicked() && !is_running {
                     action = MenuAction::Run;
                 }
 
-                // ── Settings gear (right-aligned) ─────────────────────────
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let gear_id = egui::Id::new("menu_gear_btn");
                     let (gear_rect, _) =
@@ -388,8 +398,6 @@ pub fn show_menu_bar(
 
     action
 }
-
-// ── Paint helpers ─────────────────────────────────────────────────────────────
 
 fn paint_menu_button(
     ui: &egui::Ui,
@@ -417,7 +425,11 @@ fn paint_menu_button(
             ),
         );
     }
-    let fg = if active { t.tab_active_fg } else { t.tab_inactive_fg };
+    let fg = if active {
+        t.tab_active_fg
+    } else {
+        t.tab_inactive_fg
+    };
     ui.painter().text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
@@ -498,7 +510,11 @@ fn paint_icon_button(ui: &egui::Ui, rect: egui::Rect, icon: &str, active: bool, 
             ),
         );
     }
-    let fg = if active { t.tab_active_fg } else { t.tab_inactive_fg };
+    let fg = if active {
+        t.tab_active_fg
+    } else {
+        t.tab_inactive_fg
+    };
     ui.painter().text(
         rect.center(),
         egui::Align2::CENTER_CENTER,

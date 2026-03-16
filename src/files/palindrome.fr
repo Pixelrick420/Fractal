@@ -1,0 +1,10 @@
+!start
+    # code here
+    print("Enter string\n");
+    :array<:char, 10> s;
+    input("{}", s);
+    !for (:int i, 0, 10, 1) {
+        print("{}", s[i]);
+    }
+
+!end

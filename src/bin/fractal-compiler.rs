@@ -1,8 +1,10 @@
 use std::env;
 use std::fs;
 use std::io::ErrorKind;
+use std::path::Path;
 use std::process;
 
+use fractal::compiler::codegen;
 use fractal::compiler::semanter::analyze;
 use fractal::compiler::{lexer, parser, preprocessor};
 
@@ -38,17 +40,36 @@ fn main() {
     };
 
     let processed_program = preprocessor::preprocess(&contents, source_file);
-    // println!("{:?}", processed_program);
     let tokens = lexer::tokenize_with_source(&processed_program, source_file);
 
     match parser::parse_with_source(tokens, source_file) {
         Ok(node) => {
             let result = analyze(&node);
-            // parser::pretty_print(&node);
-            // result.print_symbol_table();
             result.print_errors();
             if result.has_errors() {
                 process::exit(1);
+            }
+
+            // ── code generation ───────────────────────────────────────────
+            let rs_code  = codegen::generate(&node, &result);
+            let out_path = Path::new(source_file).with_extension("rs");
+
+            match fs::write(&out_path, &rs_code) {
+                Ok(_) => {
+                    let display = out_path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("<output>");
+                    eprintln!("\x1b[1;32m compiled:\x1b[0m `{}`", display);
+                }
+                Err(e) => {
+                    print_error(&format!(
+                        "could not write `{}`: {}",
+                        out_path.display(),
+                        e
+                    ));
+                    process::exit(1);
+                }
             }
         }
         Err(err) => {

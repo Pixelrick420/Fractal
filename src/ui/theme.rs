@@ -65,6 +65,18 @@ pub struct Theme {
     pub terminal_error: Color32,
     pub terminal_warning: Color32,
 
+    pub terminal_error_code: Color32,
+
+    pub terminal_hint: Color32,
+
+    pub terminal_location: Color32,
+
+    pub terminal_gutter: Color32,
+
+    pub terminal_line_num: Color32,
+
+    pub terminal_caret: Color32,
+
     pub empty_fg: Color32,
 }
 
@@ -124,6 +136,12 @@ impl Theme {
             terminal_fg: Color32::from_rgb(201, 209, 217),
             terminal_error: Color32::from_rgb(255, 123, 114),
             terminal_warning: Color32::from_rgb(210, 153, 34),
+            terminal_error_code: Color32::from_rgb(255, 90, 70),
+            terminal_hint: Color32::from_rgb(86, 182, 194),
+            terminal_location: Color32::from_rgb(150, 175, 255),
+            terminal_gutter: Color32::from_rgb(68, 76, 86),
+            terminal_line_num: Color32::from_rgb(100, 110, 122),
+            terminal_caret: Color32::from_rgb(240, 173, 57),
             empty_fg: Color32::from_rgb(48, 54, 61),
         }
     }
@@ -176,6 +194,12 @@ impl Theme {
             terminal_fg: Color32::from_rgb(35, 42, 62),
             terminal_error: Color32::from_rgb(192, 28, 28),
             terminal_warning: Color32::from_rgb(148, 90, 0),
+            terminal_error_code: Color32::from_rgb(180, 20, 20),
+            terminal_hint: Color32::from_rgb(0, 120, 140),
+            terminal_location: Color32::from_rgb(60, 80, 200),
+            terminal_gutter: Color32::from_rgb(170, 176, 198),
+            terminal_line_num: Color32::from_rgb(130, 138, 165),
+            terminal_caret: Color32::from_rgb(148, 90, 0),
             empty_fg: Color32::from_rgb(148, 156, 180),
         }
     }

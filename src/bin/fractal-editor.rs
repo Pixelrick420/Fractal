@@ -268,6 +268,11 @@ impl FractalEditor {
         } else {
             self.search_bar.current_match = (self.search_bar.current_match + n - 1) % n;
         }
+
+        if let Some(tab) = self.tabs.get(self.active_tab) {
+            let code = tab.code.clone();
+            self.search_bar.update_matches(&code);
+        }
     }
 
     fn replace_current(&mut self) {
@@ -634,26 +639,6 @@ impl eframe::App for FractalEditor {
             }
         });
 
-        let save_pressed = ctx.input_mut(|i| {
-            (i.modifiers.ctrl || i.modifiers.mac_cmd) && i.key_pressed(egui::Key::S)
-        });
-        if save_pressed {
-            if let Some(path) = self
-                .tabs
-                .get(self.active_tab)
-                .and_then(|t| t.current_file.clone())
-            {
-                self.save_file(&path);
-            } else {
-                let name = self
-                    .tabs
-                    .get(self.active_tab)
-                    .map(|t| t.display_name())
-                    .unwrap_or_else(|| "untitled.fr".to_string());
-                self.file_dialog.open_for_save(&name);
-            }
-        }
-
         let needs_autosave = self
             .tabs
             .get(self.active_tab)
@@ -825,7 +810,14 @@ impl eframe::App for FractalEditor {
                 } else if let Some(tab) = self.tabs.get_mut(self.active_tab) {
                     let fs = self.profile.font_size;
                     let ln = self.profile.show_line_numbers;
-                    tab.editor.show_with_id(ui, &mut tab.code, tab.id, fs, ln);
+
+                    let sel = if self.search_bar.visible {
+                        self.search_bar.current_match_byte_range
+                    } else {
+                        None
+                    };
+                    tab.editor
+                        .show_with_id(ui, &mut tab.code, tab.id, fs, ln, sel);
                 }
             });
     }

@@ -13,6 +13,8 @@ pub struct SearchBar {
     pub total_matches: usize,
     pub focus_search: bool,
     pub focus_replace: bool,
+
+    pub current_match_byte_range: Option<(usize, usize)>,
 }
 
 pub enum SearchBarAction {
@@ -26,43 +28,122 @@ pub enum SearchBarAction {
 
 impl SearchBar {
     pub fn open_search(&mut self) {
-        self.visible = true;
         self.replace_mode = false;
-        self.focus_search = true;
+        self.focus_replace = false;
+        if !self.visible {
+            self.current_match = 0;
+            self.total_matches = 0;
+            self.focus_search = true;
+        } else {
+            self.focus_search = true;
+        }
+        self.visible = true;
     }
 
     pub fn open_replace(&mut self) {
         self.visible = true;
         self.replace_mode = true;
-        self.focus_search = true;
+
+        if self.query.is_empty() {
+            self.focus_search = true;
+        } else {
+            self.focus_replace = true;
+        }
     }
 
     pub fn close(&mut self) {
         self.visible = false;
+        self.replace_mode = false;
         self.query.clear();
         self.replace_text.clear();
         self.current_match = 0;
         self.total_matches = 0;
+        self.focus_search = false;
+        self.focus_replace = false;
+        self.current_match_byte_range = None;
     }
 
     pub fn update_matches(&mut self, code: &str) {
         if self.query.is_empty() {
             self.total_matches = 0;
             self.current_match = 0;
+            self.current_match_byte_range = None;
             return;
         }
-        let count = if self.match_case {
-            code.matches(self.query.as_str()).count()
+
+        let ranges: Vec<(usize, usize)> = if self.match_case {
+            let qlen = self.query.len();
+            let mut v = Vec::new();
+            let mut start = 0;
+            while start + qlen <= code.len() {
+                if code[start..].starts_with(self.query.as_str()) {
+                    v.push((start, start + qlen));
+                    start += qlen;
+                } else {
+                    start += code[start..]
+                        .chars()
+                        .next()
+                        .map(|c| c.len_utf8())
+                        .unwrap_or(1);
+                }
+            }
+            v
         } else {
-            code.to_lowercase()
-                .matches(self.query.to_lowercase().as_str())
-                .count()
+            let query_lower = self.query.to_lowercase();
+            let qlen = query_lower.len();
+            if query_lower.is_ascii() {
+                let qb = query_lower.as_bytes();
+                let cb = code.as_bytes();
+                let mut v = Vec::new();
+                let mut i = 0;
+                while i + qlen <= cb.len() {
+                    if cb[i..i + qlen]
+                        .iter()
+                        .zip(qb)
+                        .all(|(a, b)| a.to_ascii_lowercase() == *b)
+                    {
+                        v.push((i, i + qlen));
+                        i += qlen;
+                    } else {
+                        i += 1;
+
+                        while i < cb.len() && (cb[i] & 0xC0) == 0x80 {
+                            i += 1;
+                        }
+                    }
+                }
+                v
+            } else {
+                let code_lower = code.to_lowercase();
+                let mut v = Vec::new();
+                let mut start = 0;
+                while start + qlen <= code_lower.len() {
+                    if code_lower[start..].starts_with(query_lower.as_str()) {
+                        v.push((start, start + qlen));
+                        start += qlen;
+                    } else {
+                        start += code_lower[start..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(1);
+                    }
+                }
+                v
+            }
         };
+
+        let count = ranges.len();
         self.total_matches = count;
+
         if count == 0 {
             self.current_match = 0;
-        } else if self.current_match >= count {
-            self.current_match = count - 1;
+            self.current_match_byte_range = None;
+        } else {
+            if self.current_match >= count {
+                self.current_match = count - 1;
+            }
+            self.current_match_byte_range = Some(ranges[self.current_match]);
         }
     }
 
@@ -71,7 +152,9 @@ impl SearchBar {
             return SearchBarAction::None;
         }
 
-        // Flags set by keyboard or UI buttons, resolved after the panel renders.
+        let has_query = !self.query.is_empty();
+        let has_matches = self.total_matches > 0;
+
         let mut do_close = false;
         let mut do_find_next = false;
         let mut do_find_prev = false;
@@ -81,15 +164,32 @@ impl SearchBar {
         ctx.input_mut(|i| {
             if i.key_pressed(egui::Key::Escape) {
                 do_close = true;
-                i.events.retain(|e| !matches!(e, egui::Event::Key { key: egui::Key::Escape, .. }));
+                i.events.retain(|e| {
+                    !matches!(
+                        e,
+                        egui::Event::Key {
+                            key: egui::Key::Escape,
+                            ..
+                        }
+                    )
+                });
             }
-            if i.key_pressed(egui::Key::Enter) {
+
+            if has_query && has_matches && i.key_pressed(egui::Key::Enter) {
                 if i.modifiers.shift {
                     do_find_prev = true;
                 } else {
                     do_find_next = true;
                 }
-                i.events.retain(|e| !matches!(e, egui::Event::Key { key: egui::Key::Enter, .. }));
+                i.events.retain(|e| {
+                    !matches!(
+                        e,
+                        egui::Event::Key {
+                            key: egui::Key::Enter,
+                            ..
+                        }
+                    )
+                });
             }
         });
 
@@ -113,11 +213,9 @@ impl SearchBar {
             )
             .exact_height(panel_h)
             .show(ctx, |ui| {
-                // ── Row 1: Search ─────────────────────────────────────────
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
 
-                    // Search input
                     let search_resp = ui.add(
                         egui::TextEdit::singleline(&mut self.query)
                             .desired_width(220.0)
@@ -132,27 +230,31 @@ impl SearchBar {
                         self.current_match = 0;
                     }
 
-                    // Match count
-                    if !self.query.is_empty() {
+                    if has_query {
                         let label = if self.total_matches == 0 {
                             "No results".to_string()
                         } else {
                             format!("{}/{}", self.current_match + 1, self.total_matches)
                         };
-                        ui.label(
-                            egui::RichText::new(label)
-                                .size(11.5)
-                                .color(if self.total_matches == 0 {
-                                    t.terminal_error
-                                } else {
-                                    t.tab_inactive_fg
-                                }),
-                        );
+                        ui.label(egui::RichText::new(label).size(11.5).color(
+                            if self.total_matches == 0 {
+                                t.terminal_error
+                            } else {
+                                t.tab_inactive_fg
+                            },
+                        ));
                     }
 
-                    // Match-case toggle "Aa"
-                    let case_col = if self.match_case { t.tab_bar_bg } else { t.tab_inactive_fg };
-                    let case_fill = if self.match_case { t.accent } else { t.button_bg };
+                    let case_col = if self.match_case {
+                        t.tab_bar_bg
+                    } else {
+                        t.tab_inactive_fg
+                    };
+                    let case_fill = if self.match_case {
+                        t.accent
+                    } else {
+                        t.button_bg
+                    };
                     let case_btn = ui.add(
                         egui::Button::new(egui::RichText::new("Aa").size(11.5).color(case_col))
                             .fill(case_fill)
@@ -167,39 +269,50 @@ impl SearchBar {
 
                     ui.add_space(4.0);
 
-                    // ↑ Prev
-                    let prev_btn = ui.add(
-                        egui::Button::new(
-                            egui::RichText::new(ic::TERM_EXPAND).size(13.0).color(t.button_fg),
-                        )
-                        .fill(t.button_bg)
-                        .stroke(egui::Stroke::new(1.0, t.border))
-                        .min_size(egui::vec2(26.0, 22.0)),
-                    );
-                    if prev_btn.clicked() {
-                        do_find_prev = true;
-                    }
-                    prev_btn.on_hover_text("Previous match (Shift+Enter)");
+                    ui.add_enabled_ui(has_matches, |ui| {
+                        let prev_btn = ui.add(
+                            egui::Button::new(
+                                egui::RichText::new(ic::TERM_EXPAND)
+                                    .size(13.0)
+                                    .color(t.button_fg),
+                            )
+                            .fill(t.button_bg)
+                            .stroke(egui::Stroke::new(1.0, t.border))
+                            .min_size(egui::vec2(26.0, 22.0)),
+                        );
+                        if prev_btn.clicked() {
+                            do_find_prev = true;
+                        }
+                        prev_btn.on_hover_text("Previous match (Shift+Enter)");
+                    });
 
-                    // ↓ Next
-                    let next_btn = ui.add(
-                        egui::Button::new(
-                            egui::RichText::new(ic::TERM_COLLAPSE).size(13.0).color(t.button_fg),
-                        )
-                        .fill(t.button_bg)
-                        .stroke(egui::Stroke::new(1.0, t.border))
-                        .min_size(egui::vec2(26.0, 22.0)),
-                    );
-                    if next_btn.clicked() {
-                        do_find_next = true;
-                    }
-                    next_btn.on_hover_text("Next match (Enter)");
+                    ui.add_enabled_ui(has_matches, |ui| {
+                        let next_btn = ui.add(
+                            egui::Button::new(
+                                egui::RichText::new(ic::TERM_COLLAPSE)
+                                    .size(13.0)
+                                    .color(t.button_fg),
+                            )
+                            .fill(t.button_bg)
+                            .stroke(egui::Stroke::new(1.0, t.border))
+                            .min_size(egui::vec2(26.0, 22.0)),
+                        );
+                        if next_btn.clicked() {
+                            do_find_next = true;
+                        }
+                        next_btn.on_hover_text("Next match (Enter)");
+                    });
 
-                    // Replace toggle
-                    let rep_label = if self.replace_mode { "▲ Replace" } else { "▼ Replace" };
+                    let (rep_icon, rep_text) = if self.replace_mode {
+                        (ic::CARET_UP, "Replace")
+                    } else {
+                        (ic::CARET_DOWN, "Replace")
+                    };
                     let rep_toggle = ui.add(
                         egui::Button::new(
-                            egui::RichText::new(rep_label).size(11.5).color(t.tab_inactive_fg),
+                            egui::RichText::new(format!("{rep_icon}  {rep_text}"))
+                                .size(11.5)
+                                .color(t.tab_inactive_fg),
                         )
                         .fill(egui::Color32::TRANSPARENT)
                         .stroke(egui::Stroke::NONE),
@@ -208,25 +321,32 @@ impl SearchBar {
                         self.replace_mode = !self.replace_mode;
                         if self.replace_mode {
                             self.focus_replace = true;
+                        } else {
+                            self.focus_search = true;
                         }
                     }
 
-                    // Close button — manually painted so the phosphor glyph always shows
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let (r, resp) =
                             ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::click());
                         let hov = resp.hovered();
                         if hov {
-                            ui.painter()
-                                .rect_filled(r, egui::Rounding::same(4.0), t.button_hover_bg);
+                            ui.painter().rect_filled(
+                                r,
+                                egui::Rounding::same(4.0),
+                                t.button_hover_bg,
+                            );
                         }
-                        // Paint glyph explicitly — bypasses egui Button colour override
                         ui.painter().text(
                             r.center(),
                             egui::Align2::CENTER_CENTER,
                             ic::TAB_CLOSE,
                             egui::FontId::proportional(14.0),
-                            if hov { t.tab_active_fg } else { t.tab_inactive_fg },
+                            if hov {
+                                t.tab_active_fg
+                            } else {
+                                t.tab_inactive_fg
+                            },
                         );
                         if resp.clicked() {
                             do_close = true;
@@ -234,7 +354,6 @@ impl SearchBar {
                     });
                 });
 
-                // ── Row 2: Replace ────────────────────────────────────────
                 if self.replace_mode {
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
@@ -251,35 +370,38 @@ impl SearchBar {
                             self.focus_replace = false;
                         }
 
-                        let rep_one = ui.add(
-                            egui::Button::new(
-                                egui::RichText::new("Replace").size(12.0).color(t.button_fg),
-                            )
-                            .fill(t.button_bg)
-                            .stroke(egui::Stroke::new(1.0, t.border))
-                            .min_size(egui::vec2(60.0, 22.0)),
-                        );
-                        if rep_one.clicked() {
-                            do_replace_one = true;
-                        }
-                        rep_one.on_hover_text("Replace current match");
+                        ui.add_enabled_ui(has_matches, |ui| {
+                            let rep_one = ui.add(
+                                egui::Button::new(
+                                    egui::RichText::new("Replace").size(12.0).color(t.button_fg),
+                                )
+                                .fill(t.button_bg)
+                                .stroke(egui::Stroke::new(1.0, t.border))
+                                .min_size(egui::vec2(60.0, 22.0)),
+                            );
+                            if rep_one.clicked() {
+                                do_replace_one = true;
+                            }
+                            rep_one.on_hover_text("Replace current match");
 
-                        let rep_all = ui.add(
-                            egui::Button::new(
-                                egui::RichText::new("Replace All").size(12.0).color(t.button_fg),
-                            )
-                            .fill(t.button_bg)
-                            .stroke(egui::Stroke::new(1.0, t.border))
-                            .min_size(egui::vec2(80.0, 22.0)),
-                        );
-                        if rep_all.clicked() {
-                            do_replace_all = true;
-                        }
-                        rep_all.on_hover_text("Replace all matches");
+                            let rep_all = ui.add(
+                                egui::Button::new(
+                                    egui::RichText::new("Replace All")
+                                        .size(12.0)
+                                        .color(t.button_fg),
+                                )
+                                .fill(t.button_bg)
+                                .stroke(egui::Stroke::new(1.0, t.border))
+                                .min_size(egui::vec2(80.0, 22.0)),
+                            );
+                            if rep_all.clicked() {
+                                do_replace_all = true;
+                            }
+                            rep_all.on_hover_text("Replace all matches");
+                        });
                     });
                 }
 
-                // Bottom border line
                 let r = ui.min_rect();
                 ui.painter().line_segment(
                     [r.left_bottom(), r.right_bottom()],
@@ -287,7 +409,6 @@ impl SearchBar {
                 );
             });
 
-        // Resolve after panel — order matters: close > replace_all > replace_one > prev > next
         if do_close {
             self.close();
             SearchBarAction::Close

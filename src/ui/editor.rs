@@ -11,6 +11,7 @@ impl CodeEditor {
     pub fn new(theme: Theme) -> Self {
         Self { theme }
     }
+
     pub fn update_theme(&mut self, theme: Theme) {
         self.theme = theme;
     }
@@ -22,6 +23,7 @@ impl CodeEditor {
         tab_id: usize,
         font_size: f32,
         show_line_numbers: bool,
+        select_range: Option<(usize, usize)>,
     ) {
         ui.painter().rect_filled(
             ui.available_rect_before_wrap(),
@@ -37,6 +39,8 @@ impl CodeEditor {
             0.0
         };
 
+        let text_edit_id = egui::Id::new("code_editor").with(tab_id);
+
         let theme = self.theme;
         let highlighter = Highlighter::new(theme);
         let mut layouter = move |ui: &egui::Ui, text: &str, wrap_width: f32| {
@@ -45,6 +49,10 @@ impl CodeEditor {
             job.wrap.max_width = wrap_width;
             ui.fonts(|f| f.layout_job(job))
         };
+
+        if select_range.is_some() {
+            ui.ctx().request_repaint();
+        }
 
         egui::ScrollArea::both()
             .auto_shrink([false, false])
@@ -75,7 +83,7 @@ impl CodeEditor {
                     }
 
                     let text_edit = egui::TextEdit::multiline(code)
-                        .id(egui::Id::new("code_editor").with(tab_id))
+                        .id(text_edit_id)
                         .font(egui::TextStyle::Monospace)
                         .code_editor()
                         .desired_width(f32::INFINITY)
@@ -84,6 +92,68 @@ impl CodeEditor {
                         .layouter(&mut layouter);
 
                     let mut output = text_edit.show(ui);
+
+                    if let Some((byte_start, byte_end)) = select_range {
+                        let char_start = byte_offset_to_char_index(code, byte_start);
+                        let char_end = byte_offset_to_char_index(code, byte_end);
+
+                        let cursor_start = output
+                            .galley
+                            .from_ccursor(egui::text::CCursor::new(char_start));
+                        let cursor_end = output
+                            .galley
+                            .from_ccursor(egui::text::CCursor::new(char_end));
+
+                        let origin = output.galley_pos;
+
+                        let rows = &output.galley.rows;
+                        let start_rect = output.galley.pos_from_cursor(&cursor_start);
+                        let end_rect = output.galley.pos_from_cursor(&cursor_end);
+
+                        let highlight_color = theme.selection;
+                        let painter = ui.painter();
+
+                        if start_rect.min.y == end_rect.min.y {
+                            let rect = egui::Rect::from_min_max(
+                                origin + start_rect.min.to_vec2(),
+                                origin + end_rect.max.to_vec2(),
+                            );
+                            painter.rect_filled(rect, egui::Rounding::ZERO, highlight_color);
+                        } else {
+                            for row in rows {
+                                let row_min_y = row.rect.min.y;
+                                let row_max_y = row.rect.max.y;
+
+                                if row_max_y <= start_rect.min.y || row_min_y >= end_rect.max.y {
+                                    continue;
+                                }
+
+                                let x_start = if (row_min_y - start_rect.min.y).abs() < 1.0 {
+                                    start_rect.min.x
+                                } else {
+                                    row.rect.min.x
+                                };
+                                let x_end = if (row_min_y - end_rect.min.y).abs() < 1.0 {
+                                    end_rect.max.x
+                                } else {
+                                    row.rect.max.x
+                                };
+
+                                let rect = egui::Rect::from_min_max(
+                                    origin + egui::vec2(x_start, row_min_y),
+                                    origin + egui::vec2(x_end, row_max_y),
+                                );
+                                painter.rect_filled(rect, egui::Rounding::ZERO, highlight_color);
+                            }
+                        }
+
+                        let abs_end = egui::Rect::from_min_size(
+                            origin + end_rect.min.to_vec2(),
+                            end_rect.size(),
+                        );
+                        let padded = abs_end.expand2(egui::vec2(0.0, font_size * 2.0));
+                        ui.scroll_to_rect(padded, None);
+                    }
 
                     if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         if let Some(cursor_range) = output.cursor_range {
@@ -104,6 +174,11 @@ impl CodeEditor {
                 });
             });
     }
+}
+
+fn byte_offset_to_char_index(s: &str, byte_offset: usize) -> usize {
+    let clamped = byte_offset.min(s.len());
+    s[..clamped].chars().count()
 }
 
 pub enum EmptyStateAction {

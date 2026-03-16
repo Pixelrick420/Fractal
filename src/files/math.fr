@@ -8,5 +8,26 @@
     !func calculate() -> :float {
         !return constants::golden_ratio;
     }
-    
+    !func sqrt2(:float a) -> :float {
+        :float guess = a / 2.0;
+        :float c = 2.0;
+        :float error = 0.1;
+
+        :float temp = guess-a / guess;
+        !if (temp < 0.0) {
+            temp = -temp;
+        }
+
+        !while (temp > error) {
+            guess = (guess + a / guess) / c;
+            temp = guess-a / guess;
+            !if (temp < 0.0) {
+                temp = -temp;
+            }
+        }
+
+        !return guess;
+    }
+    print(calculate());
+
 !end

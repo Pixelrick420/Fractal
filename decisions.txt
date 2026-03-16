@@ -92,6 +92,12 @@
         variables declared after !start with no nesting are global.
         the compiler treats !start as { and !end as }.
 
+    8. the !for loop variable must not shadow any variable in any enclosing scope.
+       this is a compile error, not a warning.
+        :int i = 0;
+        !for (:int i, 0, 10, 1) { }   # error: loop variable `i` shadows enclosing `i`
+        !for (:int j, 0, 10, 1) { }   # ok
+
 
 # COMMENTS
     1. single line: # <comment here>
@@ -112,7 +118,7 @@
         2. -
         3. *
         4. /
-        5. %
+        5. % (int only)
 
     c) bitwise unary (int only)
         1. ~ (bitwise NOT)
@@ -135,7 +141,7 @@
         3. -=
         4. *=
         5. /=
-        6. %=
+        6. %=  (int only)
         7. &=  (int only)
         8. |=  (int only)
         9. ^=  (int only)
@@ -174,8 +180,6 @@
 
     b) array methods
         1. find
-        2. starts  (startswith)
-        3. ends    (endswith)
 
     c) list methods
         1. append
@@ -213,9 +217,8 @@
     :char c = string[0];
     a = :int(math::pi);
     append(nums, a);
-    append(arr, :int(b));
 
-    :int popped = pop(arr);
+    :int popped = pop(nums);
 
     !for (:int i, 0, 10, 1) {
         print("{}, {}, {}", a, b, popped);

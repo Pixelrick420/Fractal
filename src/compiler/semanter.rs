@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::fmt;
 
 pub const BUILTIN_FUNCTIONS: &[&str] = &[
-    "print", "input", "starts", "ends", "append", "pop", "insert", "find", "delete", "len", "pow",
-    "abs", "sqrt",
+    "print", "input", "append", "pop", "insert", "find", "delete", "len", "pow", "abs", "sqrt",
+    "min", "max",
 ];
 
 #[derive(Debug, Clone, PartialEq)]
@@ -228,28 +228,18 @@ impl Analyzer {
                 &[SemType::Unknown, SemType::Unknown],
                 SemType::Void,
             ),
+            ("pop", &[SemType::Unknown], SemType::Unknown),
             (
-                "prepend",
+                "insert",
                 &[SemType::Unknown, SemType::Unknown],
                 SemType::Void,
             ),
-            ("remove", &[SemType::Unknown, SemType::Int], SemType::Void),
+            ("delete", &[SemType::Unknown, SemType::Int], SemType::Void),
+            ("find", &[SemType::Unknown, SemType::Unknown], SemType::Int),
             ("len", &[SemType::Unknown], SemType::Int),
-            ("pop", &[SemType::Unknown], SemType::Unknown),
             ("print", &[SemType::Unknown], SemType::Void),
-            ("println", &[SemType::Unknown], SemType::Void),
-            (
-                "input",
-                &[],
-                SemType::List {
-                    elem: Box::new(SemType::Char),
-                },
-            ),
+            ("input", &[SemType::Unknown], SemType::Void),
             ("abs", &[SemType::Unknown], SemType::Unknown),
-            ("sqrt", &[SemType::Float], SemType::Float),
-            ("pow", &[SemType::Float, SemType::Float], SemType::Float),
-            ("floor", &[SemType::Float], SemType::Int),
-            ("ceil", &[SemType::Float], SemType::Int),
             (
                 "min",
                 &[SemType::Unknown, SemType::Unknown],
@@ -260,23 +250,10 @@ impl Analyzer {
                 &[SemType::Unknown, SemType::Unknown],
                 SemType::Unknown,
             ),
-            (
-                "insert",
-                &[SemType::Unknown, SemType::Unknown],
-                SemType::Void,
-            ),
-            ("delete", &[SemType::Unknown, SemType::Int], SemType::Void),
-            ("find", &[SemType::Unknown, SemType::Unknown], SemType::Int),
-            (
-                "starts",
-                &[SemType::Unknown, SemType::Unknown],
-                SemType::Boolean,
-            ),
-            (
-                "ends",
-                &[SemType::Unknown, SemType::Unknown],
-                SemType::Boolean,
-            ),
+            ("sqrt", &[SemType::Float], SemType::Float),
+            ("pow", &[SemType::Float, SemType::Float], SemType::Float),
+            ("floor", &[SemType::Float], SemType::Int),
+            ("ceil", &[SemType::Float], SemType::Int),
             ("to_int", &[SemType::Unknown], SemType::Int),
             ("to_float", &[SemType::Unknown], SemType::Float),
             (
@@ -656,18 +633,21 @@ impl Analyzer {
 
                                 let is_find = func_name == "find" || func_name.ends_with("::find");
                                 if is_find && arg_types.len() >= 2 {
-                                    if let Some(SemType::List { elem: list_elem }) =
-                                        arg_types.first()
-                                    {
-                                        let search_ty = &arg_types[1];
+                                    let search_ty = &arg_types[1];
+                                    let elem_ty = match arg_types.first() {
+                                        Some(SemType::List { elem }) => Some(elem.as_ref()),
+                                        Some(SemType::Array { elem, .. }) => Some(elem.as_ref()),
+                                        _ => None,
+                                    };
+                                    if let Some(elem) = elem_ty {
                                         if !matches!(search_ty, SemType::Unknown)
-                                            && !matches!(list_elem.as_ref(), SemType::Unknown)
-                                            && !Self::types_compatible(list_elem, search_ty)
+                                            && !matches!(elem, SemType::Unknown)
+                                            && !Self::types_compatible(elem, search_ty)
                                         {
                                             self.error(format!(
                                                 "`find` searches for a value of type `{}` \
-                                                 (matching the list element type), but got `{}`",
-                                                list_elem.display(),
+                                                 (matching the collection element type), but got `{}`",
+                                                elem.display(),
                                                 search_ty.display()
                                             ));
                                         }
@@ -678,6 +658,85 @@ impl Analyzer {
                                 if is_pop {
                                     if let Some(SemType::List { elem }) = arg_types.first() {
                                         return *elem.clone();
+                                    }
+                                }
+
+                                let is_abs = func_name == "abs" || func_name.ends_with("::abs");
+                                if is_abs {
+                                    if let Some(at) = arg_types.first() {
+                                        if !matches!(
+                                            at,
+                                            SemType::Int | SemType::Float | SemType::Unknown
+                                        ) {
+                                            self.error(format!(
+                                                "`abs` requires a numeric argument (`:int` or `:float`), \
+                                                 got `{}`",
+                                                at.display()
+                                            ));
+                                        }
+                                        if matches!(at, SemType::Int | SemType::Float) {
+                                            return at.clone();
+                                        }
+                                    }
+                                }
+
+                                let is_minmax = func_name == "min"
+                                    || func_name == "max"
+                                    || func_name.ends_with("::min")
+                                    || func_name.ends_with("::max");
+                                if is_minmax && arg_types.len() >= 2 {
+                                    let at0 = &arg_types[0];
+                                    let at1 = &arg_types[1];
+                                    if !matches!(
+                                        at0,
+                                        SemType::Int | SemType::Float | SemType::Unknown
+                                    ) {
+                                        self.error(format!(
+                                            "`{}` requires numeric arguments (`:int` or `:float`), \
+                                             but argument 1 is `{}`",
+                                            func_name, at0.display()
+                                        ));
+                                    } else if !matches!(
+                                        at1,
+                                        SemType::Int | SemType::Float | SemType::Unknown
+                                    ) {
+                                        self.error(format!(
+                                            "`{}` requires numeric arguments (`:int` or `:float`), \
+                                             but argument 2 is `{}`",
+                                            func_name, at1.display()
+                                        ));
+                                    } else if at0.is_numeric() && at1.is_numeric() && at0 != at1 {
+                                        self.error(format!(
+                                            "`{}` requires both arguments to be the same type, \
+                                             got `{}` and `{}`; use an explicit cast",
+                                            func_name,
+                                            at0.display(),
+                                            at1.display()
+                                        ));
+                                    }
+                                    if matches!(at0, SemType::Int | SemType::Float) {
+                                        return at0.clone();
+                                    }
+                                    if matches!(at1, SemType::Int | SemType::Float) {
+                                        return at1.clone();
+                                    }
+                                }
+
+                                let is_len = func_name == "len" || func_name.ends_with("::len");
+                                if is_len {
+                                    if let Some(at) = arg_types.first() {
+                                        if !matches!(
+                                            at,
+                                            SemType::Array { .. }
+                                                | SemType::List { .. }
+                                                | SemType::Unknown
+                                        ) {
+                                            self.error(format!(
+                                                "`len` requires an `:array` or `:list` argument, \
+                                                 got `{}`",
+                                                at.display()
+                                            ));
+                                        }
                                     }
                                 }
 
@@ -1102,29 +1161,47 @@ impl Analyzer {
                         ));
                         continue;
                     }
-                    let resolved_fields: Vec<(String, SemType)> = fields
-                        .iter()
-                        .filter_map(|f| {
-                            if let ParseNode::Field {
-                                data_type,
-                                name: fname,
-                            } = f
-                            {
-                                Some((fname.clone(), self.resolve_type_node(data_type)))
-                            } else {
-                                None
+                    let mut resolved_fields: Vec<(String, SemType)> = Vec::new();
+                    let mut had_field_error = false;
+                    for f in fields {
+                        if let ParseNode::Field {
+                            data_type,
+                            name: fname,
+                        } = f
+                        {
+                            let fty = self.resolve_type_node(data_type);
+
+                            if matches!(fty, SemType::Void) {
+                                self.error(format!(
+                                    "field `{}` of struct `{}` cannot have type `:void`",
+                                    fname, name
+                                ));
+                                had_field_error = true;
+                                continue;
                             }
-                        })
-                        .collect();
-                    self.declare_sym(Symbol {
-                        name: name.clone(),
-                        kind: SymbolKind::Struct {
-                            fields: resolved_fields,
-                        },
-                        sem_type: SemType::Struct(name.clone()),
-                        scope_depth: self.scope_depth(),
-                        origin: self.current_origin.clone(),
-                    });
+
+                            if resolved_fields.iter().any(|(n, _)| n == fname) {
+                                self.error(format!(
+                                    "struct `{}` has duplicate field `{}`",
+                                    name, fname
+                                ));
+                                had_field_error = true;
+                                continue;
+                            }
+                            resolved_fields.push((fname.clone(), fty));
+                        }
+                    }
+                    if !had_field_error || !resolved_fields.is_empty() {
+                        self.declare_sym(Symbol {
+                            name: name.clone(),
+                            kind: SymbolKind::Struct {
+                                fields: resolved_fields,
+                            },
+                            sem_type: SemType::Struct(name.clone()),
+                            scope_depth: self.scope_depth(),
+                            origin: self.current_origin.clone(),
+                        });
+                    }
                 }
                 ParseNode::FuncDef {
                     name,
@@ -1362,7 +1439,7 @@ impl Analyzer {
                         {
                             self.error(format!(
                                 "cannot initialise `{}` with `!null`; \
-                                 `!null` can only be assigned to struct-type fields",
+                                 `!null` can only be assigned to struct-type variables",
                                 name
                             ));
                             return;
@@ -1431,11 +1508,6 @@ impl Analyzer {
                     if let ParseNode::StructLit(fields) = init_expr.as_ref() {
                         self.validate_struct_lit(struct_name, fields);
                     } else if matches!(init_expr.as_ref(), ParseNode::Null) {
-                        self.error(format!(
-                            "cannot initialise struct variable `{}` with `!null`; \
-                             `!null` is only valid as a `:void` return value",
-                            var_name
-                        ));
                     } else {
                         self.infer_expr(init_expr);
                     }
@@ -1504,8 +1576,7 @@ impl Analyzer {
                     {
                         self.error(format!(
                             "cannot assign `!null` to `{}`; \
-                             `!null` can only be assigned to struct-type fields \
-                             (for self-referential struct termination)",
+                             `!null` can only be assigned to struct-type variables",
                             lv_ty.display()
                         ));
                         return;
@@ -1680,7 +1751,15 @@ impl Analyzer {
                                 ret_ty.display()
                             ));
                         }
-                    } else if !is_null && !Self::types_compatible(&expected, &ret_ty) {
+                    } else if is_null {
+                        if !matches!(expected, SemType::Struct(_)) {
+                            self.error(format!(
+                                "cannot return `!null` from a function that returns `{}`; \
+                                 `!null` is only valid as a return value for struct-returning functions",
+                                expected.display()
+                            ));
+                        }
+                    } else if !Self::types_compatible(&expected, &ret_ty) {
                         self.error(format!(
                             "`!return` expression has type `{}`, but function returns `{}`",
                             ret_ty.display(),

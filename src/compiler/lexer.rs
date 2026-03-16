@@ -531,7 +531,12 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
             }
             let result = keyword_map(&buffer);
             if matches!(result, TokenType::NoMatch) {
-                let hint = if let Some(close) = closest_keyword(&buffer) {
+                let hint = if buffer == "true" || buffer == "false" {
+                    format!(
+                        "`!{buffer}` is not valid — boolean literals do not use the `!` prefix; \
+                         write `{buffer}` directly"
+                    )
+                } else if let Some(close) = closest_keyword(&buffer) {
                     format!("unknown keyword `!{buffer}` — did you mean `!{close}`?")
                 } else {
                     format!(

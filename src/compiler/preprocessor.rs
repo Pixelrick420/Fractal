@@ -318,6 +318,29 @@ fn traverse(
             continue;
         }
 
+        // Pass char literals through verbatim — # and ! inside char literals must not be
+        // treated as comments or imports.
+        if chars[index] == '\'' {
+            own_body.push('\'');
+            index += 1;
+            if index < chars.len() {
+                let c = chars[index];
+                own_body.push(c);
+                index += 1;
+                if c == '\\' && index < chars.len() {
+                    // consume the escaped character (e.g. '\n', '\\', '\'')
+                    own_body.push(chars[index]);
+                    index += 1;
+                }
+            }
+            // consume the closing quote if present; if not, let the lexer error
+            if index < chars.len() && chars[index] == '\'' {
+                own_body.push('\'');
+                index += 1;
+            }
+            continue;
+        }
+
         if chars[index] == '#' {
             if index + 2 < chars.len() && chars[index + 1] == '#' && chars[index + 2] == '#' {
                 index += 3;

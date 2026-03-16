@@ -634,6 +634,26 @@ impl eframe::App for FractalEditor {
             }
         });
 
+        let save_pressed = ctx.input_mut(|i| {
+            (i.modifiers.ctrl || i.modifiers.mac_cmd) && i.key_pressed(egui::Key::S)
+        });
+        if save_pressed {
+            if let Some(path) = self
+                .tabs
+                .get(self.active_tab)
+                .and_then(|t| t.current_file.clone())
+            {
+                self.save_file(&path);
+            } else {
+                let name = self
+                    .tabs
+                    .get(self.active_tab)
+                    .map(|t| t.display_name())
+                    .unwrap_or_else(|| "untitled.fr".to_string());
+                self.file_dialog.open_for_save(&name);
+            }
+        }
+
         let needs_autosave = self
             .tabs
             .get(self.active_tab)

@@ -1,7 +1,25 @@
 pub fn format_code(src: &str) -> String {
-    let physical: Vec<&str> = src.lines().collect();
+    let mut expanded: Vec<String> = Vec::new();
+    for raw in src.lines() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            expanded.push(String::new());
+        } else {
+            expand_line(trimmed, &mut expanded);
+        }
+    }
 
-    let normalised: Vec<String> = physical.iter().map(|l| normalise_line(l.trim())).collect();
+    let normalised: Vec<String> = expanded
+        .iter()
+        .map(|l| {
+            let t = l.trim();
+            if t.is_empty() {
+                String::new()
+            } else {
+                normalise_line(t)
+            }
+        })
+        .collect();
 
     let mut joined: Vec<String> = Vec::with_capacity(normalised.len());
     for line in &normalised {
@@ -19,7 +37,7 @@ pub fn format_code(src: &str) -> String {
         }
     }
 
-    let mut output = String::with_capacity(src.len() + 128);
+    let mut output = String::with_capacity(src.len() + 256);
     let mut depth: i32 = 0;
     let mut prev_blank = false;
     let mut blank_count = 0u32;
@@ -80,6 +98,188 @@ pub fn format_code(src: &str) -> String {
         return String::new();
     }
     result + "\n"
+}
+
+fn expand_line(line: &str, out: &mut Vec<String>) {
+    if !needs_expansion(line) {
+        out.push(line.to_owned());
+        return;
+    }
+
+    let chars: Vec<char> = line.chars().collect();
+    let len = chars.len();
+
+    let mut current = String::new();
+
+    let mut paren_depth: i32 = 0;
+    let mut i = 0;
+
+    macro_rules! flush {
+        () => {
+            let t = current.trim().to_owned();
+            if !t.is_empty() {
+                out.push(t);
+            }
+            current.clear();
+        };
+    }
+
+    while i < len {
+        if chars[i] == '"' {
+            current.push('"');
+            i += 1;
+            while i < len {
+                if chars[i] == '\\' && i + 1 < len {
+                    current.push(chars[i]);
+                    current.push(chars[i + 1]);
+                    i += 2;
+                } else if chars[i] == '"' {
+                    current.push('"');
+                    i += 1;
+                    break;
+                } else {
+                    current.push(chars[i]);
+                    i += 1;
+                }
+            }
+            continue;
+        }
+
+        if chars[i] == '\'' {
+            current.push('\'');
+            i += 1;
+            if i < len {
+                if chars[i] == '\\' && i + 1 < len {
+                    current.push(chars[i]);
+                    current.push(chars[i + 1]);
+                    i += 2;
+                } else {
+                    current.push(chars[i]);
+                    i += 1;
+                }
+            }
+            if i < len && chars[i] == '\'' {
+                current.push('\'');
+                i += 1;
+            }
+            continue;
+        }
+
+        if chars[i] == '#' {
+            while i < len {
+                current.push(chars[i]);
+                i += 1;
+            }
+            break;
+        }
+
+        if chars[i] == '(' || chars[i] == '[' {
+            paren_depth += 1;
+            current.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        if chars[i] == ')' || chars[i] == ']' {
+            paren_depth -= 1;
+            current.push(chars[i]);
+            i += 1;
+            continue;
+        }
+
+        if chars[i] == ';' && paren_depth == 0 {
+            current.push(';');
+            i += 1;
+
+            while i < len && chars[i].is_whitespace() {
+                i += 1;
+            }
+            flush!();
+            continue;
+        }
+
+        if chars[i] == '{' && paren_depth == 0 {
+            current.push_str(" {");
+            i += 1;
+            while i < len && chars[i].is_whitespace() {
+                i += 1;
+            }
+            flush!();
+            continue;
+        }
+
+        if chars[i] == '}' && paren_depth == 0 {
+            flush!();
+            i += 1;
+
+            while i < len && chars[i].is_whitespace() {
+                i += 1;
+            }
+            if i < len && chars[i] == ';' {
+                out.push("};".to_owned());
+                i += 1;
+            } else {
+                out.push("}".to_owned());
+            }
+
+            while i < len && chars[i].is_whitespace() {
+                i += 1;
+            }
+            continue;
+        }
+
+        if chars[i].is_whitespace() {
+            if !current.is_empty() && !current.ends_with(' ') {
+                current.push(' ');
+            }
+            i += 1;
+            continue;
+        }
+
+        current.push(chars[i]);
+        i += 1;
+    }
+
+    flush!();
+}
+
+fn needs_expansion(line: &str) -> bool {
+    let chars: Vec<char> = line.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+    while i < len {
+        match chars[i] {
+            '"' => {
+                i += 1;
+                while i < len {
+                    if chars[i] == '\\' {
+                        i += 2;
+                    } else if chars[i] == '"' {
+                        i += 1;
+                        break;
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+            '\'' => {
+                i += 1;
+                if i < len && chars[i] == '\\' {
+                    i += 2;
+                } else if i < len {
+                    i += 1;
+                }
+                if i < len && chars[i] == '\'' {
+                    i += 1;
+                }
+            }
+            '#' => break,
+            '{' | '}' | ';' => return true,
+            _ => {
+                i += 1;
+            }
+        }
+    }
+    false
 }
 
 fn count_braces(line: &str) -> (i32, i32) {
@@ -344,7 +544,6 @@ fn normalise_line(line: &str) -> String {
                     out.push(' ');
                     continue;
                 }
-
                 ensure_space_before(&mut out);
                 out.push_str(&two);
                 i += 2;
@@ -358,7 +557,6 @@ fn normalise_line(line: &str) -> String {
 
         if chars[i] == '-' || chars[i] == '+' {
             let ch = chars[i];
-
             let in_sci_exp = {
                 let lmc = last_meaningful_char(&out);
                 if matches!(lmc, Some('e') | Some('E')) {
@@ -377,7 +575,6 @@ fn normalise_line(line: &str) -> String {
             } else if is_unary_position(&out) {
                 out.push(ch);
                 i += 1;
-
                 while i < chars.len() && chars[i].is_whitespace() {
                     i += 1;
                 }

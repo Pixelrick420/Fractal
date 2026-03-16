@@ -44,6 +44,7 @@ fn main() {
     match parser::parse_with_source(tokens, source_file) {
         Ok(node) => {
             let result = analyze(&node);
+            // parser::pretty_print(&node);
             // result.print_symbol_table();
             result.print_errors();
             if result.has_errors() {

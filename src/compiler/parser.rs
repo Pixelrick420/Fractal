@@ -229,6 +229,8 @@ pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     source_file: String,
+    func_depth: usize,
+    loop_depth: usize,
 }
 
 #[derive(Debug)]
@@ -301,6 +303,8 @@ impl Parser {
             tokens,
             pos: 0,
             source_file: source_file.into(),
+            func_depth: 0,
+            loop_depth: 0,
         }
     }
 
@@ -486,6 +490,12 @@ impl Parser {
         match self.peek().cloned() {
             Some(TokenType::SIntLit(n)) => {
                 self.advance();
+                if n <= 0 {
+                    return Err(self.err(format!(
+                        "array size must be a positive integer greater than zero, got {n}\n   \
+                         note: arrays need at least one element; use a size like `:array<:int, 5>`"
+                    )));
+                }
                 Ok(n)
             }
             other => {
@@ -502,8 +512,6 @@ impl Parser {
         matches!(self.peek(), Some(TokenType::EndL))
     }
 
-    /// Parse a struct type name that may be namespace-qualified: `Foo` or `module::Foo`.
-    /// Used inside `:struct<...>` angle brackets.
     fn parse_struct_type_name(&mut self) -> PResult<String> {
         let first = self.expect_identifier()?;
         if matches!(self.peek(), Some(TokenType::ColonColon)) {
@@ -606,6 +614,12 @@ impl Parser {
     }
 
     fn parse_funcdef(&mut self) -> PResult<ParseNode> {
+        if self.func_depth > 0 {
+            return Err(self.err(
+                "functions cannot be defined inside another function\n   \
+                 note: move this `!func` definition to the top level, outside any `!func` body",
+            ));
+        }
         self.expect(&TokenType::Func)?;
         let name = self.expect_identifier()?;
         self.expect(&TokenType::LParen)?;
@@ -613,7 +627,9 @@ impl Parser {
         self.expect(&TokenType::RParen)?;
         self.expect(&TokenType::Arrow)?;
         let return_type = self.parse_datatype()?;
+        self.func_depth += 1;
         let body = self.parse_block()?;
+        self.func_depth -= 1;
         Ok(ParseNode::FuncDef {
             name,
             params,
@@ -789,20 +805,26 @@ impl Parser {
             ParseNode::If { .. }
                 | ParseNode::For { .. }
                 | ParseNode::While { .. }
+                | ParseNode::FuncDef { .. }
+                | ParseNode::StructDef { .. }
                 | ParseNode::Return(_)
                 | ParseNode::Exit(_)
                 | ParseNode::Break
                 | ParseNode::Continue
         ) {
-            if self.at_endl() {
-                self.advance();
-            }
+            self.expect(&TokenType::EndL)?;
         }
         Ok(stmt)
     }
 
     fn parse_stmt(&mut self) -> PResult<ParseNode> {
         match self.peek().cloned() {
+            Some(TokenType::Func) => Err(self.err(
+                "functions cannot be defined inside a block\n   \
+                     note: `!func` definitions must appear at the top level, \
+                     outside any `!if`, `!for`, `!while`, or `!func` body",
+            )),
+
             Some(TokenType::If) => {
                 self.advance();
                 self.expect(&TokenType::LParen)?;
@@ -829,7 +851,9 @@ impl Parser {
                 self.expect(&TokenType::Comma)?;
                 let step = self.parse_expression()?;
                 self.expect(&TokenType::RParen)?;
+                self.loop_depth += 1;
                 let body = self.parse_block()?;
+                self.loop_depth -= 1;
                 Ok(ParseNode::For {
                     var_type: Box::new(var_type),
                     var_name,
@@ -845,7 +869,9 @@ impl Parser {
                 self.expect(&TokenType::LParen)?;
                 let condition = self.parse_expression()?;
                 self.expect(&TokenType::RParen)?;
+                self.loop_depth += 1;
                 let body = self.parse_block()?;
+                self.loop_depth -= 1;
                 Ok(ParseNode::While {
                     condition: Box::new(condition),
                     body,
@@ -853,6 +879,12 @@ impl Parser {
             }
 
             Some(TokenType::Return) => {
+                if self.func_depth == 0 {
+                    return Err(self.err(
+                        "`!return` used outside of a function\n   \
+                         note: `!return` can only appear inside a `!func` body",
+                    ));
+                }
                 self.advance();
                 let expr = self.parse_expression()?;
                 self.expect(&TokenType::EndL)?;
@@ -867,11 +899,24 @@ impl Parser {
             }
 
             Some(TokenType::Break) => {
+                if self.loop_depth == 0 {
+                    return Err(self.err(
+                        "`!break` used outside of a loop\n   \
+                         note: `!break` can only appear inside a `!for` or `!while` body",
+                    ));
+                }
                 self.advance();
                 self.expect(&TokenType::EndL)?;
                 Ok(ParseNode::Break)
             }
+
             Some(TokenType::Continue) => {
+                if self.loop_depth == 0 {
+                    return Err(self.err(
+                        "`!continue` used outside of a loop\n   \
+                         note: `!continue` can only appear inside a `!for` or `!while` body",
+                    ));
+                }
                 self.advance();
                 self.expect(&TokenType::EndL)?;
                 Ok(ParseNode::Continue)
@@ -1197,8 +1242,6 @@ impl Parser {
     fn parse_shift(&mut self) -> PResult<ParseNode> {
         let mut left = self.parse_add()?;
         loop {
-            // << is two consecutive Less tokens; >> is two consecutive Greater tokens.
-            // We only consume them as shift operators in expression context (not inside <>).
             let op = match (
                 self.peek(),
                 self.tokens.get(self.pos + 1).map(|t| &t.token_type),
@@ -1207,8 +1250,8 @@ impl Parser {
                 (Some(TokenType::Greater), Some(TokenType::Greater)) => ShiftOp::Right,
                 _ => break,
             };
-            self.advance(); // consume first < or >
-            self.advance(); // consume second < or >
+            self.advance();
+            self.advance();
             let right = self.parse_add()?;
             left = ParseNode::BitShift {
                 left: Box::new(left),

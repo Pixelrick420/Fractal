@@ -48,7 +48,12 @@ fn module_search(
     current_file: &str,
     import_line: usize,
 ) -> io::Result<(Vec<char>, String)> {
-    let lib_dir = "";
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let lib_dir_path = exe_dir.join("stdlib");
+    let lib_dir = lib_dir_path.to_str().unwrap_or("stdlib");
 
     if module_name.starts_with('"') {
         let mut file_path = PathBuf::from(module_name.trim().trim_matches('"'));
@@ -286,6 +291,33 @@ fn traverse(
     ));
 
     while index < chars.len() {
+        // Pass string literals through verbatim — # and ! inside strings must not be
+        // treated as comments or imports.
+        if chars[index] == '"' {
+            own_body.push('"');
+            index += 1;
+            loop {
+                if index >= chars.len() || chars[index] == '\n' {
+                    // Unterminated string — pass the newline (or EOF) through and let the
+                    // lexer produce the proper error.
+                    break;
+                }
+                let c = chars[index];
+                own_body.push(c);
+                index += 1;
+                if c == '\\' && index < chars.len() {
+                    // consume the escaped character so a `\"` does not end the string
+                    own_body.push(chars[index]);
+                    index += 1;
+                    continue;
+                }
+                if c == '"' {
+                    break;
+                }
+            }
+            continue;
+        }
+
         if chars[index] == '#' {
             if index + 2 < chars.len() && chars[index + 1] == '#' && chars[index + 2] == '#' {
                 index += 3;

@@ -25,6 +25,8 @@ const BTN_H: f32 = 28.0;
 const BTN_ROUNDING: f32 = 5.0;
 const ICON_BTN_W: f32 = 34.0;
 
+const FLYOUT_GAP: f32 = 0.0;
+
 pub fn show_menu_bar(
     ctx: &egui::Context,
     _state: &mut MenuBarState,
@@ -163,7 +165,6 @@ pub fn show_menu_bar(
                             };
                             ui.memory_mut(|m| m.close_popup());
                         }
-
                         if icon_menu_item(ui, ic::FILE_SAVE_AS, "Save As…", "Ctrl+Shift+S", t) {
                             action = MenuAction::SaveDialog;
                             ui.memory_mut(|m| m.close_popup());
@@ -180,6 +181,7 @@ pub fn show_menu_bar(
                             egui::Sense::hover(),
                         );
                         let row_hovered = r_resp.hovered();
+
                         let show_flyout = row_hovered || flyout_was_hovered;
 
                         if show_flyout {
@@ -194,7 +196,6 @@ pub fn show_menu_bar(
                             egui::FontId::proportional(13.5),
                             row_fg,
                         );
-
                         ui.painter().text(
                             egui::pos2(r_row.right() - 10.0, r_row.center().y),
                             egui::Align2::RIGHT_CENTER,
@@ -205,6 +206,7 @@ pub fn show_menu_bar(
 
                         ui.ctx()
                             .data_mut(|d| d.insert_temp(flyout_row_rect_id, r_row));
+
                         if row_hovered {
                             ui.ctx().data_mut(|d| d.insert_temp(flyout_open_id, true));
                         }
@@ -232,14 +234,15 @@ pub fn show_menu_bar(
                 );
 
                 let popup_is_open = ui.memory(|m| m.is_popup_open(file_id));
-                let flyout_was_hovered =
+                let flyout_active =
                     ctx.data(|d| d.get_temp::<bool>(flyout_open_id).unwrap_or(false));
                 let row_rect: Option<egui::Rect> = ctx.data(|d| d.get_temp(flyout_row_rect_id));
 
-                if popup_is_open && flyout_was_hovered {
+                if popup_is_open && flyout_active {
                     if let Some(r_row) = row_rect {
-                        let flyout_pos = egui::pos2(r_row.right() + 6.0, r_row.top());
+                        let flyout_pos = egui::pos2(r_row.right() + FLYOUT_GAP, r_row.top());
                         let recent_area_id = egui::Id::new("recent_flyout_area");
+
                         let area_resp = egui::Area::new(recent_area_id)
                             .order(egui::Order::Foreground)
                             .fixed_pos(flyout_pos)
@@ -258,6 +261,7 @@ pub fn show_menu_bar(
                                     .show(ui, |ui| {
                                         ui.set_min_width(260.0);
                                         ui.add_space(2.0);
+
                                         if recent_files.is_empty() {
                                             let (er, _) = ui.allocate_exact_size(
                                                 egui::vec2(260.0, 28.0),
@@ -284,6 +288,7 @@ pub fn show_menu_bar(
                                                 } else {
                                                     full.clone()
                                                 };
+
                                                 let (ir, ir_resp) = ui.allocate_exact_size(
                                                     egui::vec2(260.0, 28.0),
                                                     egui::Sense::click(),
@@ -326,6 +331,7 @@ pub fn show_menu_bar(
                                                     egui::FontId::proportional(10.5),
                                                     ihint,
                                                 );
+
                                                 if ir_resp.clicked() {
                                                     ctx.data_mut(|d| {
                                                         d.insert_temp(
@@ -343,8 +349,22 @@ pub fn show_menu_bar(
                                         ui.add_space(2.0);
                                     });
                             });
-                        let still_hovered = area_resp.response.hovered();
-                        ctx.data_mut(|d| d.insert_temp(flyout_open_id, still_hovered));
+
+                        let pointer_pos = ctx.input(|i| i.pointer.hover_pos());
+                        let flyout_window_rect = area_resp.response.rect;
+
+                        let bridge = egui::Rect::from_min_max(
+                            egui::pos2(r_row.right(), r_row.top()),
+                            egui::pos2(flyout_window_rect.left(), r_row.bottom()),
+                        );
+
+                        let still_active = pointer_pos.map_or(false, |p| {
+                            flyout_window_rect.contains(p)
+                                || bridge.contains(p)
+                                || r_row.contains(p)
+                        });
+
+                        ctx.data_mut(|d| d.insert_temp(flyout_open_id, still_active));
                     }
                 } else if !popup_is_open {
                     ctx.data_mut(|d| d.insert_temp(flyout_open_id, false));

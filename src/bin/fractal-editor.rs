@@ -13,6 +13,9 @@ use fractal::ui::tab::{show_tab_bar, Tab, TabBarAction};
 use fractal::ui::terminal::Terminal;
 use fractal::ui::theme::{Theme, ThemeVariant};
 use fractal::ui::user_profile::{SettingsPanel, UserProfile};
+use fractal::ui::debugger::{DebugSession, DebugFrame};
+use fractal::ui::tree_view::TreeViewWindow;
+use fractal::ui::var_view::VarViewWindow;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -21,17 +24,13 @@ use std::thread;
 use std::time::Instant;
 
 const AUTOSAVE_INTERVAL_SECS: u64 = 120;
-
 const MAX_RECENT_FILES: usize = 10;
-
 const SESSION_FILE: &str = "fractal_session.json";
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct SessionState {
     open_files: Vec<PathBuf>,
-
     active_index: usize,
-
     recent_files: Vec<PathBuf>,
 }
 
@@ -88,6 +87,12 @@ struct FractalEditor {
     last_autosave: Instant,
 
     recent_files: Vec<PathBuf>,
+
+    // ── Debug ─────────────────────────────────────────────────────────────────
+    debug_session:    Option<DebugSession>,
+    debug_frame:      Option<DebugFrame>,
+    tree_view_window: TreeViewWindow,
+    var_view_window:  VarViewWindow,
 }
 
 impl FractalEditor {
@@ -125,6 +130,10 @@ impl FractalEditor {
             active_tab: 0,
             profile,
             recent_files,
+            debug_session:    None,
+            debug_frame:      None,
+            tree_view_window: TreeViewWindow::new(),
+            var_view_window:  VarViewWindow::new(),
         };
 
         if !session.open_files.is_empty() {
@@ -159,8 +168,6 @@ impl FractalEditor {
     }
 
     fn open_file(&mut self, path: &PathBuf) {
-  
-     
         if let Some(i) = self
             .tabs
             .iter()
@@ -232,7 +239,6 @@ impl FractalEditor {
             .iter()
             .filter_map(|t| t.current_file.clone())
             .collect();
-
         SessionState {
             open_files,
             active_index: self.active_tab,
@@ -249,7 +255,6 @@ impl FractalEditor {
         if self.active_tab >= self.tabs.len() && self.active_tab > 0 {
             self.active_tab = self.tabs.len().saturating_sub(1);
         }
-        // Hide search/replace bar when all tabs are closed
         if self.tabs.is_empty() {
             self.search_bar.visible = false;
         }
@@ -274,7 +279,6 @@ impl FractalEditor {
         } else {
             self.search_bar.current_match = (self.search_bar.current_match + n - 1) % n;
         }
-
         if let Some(tab) = self.tabs.get(self.active_tab) {
             let code = tab.code.clone();
             self.search_bar.update_matches(&code);
@@ -289,23 +293,12 @@ impl FractalEditor {
         let query = self.search_bar.query.clone();
         let replacement = self.search_bar.replace_text.clone();
         let match_case = self.search_bar.match_case;
-
         let idx = self.search_bar.current_match;
         let code = tab.code.clone();
-
         let mut found = 0usize;
         let mut byte_pos = 0usize;
-        let lower_code = if match_case {
-            code.clone()
-        } else {
-            code.to_lowercase()
-        };
-        let lower_query = if match_case {
-            query.clone()
-        } else {
-            query.to_lowercase()
-        };
-
+        let lower_code = if match_case { code.clone() } else { code.to_lowercase() };
+        let lower_query = if match_case { query.clone() } else { query.to_lowercase() };
         while let Some(pos) = lower_code[byte_pos..].find(lower_query.as_str()) {
             let abs_pos = byte_pos + pos;
             if found == idx {
@@ -314,7 +307,6 @@ impl FractalEditor {
                 new_code.push_str(&replacement);
                 new_code.push_str(&code[abs_pos + query.len()..]);
                 tab.code = new_code;
-
                 self.search_bar.current_match = idx
                     .saturating_sub(0)
                     .min(self.search_bar.total_matches.saturating_sub(1));
@@ -332,7 +324,6 @@ impl FractalEditor {
         let tab = &mut self.tabs[self.active_tab];
         let query = self.search_bar.query.clone();
         let replacement = self.search_bar.replace_text.clone();
-
         let new_code = if self.search_bar.match_case {
             tab.code.replace(query.as_str(), &replacement)
         } else {
@@ -351,16 +342,11 @@ impl FractalEditor {
             result.push_str(&tab.code[last..]);
             result
         };
-
         let count = if self.search_bar.match_case {
             tab.code.matches(query.as_str()).count()
         } else {
-            tab.code
-                .to_lowercase()
-                .matches(query.to_lowercase().as_str())
-                .count()
+            tab.code.to_lowercase().matches(query.to_lowercase().as_str()).count()
         };
-
         tab.code = new_code;
         self.search_bar.current_match = 0;
         self.success_message = Some(format!("Replaced {count} occurrence(s)."));
@@ -398,7 +384,6 @@ impl FractalEditor {
             } else {
                 PathBuf::from("fractal-compiler")
             };
-
             match Command::new(&compiler_path)
                 .arg(&path_str)
                 .stdout(Stdio::piped())
@@ -409,18 +394,12 @@ impl FractalEditor {
                     let mut lines = buf.lock().unwrap();
                     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                    if !stdout.is_empty() {
-                        lines.push(stdout);
-                    }
-                    if !stderr.is_empty() {
-                        lines.push(stderr);
-                    }
+                    if !stdout.is_empty() { lines.push(stdout); }
+                    if !stderr.is_empty()  { lines.push(stderr); }
                     if out.status.success() {
                         lines.push("\n✓ Exited successfully.\n".to_string());
                     } else {
-                        let code = out
-                            .status
-                            .code()
+                        let code = out.status.code()
                             .map(|c| c.to_string())
                             .unwrap_or_else(|| "?".into());
                         lines.push(format!("\n✗ Exited with code {code}.\n"));
@@ -429,9 +408,7 @@ impl FractalEditor {
                 Err(e) => {
                     let mut lines = buf.lock().unwrap();
                     lines.push(format!("error: failed to launch compiler: {e}\n"));
-                    lines.push(
-                        "  Is 'fractal-compiler' in PATH or next to this binary?\n".to_string(),
-                    );
+                    lines.push("  Is 'fractal-compiler' in PATH or next to this binary?\n".to_string());
                 }
             }
             buf.lock().unwrap().push("\x00DONE\x00".to_string());
@@ -440,16 +417,10 @@ impl FractalEditor {
     }
 
     fn poll_compiler_output(&mut self) {
-        if self.tabs.is_empty() {
-            return;
-        }
+        if self.tabs.is_empty() { return; }
         let tab = &mut self.tabs[self.active_tab];
-        if !tab.is_running {
-            return;
-        }
-        let Some(rx) = tab.output_rx.clone() else {
-            return;
-        };
+        if !tab.is_running { return; }
+        let Some(rx) = tab.output_rx.clone() else { return; };
         let mut done = false;
         for line in rx.lock().unwrap().drain(..) {
             if line == "\x00DONE\x00" {
@@ -508,17 +479,11 @@ impl FractalEditor {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     if let Some(msg) = self.error_message.clone() {
-                        ui.label(
-                            egui::RichText::new(ic::ERROR)
-                                .size(12.0)
-                                .color(t.terminal_error),
-                        );
+                        ui.label(egui::RichText::new(ic::ERROR).size(12.0).color(t.terminal_error));
                         ui.label(egui::RichText::new(&msg).size(11.0).color(t.terminal_error));
                         let xr = ui.add(
                             egui::Button::new(
-                                egui::RichText::new(ic::TAB_CLOSE)
-                                    .size(11.0)
-                                    .color(t.status_bar_fg),
+                                egui::RichText::new(ic::TAB_CLOSE).size(11.0).color(t.status_bar_fg),
                             )
                             .fill(egui::Color32::TRANSPARENT)
                             .stroke(egui::Stroke::NONE),
@@ -530,9 +495,7 @@ impl FractalEditor {
                                 t.button_hover_bg,
                             );
                         }
-                        if xr.clicked() {
-                            self.error_message = None;
-                        }
+                        if xr.clicked() { self.error_message = None; }
                     } else if let Some(msg) = self.success_message.clone() {
                         ui.label(
                             egui::RichText::new(ic::SUCCESS)
@@ -542,9 +505,7 @@ impl FractalEditor {
                         ui.label(egui::RichText::new(&msg).size(11.0).color(t.status_bar_fg));
                         let xr = ui.add(
                             egui::Button::new(
-                                egui::RichText::new(ic::TAB_CLOSE)
-                                    .size(11.0)
-                                    .color(t.status_bar_fg),
+                                egui::RichText::new(ic::TAB_CLOSE).size(11.0).color(t.status_bar_fg),
                             )
                             .fill(egui::Color32::TRANSPARENT)
                             .stroke(egui::Stroke::NONE),
@@ -556,9 +517,7 @@ impl FractalEditor {
                                 t.button_hover_bg,
                             );
                         }
-                        if xr.clicked() {
-                            self.success_message = None;
-                        }
+                        if xr.clicked() { self.success_message = None; }
                     } else if let Some(tab) = self.tabs.get(self.active_tab) {
                         let path = tab
                             .current_file
@@ -584,14 +543,10 @@ impl FractalEditor {
                         ui.separator();
                         let n = self.tabs.len();
                         ui.label(
-                            egui::RichText::new(format!(
-                                "{n} tab{}",
-                                if n == 1 { "" } else { "s" }
-                            ))
-                            .size(11.0)
-                            .color(t.status_bar_fg),
+                            egui::RichText::new(format!("{n} tab{}", if n == 1 { "" } else { "s" }))
+                                .size(11.0)
+                                .color(t.status_bar_fg),
                         );
-
                         if self.search_bar.visible && !self.search_bar.query.is_empty() {
                             ui.separator();
                             ui.label(
@@ -611,6 +566,69 @@ impl FractalEditor {
                     });
                 });
             });
+    }
+
+    // ── Debug helpers ─────────────────────────────────────────────────────────
+
+    fn step_debug(&mut self) {
+        use fractal::compiler::lexer::tokenize_with_source;
+        use fractal::compiler::parser::parse_with_source;
+        use fractal::compiler::semanter::analyze;
+
+        // No active session → compile and create one, show initial frame.
+        if self.debug_session.is_none() {
+            let code = match self.tabs.get(self.active_tab) {
+                Some(tab) => tab.code.clone(),
+                None      => return,
+            };
+            let tokens = tokenize_with_source(&code, "<debug>");
+            let root = match parse_with_source(tokens, "<debug>") {
+                Ok(r)  => r,
+                Err(e) => {
+                    self.error_message = Some(format!("Parse error: {}", e.message));
+                    return;
+                }
+            };
+            let sem = analyze(&root);
+            if sem.has_errors() {
+                self.error_message = Some(
+                    sem.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>().join("; "),
+                );
+                return;
+            }
+            let session = DebugSession::new(&root);
+            let frame   = session.current_frame();
+            self.debug_frame   = Some(frame);
+            self.debug_session = Some(session);
+            self.tree_view_window.open = true;
+            self.var_view_window.open  = true;
+            self.success_message = Some("Debug session started — press Step to advance.".into());
+            return;
+        }
+
+        // Session exists → advance one step.
+        if let Some(ref mut session) = self.debug_session {
+            let frame    = session.step();
+            let finished = frame.finished;
+            let errored  = frame.error.is_some();
+            self.debug_frame = Some(frame);
+            if finished {
+                self.success_message = Some("Debug: program finished.".into());
+                self.debug_session   = None; // next press restarts
+            } else if errored {
+                let msg = self.debug_frame.as_ref()
+                    .and_then(|f| f.error.clone())
+                    .unwrap_or_else(|| "Runtime error".into());
+                self.error_message = Some(format!("Debug fault: {msg}"));
+                self.debug_session  = None;
+            }
+        }
+    }
+
+    fn stop_debug_session(&mut self) {
+        self.debug_session = None;
+        self.debug_frame   = None;
+        self.success_message = Some("Debug session stopped.".into());
     }
 }
 
@@ -643,6 +661,12 @@ impl eframe::App for FractalEditor {
             if (i.modifiers.ctrl || i.modifiers.mac_cmd) && i.key_pressed(egui::Key::Backtick) {
                 self.terminal.toggle_minimized();
             }
+            if i.key_pressed(egui::Key::F5) {
+                self.step_debug();
+            }
+            if i.key_pressed(egui::Key::F6) {
+                self.stop_debug_session();
+            }
         });
 
         let needs_autosave = self
@@ -663,6 +687,7 @@ impl eframe::App for FractalEditor {
             .get(self.active_tab)
             .map(|t| t.is_running)
             .unwrap_or(false);
+
         if is_running {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         } else {
@@ -676,14 +701,20 @@ impl eframe::App for FractalEditor {
             .get(self.active_tab)
             .and_then(|t| t.current_file.as_ref())
             .cloned();
-        let docs_open = self.docs_window.open;
+        let docs_open        = self.docs_window.open;
+        let is_debug_running = self.debug_session.is_some();
+        let tree_view_open   = self.tree_view_window.open;
+        let var_view_open    = self.var_view_window.open;
 
         let action = show_menu_bar(
             ctx,
             &mut self.menu_state,
             current_file.as_ref(),
             is_running,
+            is_debug_running,
             docs_open,
+            tree_view_open,
+            var_view_open,
             &self.theme,
             &self.recent_files,
             self.search_bar.visible,
@@ -713,11 +744,14 @@ impl eframe::App for FractalEditor {
                 self.active_tab = self.tabs.len() - 1;
                 self.docs_window.open = false;
             }
-            MenuAction::Run => self.run_code(ctx),
-            MenuAction::ToggleDocs => self.docs_window.open = !self.docs_window.open,
-            MenuAction::OpenSettings => self.settings_panel.open(),
+            MenuAction::Run    => self.run_code(ctx),
+            MenuAction::StepRun  => self.step_debug(),
+            MenuAction::StepStop => self.stop_debug_session(),
+            MenuAction::ToggleTreeView => self.tree_view_window.open = !self.tree_view_window.open,
+            MenuAction::ToggleVarView  => self.var_view_window.open  = !self.var_view_window.open,
+            MenuAction::ToggleDocs     => self.docs_window.open = !self.docs_window.open,
+            MenuAction::OpenSettings   => self.settings_panel.open(),
             MenuAction::OpenRecent(path) => {
-             
                 self.open_file(&path.clone());
                 self.docs_window.open = false;
             }
@@ -758,7 +792,6 @@ impl eframe::App for FractalEditor {
         if self.search_bar.visible && self.tabs.is_empty() {
             self.search_bar.visible = false;
         }
-        
         if self.search_bar.visible {
             if let Some(tab) = self.tabs.get(self.active_tab) {
                 let code = tab.code.clone();
@@ -767,12 +800,12 @@ impl eframe::App for FractalEditor {
         }
 
         match self.search_bar.show(ctx, &self.theme) {
-            SearchBarAction::FindNext => self.search_navigate(true),
-            SearchBarAction::FindPrev => self.search_navigate(false),
+            SearchBarAction::FindNext  => self.search_navigate(true),
+            SearchBarAction::FindPrev  => self.search_navigate(false),
             SearchBarAction::ReplaceOne => self.replace_current(),
             SearchBarAction::ReplaceAll => self.replace_all(),
             SearchBarAction::Close => {}
-            SearchBarAction::None => {}
+            SearchBarAction::None  => {}
         }
 
         self.handle_close_confirm(ctx);
@@ -804,6 +837,24 @@ impl eframe::App for FractalEditor {
         self.show_status_bar(ctx);
         self.terminal.show(ctx);
 
+        // ── Debug windows (proper floating windows, not panels or tabs) ────────
+        let active_node_id = self.debug_frame
+            .as_ref()
+            .map(|f| f.active_node_id)
+            .unwrap_or(0);
+
+        if let Some(ref session) = self.debug_session {
+            // tree_view borrows session immutably — split borrow via local ref
+            let theme = self.theme;
+            self.tree_view_window.show(ctx, session, active_node_id, &theme);
+        }
+
+        if let Some(ref frame) = self.debug_frame {
+            let theme = self.theme;
+            self.var_view_window.show(ctx, frame, &theme);
+        }
+
+        // ── Central editor panel ───────────────────────────────────────────────
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(self.theme.editor_bg))
             .show(ctx, |ui| {
@@ -812,7 +863,7 @@ impl eframe::App for FractalEditor {
                 } else if self.tabs.is_empty() {
                     match show_empty_state(ui, &self.theme, ctx.screen_rect()) {
                         EmptyStateAction::Open => self.file_dialog.open_for_open(),
-                        EmptyStateAction::New => {
+                        EmptyStateAction::New  => {
                             self.tabs.push(Tab::new(self.theme));
                             self.active_tab = 0;
                         }
@@ -821,14 +872,12 @@ impl eframe::App for FractalEditor {
                 } else if let Some(tab) = self.tabs.get_mut(self.active_tab) {
                     let fs = self.profile.font_size;
                     let ln = self.profile.show_line_numbers;
-
                     let sel = if self.search_bar.visible {
                         self.search_bar.current_match_byte_range
                     } else {
                         None
                     };
-                    tab.editor
-                        .show_with_id(ui, &mut tab.code, tab.id, fs, ln, sel);
+                    tab.editor.show_with_id(ui, &mut tab.code, tab.id, fs, ln, sel);
                 }
             });
     }
@@ -836,66 +885,55 @@ impl eframe::App for FractalEditor {
 
 fn apply_egui_style(ctx: &egui::Context, t: &Theme) {
     let mut s = (*ctx.style()).clone();
-
-    s.visuals.window_fill = t.panel_bg;
-    s.visuals.panel_fill = t.panel_bg;
-    s.visuals.extreme_bg_color = t.editor_bg;
-    s.visuals.faint_bg_color = t.button_bg;
-    s.visuals.code_bg_color = t.editor_bg;
-    s.visuals.window_stroke = egui::Stroke::new(1.0, t.border);
-    s.visuals.window_rounding = egui::Rounding::same(8.0);
-    s.visuals.menu_rounding = egui::Rounding::same(6.0);
-    s.visuals.window_shadow = egui::Shadow {
+    s.visuals.window_fill        = t.panel_bg;
+    s.visuals.panel_fill         = t.panel_bg;
+    s.visuals.extreme_bg_color   = t.editor_bg;
+    s.visuals.faint_bg_color     = t.button_bg;
+    s.visuals.code_bg_color      = t.editor_bg;
+    s.visuals.window_stroke      = egui::Stroke::new(1.0, t.border);
+    s.visuals.window_rounding    = egui::Rounding::same(8.0);
+    s.visuals.menu_rounding      = egui::Rounding::same(6.0);
+    s.visuals.window_shadow      = egui::Shadow {
         offset: egui::vec2(0.0, 6.0),
-        blur: 20.0,
+        blur:   20.0,
         spread: 0.0,
-        color: egui::Color32::from_black_alpha(96),
+        color:  egui::Color32::from_black_alpha(96),
     };
-
-    s.visuals.widgets.noninteractive.bg_fill = t.panel_bg;
-    s.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, t.border);
-    s.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.5, t.tab_active_fg);
-    s.visuals.widgets.noninteractive.rounding = egui::Rounding::same(4.0);
-
-    s.visuals.widgets.inactive.bg_fill = t.button_bg;
-    s.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, t.border);
-    s.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.5, t.button_fg);
-    s.visuals.widgets.inactive.rounding = egui::Rounding::same(5.0);
-    s.visuals.widgets.inactive.expansion = 0.0;
-
-    s.visuals.widgets.hovered.bg_fill = t.button_hover_bg;
-    s.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, t.accent);
-    s.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, t.tab_active_fg);
-    s.visuals.widgets.hovered.rounding = egui::Rounding::same(5.0);
-    s.visuals.widgets.hovered.expansion = 1.0;
-
-    s.visuals.widgets.active.bg_fill = t.accent;
-    s.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, t.accent);
-    s.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
-    s.visuals.widgets.active.rounding = egui::Rounding::same(5.0);
-    s.visuals.widgets.active.expansion = 1.0;
-
-    s.visuals.widgets.open.bg_fill = t.button_hover_bg;
-    s.visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0, t.accent);
-    s.visuals.widgets.open.fg_stroke = egui::Stroke::new(1.5, t.tab_active_fg);
-    s.visuals.widgets.open.rounding = egui::Rounding::same(5.0);
-
-    s.visuals.selection.bg_fill = t.selection;
-    s.visuals.selection.stroke = egui::Stroke::new(1.0, t.accent);
+    s.visuals.widgets.noninteractive.bg_fill    = t.panel_bg;
+    s.visuals.widgets.noninteractive.bg_stroke  = egui::Stroke::new(1.0, t.border);
+    s.visuals.widgets.noninteractive.fg_stroke  = egui::Stroke::new(1.5, t.tab_active_fg);
+    s.visuals.widgets.noninteractive.rounding   = egui::Rounding::same(4.0);
+    s.visuals.widgets.inactive.bg_fill          = t.button_bg;
+    s.visuals.widgets.inactive.bg_stroke        = egui::Stroke::new(1.0, t.border);
+    s.visuals.widgets.inactive.fg_stroke        = egui::Stroke::new(1.5, t.button_fg);
+    s.visuals.widgets.inactive.rounding         = egui::Rounding::same(5.0);
+    s.visuals.widgets.inactive.expansion        = 0.0;
+    s.visuals.widgets.hovered.bg_fill           = t.button_hover_bg;
+    s.visuals.widgets.hovered.bg_stroke         = egui::Stroke::new(1.0, t.accent);
+    s.visuals.widgets.hovered.fg_stroke         = egui::Stroke::new(1.5, t.tab_active_fg);
+    s.visuals.widgets.hovered.rounding          = egui::Rounding::same(5.0);
+    s.visuals.widgets.hovered.expansion         = 1.0;
+    s.visuals.widgets.active.bg_fill            = t.accent;
+    s.visuals.widgets.active.bg_stroke          = egui::Stroke::new(1.0, t.accent);
+    s.visuals.widgets.active.fg_stroke          = egui::Stroke::new(1.5, egui::Color32::WHITE);
+    s.visuals.widgets.active.rounding           = egui::Rounding::same(5.0);
+    s.visuals.widgets.active.expansion          = 1.0;
+    s.visuals.widgets.open.bg_fill              = t.button_hover_bg;
+    s.visuals.widgets.open.bg_stroke            = egui::Stroke::new(1.0, t.accent);
+    s.visuals.widgets.open.fg_stroke            = egui::Stroke::new(1.5, t.tab_active_fg);
+    s.visuals.widgets.open.rounding             = egui::Rounding::same(5.0);
+    s.visuals.selection.bg_fill                 = t.selection;
+    s.visuals.selection.stroke                  = egui::Stroke::new(1.0, t.accent);
     s.visuals.text_cursor = egui::style::TextCursorStyle {
         stroke: egui::Stroke::new(2.0, t.accent),
         ..Default::default()
     };
-
-    s.visuals.hyperlink_color = t.accent;
-
-    s.spacing.item_spacing = egui::vec2(8.0, 6.0);
-    s.spacing.button_padding = egui::vec2(10.0, 6.0);
-    s.spacing.window_margin = egui::Margin::same(14.0);
-    s.spacing.menu_margin = egui::Margin::same(4.0);
-
+    s.visuals.hyperlink_color    = t.accent;
+    s.spacing.item_spacing       = egui::vec2(8.0, 6.0);
+    s.spacing.button_padding     = egui::vec2(10.0, 6.0);
+    s.spacing.window_margin      = egui::Margin::same(14.0);
+    s.spacing.menu_margin        = egui::Margin::same(4.0);
     s.visuals.override_text_color = Some(t.tab_active_fg);
-
     ctx.set_style(s);
 }
 

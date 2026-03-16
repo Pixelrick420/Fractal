@@ -11,3 +11,6 @@ pub mod terminal;
 pub mod theme;
 pub mod user_profile;
 pub mod search_bar;
+pub mod tree_view;
+pub mod var_view;
+pub mod debugger;

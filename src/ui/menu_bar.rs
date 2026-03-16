@@ -12,13 +12,21 @@ pub enum MenuAction {
     SaveCurrent,
     New,
     Run,
+      /// Start/continue step-by-step debug session.
+    StepRun,
+      /// Reset / stop the debug session.
+    StepStop,
     ToggleDocs,
+    ToggleTreeView,
+    ToggleVarView,
     OpenSettings,
     OpenRecent(PathBuf),
     Search,
     Replace,
     None,
-}
+    
+    
+  }
 
 const BTN_W: f32 = 72.0;
 const BTN_H: f32 = 28.0;
@@ -27,16 +35,19 @@ const ICON_BTN_W: f32 = 34.0;
 
 const FLYOUT_GAP: f32 = 0.0;
 
-pub fn show_menu_bar(
-    ctx: &egui::Context,
-    _state: &mut MenuBarState,
-    current_file: Option<&PathBuf>,
-    is_running: bool,
-    docs_open: bool,
-    theme: &Theme,
-    recent_files: &[PathBuf],
-    search_bar_visible: bool,
-) -> MenuAction {
+  pub fn show_menu_bar(
+      ctx: &egui::Context,
+      _state: &mut MenuBarState,
+      current_file: Option<&PathBuf>,
+      is_running: bool,
+      docs_open: bool,
+      is_debugging: bool,
+      tree_view_open: bool,
+      var_view_open: bool,
+      theme: &Theme,
+      recent_files: &[PathBuf],
+      search_bar_visible: bool,
+  ) -> MenuAction {
     let mut action = MenuAction::None;
 
     ctx.input_mut(|i| {
@@ -59,6 +70,10 @@ pub fn show_menu_bar(
             action = MenuAction::Search;
         } else if ctrl && i.key_pressed(egui::Key::H) {
             action = MenuAction::Replace;
+        } else if i.key_pressed(egui::Key::F5) {
+            action = MenuAction::StepRun;
+        } else if i.key_pressed(egui::Key::F6) {
+            action = MenuAction::StepStop;
         }
     });
 
@@ -392,9 +407,98 @@ pub fn show_menu_bar(
                 );
 
                 let run_resp = ui.interact(run_rect, run_id, egui::Sense::click());
-                if run_resp.clicked() && !is_running {
+                if run_resp.clicked() && !is_running {   
                     action = MenuAction::Run;
                 }
+                
+                  ui.add_space(6.0);
+                
+                  // ── Step button ──────────────────────────────────────────────────────────
+                  let step_label = if is_debugging { "Step  F5" } else { "Debug  F5" };
+                  let step_id    = egui::Id::new("menu_step_btn");
+                  let (step_rect, _) =
+                      ui.allocate_exact_size(egui::vec2(BTN_W + 14.0, BTN_H), egui::Sense::hover());
+                  let step_hovered = ui.rect_contains_pointer(step_rect);
+                
+                  paint_step_button(ui, step_rect, step_label, is_debugging, step_hovered, t);
+                
+                  let step_resp = ui.interact(step_rect, step_id, egui::Sense::click());
+                  if step_resp.clicked() {
+                      action = MenuAction::StepRun;
+                  }
+                
+                  // ── Stop button (only shown while debugging) ──────────────────────────────
+                  if is_debugging {
+                      ui.add_space(4.0);
+                      let stop_id = egui::Id::new("menu_stop_btn");
+                      let (stop_rect, _) =
+                          ui.allocate_exact_size(egui::vec2(BTN_W, BTN_H), egui::Sense::hover());
+                      let stop_hovered = ui.rect_contains_pointer(stop_rect);
+                
+                      if stop_hovered {
+                          ui.painter().rect_filled(stop_rect, egui::Rounding::same(BTN_ROUNDING), t.terminal_error);
+                      }
+                      let stop_fg = if stop_hovered { t.tab_bar_bg } else { t.terminal_error };
+                      ui.painter().text(
+                          stop_rect.center(),
+                          egui::Align2::CENTER_CENTER,
+                          "■  Stop",
+                          egui::FontId::proportional(12.5),
+                          stop_fg,
+                      );
+                      if ui.interact(stop_rect, stop_id, egui::Sense::click()).clicked() {
+                          action = MenuAction::StepStop;
+                      }
+                  }
+                
+                  ui.add_space(6.0);
+                
+                  // ── View separator + toggles ──────────────────────────────────────────────
+                  let (div_rect2, _) =
+                      ui.allocate_exact_size(egui::vec2(1.0, 18.0), egui::Sense::hover());
+                  ui.painter().rect_filled(div_rect2, egui::Rounding::ZERO, t.border);
+                  ui.add_space(6.0);
+                
+                  // "View" drop-down (opens the two debug windows)
+                  let view_id = ui.make_persistent_id("menu_view_popup");
+                  let (view_rect, _) =
+                      ui.allocate_exact_size(egui::vec2(BTN_W, BTN_H), egui::Sense::hover());
+                  let view_clicked  = ui.interact(view_rect, view_id.with("btn"), egui::Sense::click()).clicked();
+                  let view_hovered  = ui.rect_contains_pointer(view_rect);
+                  let view_popup_open = ui.memory(|m| m.is_popup_open(view_id));
+                  let view_active   = view_hovered || view_popup_open;
+                
+                  if view_clicked {
+                      ui.memory_mut(|m| m.toggle_popup(view_id));
+                  }
+                  paint_menu_button(ui, view_rect, "View", ic::SETTINGS, view_active, false, t);
+                
+                  egui::popup::popup_below_widget(
+                      ui,
+                      view_id,
+                      &ui.interact(view_rect, view_id.with("anchor"), egui::Sense::hover()),
+                      egui::popup::PopupCloseBehavior::CloseOnClickOutside,
+                      |ui| {
+                          let s = ui.style_mut();
+                          s.visuals.window_fill = t.menu_bg;
+                          s.visuals.override_text_color = Some(t.menu_fg);
+                          s.visuals.widgets.hovered.bg_fill = t.menu_hover_bg;
+                          ui.set_min_width(220.0);
+                          ui.add_space(4.0);
+                
+                          let tree_label = if tree_view_open { "✓  AST Tree" } else { "   AST Tree" };
+                          if icon_menu_item(ui, "", tree_label, "", t) {
+                              action = MenuAction::ToggleTreeView;
+                              ui.memory_mut(|m| m.close_popup());
+                          }
+                          let var_label = if var_view_open { "✓  Variable State" } else { "   Variable State" };
+                          if icon_menu_item(ui, "", var_label, "", t) {
+                              action = MenuAction::ToggleVarView;
+                              ui.memory_mut(|m| m.close_popup());
+                          }
+                          ui.add_space(4.0);
+                      },
+                  );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let gear_id = egui::Id::new("menu_gear_btn");
@@ -596,4 +700,52 @@ fn icon_menu_item(ui: &mut egui::Ui, icon: &str, label: &str, shortcut: &str, t:
         );
     }
     resp.clicked()
+}
+fn paint_step_button(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    label: &str,
+    is_active: bool,
+    hovered: bool,
+    t: &crate::ui::theme::Theme,
+) {
+    use eframe::egui;
+    let rounding = egui::Rounding::same(5.0); // BTN_ROUNDING = 5.0
+    let _border_color = egui::Color32::from_rgb(
+        // step button uses a warm amber accent to visually distinguish from Run
+        210, 153, 34,
+    );
+    if is_active {
+        // Pulsing amber outline when a session is live.
+        ui.painter().rect_filled(
+            rect,
+            rounding,
+            egui::Color32::from_rgba_premultiplied(210, 153, 34, 30),
+        );
+        ui.painter().rect_stroke(
+            rect,
+            rounding,
+            egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(210, 153, 34, 120)),
+        );
+    } else if hovered {
+        ui.painter().rect_filled(
+            rect,
+            rounding,
+            egui::Color32::from_rgba_premultiplied(210, 153, 34, 220),
+        );
+    }
+    let fg = if hovered && !is_active {
+        t.tab_bar_bg
+    } else if is_active {
+        egui::Color32::from_rgb(210, 153, 34)
+    } else {
+        egui::Color32::from_rgb(210, 153, 34)
+    };
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(12.5),
+        fg,
+    );
 }

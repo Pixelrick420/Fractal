@@ -50,24 +50,43 @@ fn main() {
                 process::exit(1);
             }
 
-            // ── code generation ───────────────────────────────────────────
-            let rs_code  = codegen::generate(&node, &result);
+            let rs_code = codegen::generate(&node, &result);
             let out_path = Path::new(source_file).with_extension("rs");
 
-            match fs::write(&out_path, &rs_code) {
-                Ok(_) => {
-                    let display = out_path
+            if let Err(e) = fs::write(&out_path, &rs_code) {
+                print_error(&format!("could not write `{}`: {}", out_path.display(), e));
+                process::exit(1);
+            }
+
+            let bin_path = Path::new(source_file).with_extension("");
+
+            let rustc_status = process::Command::new("rustc")
+                .arg(&out_path)
+                .arg("-o")
+                .arg(&bin_path)
+                .arg("-C")
+                .arg("opt-level=2")
+                .arg("-A")
+                .arg("warnings")
+                .status();
+
+            let _ = fs::remove_file(&out_path);
+
+            match rustc_status {
+                Ok(status) if status.success() => {
+                    let display = bin_path
                         .file_name()
                         .and_then(|n| n.to_str())
-                        .unwrap_or("<output>");
+                        .unwrap_or("<binary>");
                     eprintln!("\x1b[1;32m compiled:\x1b[0m `{}`", display);
                 }
+                Ok(_) => {
+                    print_error("rustc reported errors — compilation failed");
+                    process::exit(1);
+                }
                 Err(e) => {
-                    print_error(&format!(
-                        "could not write `{}`: {}",
-                        out_path.display(),
-                        e
-                    ));
+                    print_error(&format!("could not run `rustc`: {e}"));
+                    print_error("make sure `rustc` is installed and on your PATH");
                     process::exit(1);
                 }
             }

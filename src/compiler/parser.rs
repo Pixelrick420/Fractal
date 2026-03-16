@@ -1076,7 +1076,6 @@ impl Parser {
                     let args = self.parse_args()?;
                     self.expect(&TokenType::RParen)?;
                     steps.push(AccessStep::Call(args));
-                    break;
                 }
                 _ => break,
             }

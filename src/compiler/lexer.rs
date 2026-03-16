@@ -316,7 +316,6 @@ fn keyword_map(s: &str) -> TokenType {
         "while" => TokenType::While,
         "func" => TokenType::Func,
         "return" => TokenType::Return,
-        "struct" => TokenType::Struct,
         "import" => TokenType::Import,
         "module" => TokenType::Module,
         "break" => TokenType::Break,

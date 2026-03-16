@@ -1,5 +1,5 @@
 use crate::compiler::parser::{AccessStep, AssignOp, CmpOp, MulOp, ParseNode, UnOp};
-use crate::compiler::return_check::check_function_returns;
+use crate::compiler::retcheck::check_function_returns;
 use std::collections::HashMap;
 use std::fmt;
 

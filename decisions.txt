@@ -98,6 +98,30 @@
         !for (:int i, 0, 10, 1) { }   # error: loop variable `i` shadows enclosing `i`
         !for (:int j, 0, 10, 1) { }   # ok
 
+    9. !func definitions must appear at the top level of the program, outside
+       any !if, !for, !while, or !func body.
+        !if (condition) {
+            !func foo() -> :int { ... }   # error: func inside a block
+        }
+        !func foo() -> :int { ... }       # ok
+
+    10. simple type variables declared without an initialiser receive a default value:
+            :int    -> 0
+            :float  -> 0.0
+            :char   -> '\0'
+            :boolean -> false
+        arrays, lists, and structs have no default — a warning is issued if
+        they are declared without an initialiser.
+
+    11. !exit terminates the program immediately with an integer exit code.
+        it can appear anywhere in the program, inside or outside functions.
+            !exit 0;    # ok
+            !exit 1;    # ok
+
+    12. the !for loop variable must be of type :int.
+            !for (:int i, 0, 10, 1) { }    # ok
+            !for (:float f, 0, 10, 1) { }  # error
+
 
 # COMMENTS
     1. single line: # <comment here>
@@ -127,6 +151,8 @@
         1. & (bitwise AND)
         2. | (bitwise OR)
         3. ^ (bitwise XOR)
+        4. << (left shift)
+        5. >> (right shift)
 
     e) logical unary (boolean only)
         1. !not
@@ -148,7 +174,7 @@
 
     h) comparison
         1. >
-        2.
+        2. <
         3. >=
         4. <=
         5. ==

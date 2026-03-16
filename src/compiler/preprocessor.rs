@@ -291,22 +291,17 @@ fn traverse(
     ));
 
     while index < chars.len() {
-        // Pass string literals through verbatim — # and ! inside strings must not be
-        // treated as comments or imports.
         if chars[index] == '"' {
             own_body.push('"');
             index += 1;
             loop {
                 if index >= chars.len() || chars[index] == '\n' {
-                    // Unterminated string — pass the newline (or EOF) through and let the
-                    // lexer produce the proper error.
                     break;
                 }
                 let c = chars[index];
                 own_body.push(c);
                 index += 1;
                 if c == '\\' && index < chars.len() {
-                    // consume the escaped character so a `\"` does not end the string
                     own_body.push(chars[index]);
                     index += 1;
                     continue;
@@ -318,8 +313,6 @@ fn traverse(
             continue;
         }
 
-        // Pass char literals through verbatim — # and ! inside char literals must not be
-        // treated as comments or imports.
         if chars[index] == '\'' {
             own_body.push('\'');
             index += 1;
@@ -328,12 +321,11 @@ fn traverse(
                 own_body.push(c);
                 index += 1;
                 if c == '\\' && index < chars.len() {
-                    // consume the escaped character (e.g. '\n', '\\', '\'')
                     own_body.push(chars[index]);
                     index += 1;
                 }
             }
-            // consume the closing quote if present; if not, let the lexer error
+
             if index < chars.len() && chars[index] == '\'' {
                 own_body.push('\'');
                 index += 1;

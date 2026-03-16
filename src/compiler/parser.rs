@@ -817,6 +817,37 @@ impl Parser {
         Ok(stmt)
     }
 
+    fn keyword_hint(name: &str) -> Option<&'static str> {
+        match name {
+            "if" => Some("`if` is not valid here — did you mean `!if`?"),
+            "elif" => Some("`elif` is not valid here — did you mean `!elif`?"),
+            "else" => Some("`else` is not valid here — did you mean `!else`?"),
+            "for" => Some("`for` is not valid here — did you mean `!for`?"),
+            "while" => Some("`while` is not valid here — did you mean `!while`?"),
+            "func" => Some("`func` is not valid here — did you mean `!func`?"),
+            "return" => Some("`return` is not valid here — did you mean `!return`?"),
+            "break" => Some("`break` is not valid here — did you mean `!break`?"),
+            "continue" => Some("`continue` is not valid here — did you mean `!continue`?"),
+            "import" => Some("`import` is not valid here — did you mean `!import`?"),
+            "start" => Some("`start` is not valid here — did you mean `!start`?"),
+            "end" => Some("`end` is not valid here — did you mean `!end`?"),
+            "exit" => Some("`exit` is not valid here — did you mean `!exit`?"),
+            "struct" => Some("`struct` is not valid here — did you mean `:struct`?"),
+            "and" => Some("`and` is not valid here — did you mean `!and`?"),
+            "or" => Some("`or` is not valid here — did you mean `!or`?"),
+            "not" => Some("`not` is not valid here — did you mean `!not`?"),
+            "null" => Some("`null` is not valid here — did you mean `!null`?"),
+            "int" => Some("`int` is not valid here — did you mean `:int`?"),
+            "float" => Some("`float` is not valid here — did you mean `:float`?"),
+            "char" => Some("`char` is not valid here — did you mean `:char`?"),
+            "boolean" => Some("`boolean` is not valid here — did you mean `:boolean`?"),
+            "void" => Some("`void` is not valid here — did you mean `:void`?"),
+            "array" => Some("`array` is not valid here — did you mean `:array`?"),
+            "list" => Some("`list` is not valid here — did you mean `:list`?"),
+            _ => None,
+        }
+    }
+
     fn parse_stmt(&mut self) -> PResult<ParseNode> {
         match self.peek().cloned() {
             Some(TokenType::Func) => Err(self.err(
@@ -926,7 +957,12 @@ impl Parser {
 
             Some(ref t) if Self::is_type_token(t) => self.parse_decl(),
 
-            Some(TokenType::Identifier(_)) => self.parse_assign_or_expr_stmt(),
+            Some(TokenType::Identifier(name)) => {
+                if let Some(hint) = Self::keyword_hint(&name) {
+                    return Err(self.err(hint.to_string()));
+                }
+                self.parse_assign_or_expr_stmt()
+            }
 
             _ => {
                 let expr = self.parse_expression()?;
@@ -1414,12 +1450,21 @@ impl Parser {
                 Ok(ParseNode::Null)
             }
 
-            other => Err(self.err(format!(
-                "expected an expression here, but found {}\n   \
-                 note: expressions can be literals (`42`, `3.14`, `'a'`, `true`), \
-                 identifiers, function calls, or sub-expressions in `( )`",
-                Self::opt_token_name(other.as_ref())
-            ))),
+            other => {
+                let keyword_note = if let Some(TokenType::Identifier(ref name)) = other {
+                    Self::keyword_hint(name)
+                        .map(|h| format!("\n   note: {h}"))
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                Err(self.err(format!(
+                    "expected an expression here, but found {}\n   \
+                     note: expressions can be literals (`42`, `3.14`, `'a'`, `true`), \
+                     identifiers, function calls, or sub-expressions in `( )`{keyword_note}",
+                    Self::opt_token_name(other.as_ref())
+                )))
+            }
         }
     }
 

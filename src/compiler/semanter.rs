@@ -1,4 +1,5 @@
 use crate::compiler::parser::{AccessStep, AssignOp, CmpOp, MulOp, ParseNode, UnOp};
+use crate::compiler::return_check::check_function_returns;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -1367,6 +1368,12 @@ impl Analyzer {
                 for stmt in body {
                     self.analyze_node(stmt);
                 }
+
+                let mut return_errors: Vec<String> = Vec::new();
+                check_function_returns(name, return_type, body, &mut return_errors);
+                for e in return_errors {
+                    self.error(e);
+                }
                 self.scopes.pop();
                 self.current_origin = saved_origin;
                 self.current_return_type = prev_ret;
@@ -1417,6 +1424,27 @@ impl Analyzer {
                         scope_depth: self.scope_depth(),
                         origin: self.current_origin.clone(),
                     });
+                }
+
+                if init.is_none() {
+                    match &decl_ty {
+                        SemType::Array { .. } => self.warn(format!(
+                            "array `{}` declared without an initialiser; \
+                             consider using `= [...]` to give it an explicit value",
+                            name
+                        )),
+                        SemType::List { .. } => self.warn(format!(
+                            "list `{}` declared without an initialiser; \
+                             consider using `= [...]` to give it an explicit value",
+                            name
+                        )),
+                        SemType::Struct(_) => self.warn(format!(
+                            "struct variable `{}` declared without an initialiser; \
+                             consider using `= {{ ... }}` or `= !null`",
+                            name
+                        )),
+                        _ => {}
+                    }
                 }
                 if let Some(init_expr) = init {
                     let is_empty_literal =

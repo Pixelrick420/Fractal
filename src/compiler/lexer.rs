@@ -536,8 +536,16 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                         "`!{buffer}` is not valid — boolean literals do not use the `!` prefix; \
                          write `{buffer}` directly"
                     )
-                } else if let Some(close) = closest_keyword(&buffer) {
-                    format!("unknown keyword `!{buffer}` — did you mean `!{close}`?")
+                } else if buffer.len() >= 3 {
+                    if let Some(close) = closest_keyword(&buffer) {
+                        format!("unknown keyword `!{buffer}` — did you mean `!{close}`?")
+                    } else {
+                        format!(
+                            "unknown keyword `!{buffer}`; valid keywords: \
+                             if, elif, else, for, while, func, return, break, continue, \
+                             import, start, end, exit, struct, module"
+                        )
+                    }
                 } else {
                     format!(
                         "unknown keyword `!{buffer}`; valid keywords: \
@@ -598,11 +606,18 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
             }
             let result = type_map(&buffer);
             if matches!(result, TokenType::NoMatch) {
-                let hint = if let Some(close) = closest_type(&buffer) {
-                    format!("unknown type `:{buffer}` — did you mean `:{close}`?")
+                let hint = if buffer.len() >= 3 {
+                    if let Some(close) = closest_type(&buffer) {
+                        format!("unknown type `:{buffer}` — did you mean `:{close}`?")
+                    } else {
+                        format!("unknown type `:{buffer}`; valid primitive types: \\
+                             int, float, char, boolean, void; generic: array<T,N>, list<T>, struct<n>")
+                    }
                 } else {
-                    format!("unknown type `:{buffer}`; valid primitive types: \
-                         int, float, char, boolean, void; generic: array<T,N>, list<T>, struct<Name>")
+                    format!(
+                        "unknown type `:{buffer}`; valid primitive types: \\
+                         int, float, char, boolean, void; generic: array<T,N>, list<T>, struct<n>"
+                    )
                 };
                 emit_error(
                     program,

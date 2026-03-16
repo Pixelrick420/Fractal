@@ -127,12 +127,6 @@ pub fn show_menu_bar(
                 let flyout_row_rect_id = egui::Id::new("recent_row_rect");
                 let recent_clicked_id = egui::Id::new("recent_clicked_path");
 
-                let deferred_open: Option<PathBuf> =
-                    ctx.data_mut(|d| d.remove_temp(recent_clicked_id));
-                if let Some(path) = deferred_open {
-                    action = MenuAction::OpenRecent(path);
-                }
-
                 egui::popup::popup_below_widget(
                     ui,
                     file_id,
@@ -368,6 +362,14 @@ pub fn show_menu_bar(
                     }
                 } else if !popup_is_open {
                     ctx.data_mut(|d| d.insert_temp(flyout_open_id, false));
+                }
+
+                if matches!(action, MenuAction::None) {
+                    let deferred: Option<PathBuf> =
+                        ctx.data_mut(|d| d.remove_temp(recent_clicked_id));
+                    if let Some(path) = deferred {
+                        action = MenuAction::OpenRecent(path);
+                    }
                 }
 
                 ui.add_space(4.0);

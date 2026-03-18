@@ -655,6 +655,30 @@ impl Analyzer {
                                     }
                                 }
 
+                                let is_print = func_name == "print";
+                                if is_print && arg_types.len() >= 2 {
+                                    for (i, at) in arg_types[1..].iter().enumerate() {
+                                        let printable = matches!(
+                                            at,
+                                            SemType::Int
+                                                | SemType::Float
+                                                | SemType::Char
+                                                | SemType::Boolean
+                                                | SemType::Unknown
+                                        );
+                                        if !printable {
+                                            self.error(format!(
+                                                "`print` argument {} has type `{}`, \
+                                                 which cannot be printed; \
+                                                 only `:int`, `:float`, `:char`, and `:boolean` \
+                                                 values are printable",
+                                                i + 1,
+                                                at.display()
+                                            ));
+                                        }
+                                    }
+                                }
+
                                 let is_pop = func_name == "pop" || func_name.ends_with("::pop");
                                 if is_pop {
                                     if let Some(SemType::List { elem }) = arg_types.first() {

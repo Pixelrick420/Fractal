@@ -1,12 +1,8 @@
+use crate::compiler::builtins::{BType, ALL_BUILTINS};
 use crate::compiler::parser::{AccessStep, AssignOp, CmpOp, MulOp, ParseNode, UnOp};
 use crate::compiler::retcheck::check_function_returns;
 use std::collections::HashMap;
 use std::fmt;
-
-pub const BUILTIN_FUNCTIONS: &[&str] = &[
-    "print", "input", "append", "pop", "insert", "find", "delete", "len", "pow", "abs", "sqrt",
-    "min", "max",
-];
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SemType {
@@ -43,6 +39,20 @@ impl SemType {
 
     fn is_integer(&self) -> bool {
         matches!(self, SemType::Int)
+    }
+}
+
+pub fn sem_type_from_btype(bt: &BType) -> SemType {
+    match bt {
+        BType::Int => SemType::Int,
+        BType::Float => SemType::Float,
+        BType::Boolean => SemType::Boolean,
+        BType::Char => SemType::Char,
+        BType::Void => SemType::Void,
+        BType::ListOfChar => SemType::List {
+            elem: Box::new(SemType::Char),
+        },
+        BType::Any => SemType::Unknown,
     }
 }
 
@@ -223,55 +233,13 @@ impl Analyzer {
     fn new() -> Self {
         let mut scopes = ScopeStack::new();
 
-        let builtins: &[(&str, &[SemType], SemType)] = &[
-            (
-                "append",
-                &[SemType::Unknown, SemType::Unknown],
-                SemType::Void,
-            ),
-            ("pop", &[SemType::Unknown], SemType::Unknown),
-            (
-                "insert",
-                &[SemType::Unknown, SemType::Unknown],
-                SemType::Void,
-            ),
-            ("delete", &[SemType::Unknown, SemType::Int], SemType::Void),
-            ("find", &[SemType::Unknown, SemType::Unknown], SemType::Int),
-            ("len", &[SemType::Unknown], SemType::Int),
-            ("print", &[SemType::Unknown], SemType::Void),
-            ("input", &[SemType::Unknown], SemType::Void),
-            ("abs", &[SemType::Unknown], SemType::Unknown),
-            (
-                "min",
-                &[SemType::Unknown, SemType::Unknown],
-                SemType::Unknown,
-            ),
-            (
-                "max",
-                &[SemType::Unknown, SemType::Unknown],
-                SemType::Unknown,
-            ),
-            ("sqrt", &[SemType::Float], SemType::Float),
-            ("pow", &[SemType::Float, SemType::Float], SemType::Float),
-            ("floor", &[SemType::Float], SemType::Int),
-            ("ceil", &[SemType::Float], SemType::Int),
-            ("to_int", &[SemType::Unknown], SemType::Int),
-            ("to_float", &[SemType::Unknown], SemType::Float),
-            (
-                "to_str",
-                &[SemType::Unknown],
-                SemType::List {
-                    elem: Box::new(SemType::Char),
-                },
-            ),
-        ];
-        for (name, params, ret) in builtins {
+        for b in ALL_BUILTINS {
             scopes.define(Symbol {
-                name: name.to_string(),
+                name: b.name.to_string(),
                 kind: SymbolKind::Function {
-                    params: params.to_vec(),
+                    params: b.params.iter().map(sem_type_from_btype).collect(),
                 },
-                sem_type: ret.clone(),
+                sem_type: sem_type_from_btype(&b.ret),
                 scope_depth: 0,
                 origin: "builtin".to_string(),
             });

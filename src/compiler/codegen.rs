@@ -1,3 +1,4 @@
+use crate::compiler::builtins::{CodegenRule, ALL_BUILTINS};
 use crate::compiler::parser::{
     AccessStep, AddOp, AssignOp, CmpOp, MulOp, ParseNode, ShiftOp, UnOp,
 };
@@ -1552,53 +1553,62 @@ impl CodeGen {
     }
 
     fn try_builtin(&mut self, name: &str, args: &[ParseNode]) -> Option<String> {
+        let def = ALL_BUILTINS.iter().find(|b| b.name == name)?;
         let n = args.len();
 
         let a: Vec<String> = args.iter().map(|x| self.gen_expr(x)).collect();
 
-        match (name, n) {
-            ("print", 0) => Some("println!()".into()),
-
-            ("print", 1) => {
-                if let ParseNode::StringLit(s) = &args[0] {
-                    let escaped: String = s.chars().map(|c| escape_char(c)).collect();
-                    Some(format!("println!(\"{}\")", escaped))
-                } else {
-                    Some(format!("println!(\"{{}}\", {})", a[0]))
+        match &def.codegen {
+            CodegenRule::Template(tpl) => {
+                let mut out = tpl.to_string();
+                for (i, arg) in a.iter().enumerate() {
+                    out = out.replace(&format!("{{{}}}", i), arg);
                 }
+                Some(out)
             }
 
-            ("print", _) => {
-                let fmt_lit = if let ParseNode::StringLit(s) = &args[0] {
-                    let escaped: String = s.chars().map(|c| escape_char(c)).collect();
-                    format!("\"{}\"", escaped)
-                } else {
-                    a[0].clone()
-                };
-                let rest = a[1..].join(", ");
-                Some(format!("println!({}, {})", fmt_lit, rest))
-            }
+            CodegenRule::Print => Some(match n {
+                0 => "println!()".into(),
+                1 => {
+                    if let ParseNode::StringLit(s) = &args[0] {
+                        let esc: String = s.chars().map(escape_char).collect();
+                        format!("println!(\"{}\")", esc)
+                    } else {
+                        format!("println!(\"{{}}\", {})", a[0])
+                    }
+                }
+                _ => {
+                    let fmt = if let ParseNode::StringLit(s) = &args[0] {
+                        let esc: String = s.chars().map(escape_char).collect();
+                        format!("\"{}\"", esc)
+                    } else {
+                        a[0].clone()
+                    };
+                    format!("println!({}, {})", fmt, a[1..].join(", "))
+                }
+            }),
 
-            ("input", _) => Some(
+            CodegenRule::Input => Some(
                 "{ let mut __ln = String::new(); \
                  io::stdin().lock().read_line(&mut __ln).unwrap(); \
                  __ln.trim().to_string() }"
                     .into(),
             ),
 
-            ("append", 2) => {
+            CodegenRule::Append => {
+                if n < 2 {
+                    return None;
+                }
                 let container = self.gen_list_container(&args[0]);
                 let val = self.gen_expr(&args[1]);
 
                 let needs_clone = match &args[1] {
-                    ParseNode::AccessChain { base, steps } if steps.is_empty() => {
-                        matches!(
-                            self.var_types
-                                .get(base.as_str())
-                                .or_else(|| self.local_var_types.get(base.as_str())),
-                            Some(SemType::Struct(_))
-                        )
-                    }
+                    ParseNode::AccessChain { base, steps } if steps.is_empty() => matches!(
+                        self.var_types
+                            .get(base.as_str())
+                            .or_else(|| self.local_var_types.get(base.as_str())),
+                        Some(SemType::Struct(_))
+                    ),
                     _ => false,
                 };
                 if needs_clone {
@@ -1607,49 +1617,35 @@ impl CodeGen {
                     Some(format!("{}.push({})", container, val))
                 }
             }
-            ("pop", 1) => {
+
+            CodegenRule::Pop => {
                 let container = self.gen_list_container(&args[0]);
                 Some(format!("{}.pop().unwrap()", container))
             }
-            ("insert", 2) => {
-                let container = self.gen_list_container(&args[0]);
-                let val = self.gen_expr(&args[1]);
-                Some(format!("{}.insert(0, {})", container, val))
-            }
-            ("insert", 3) => {
-                let container = self.gen_list_container(&args[0]);
-                let idx = self.gen_expr(&args[1]);
-                let val = self.gen_expr(&args[2]);
-                Some(format!("{}.insert({} as usize, {})", container, idx, val))
-            }
-            ("delete", 2) => {
+
+            CodegenRule::Insert => match n {
+                2 => {
+                    let container = self.gen_list_container(&args[0]);
+                    let val = self.gen_expr(&args[1]);
+                    Some(format!("{}.insert(0, {})", container, val))
+                }
+                3 => {
+                    let container = self.gen_list_container(&args[0]);
+                    let idx = self.gen_expr(&args[1]);
+                    let val = self.gen_expr(&args[2]);
+                    Some(format!("{}.insert({} as usize, {})", container, idx, val))
+                }
+                _ => None,
+            },
+
+            CodegenRule::Delete => {
+                if n < 2 {
+                    return None;
+                }
                 let container = self.gen_list_container(&args[0]);
                 let idx = self.gen_expr(&args[1]);
                 Some(format!("{}.remove({} as usize)", container, idx))
             }
-            ("find", 2) => Some(format!(
-                "{}.iter().position(|__x| *__x == {}).map(|i| i as i64).unwrap_or(-1_i64)",
-                a[0], a[1]
-            )),
-            ("len", 1) => Some(format!("({}.len() as i64)", a[0])),
-
-            ("pow", 2) => Some(format!("({} as f64).powf({} as f64)", a[0], a[1])),
-            ("abs", 1) => Some(format!("{}.abs()", a[0])),
-            ("sqrt", 1) => Some(format!("({} as f64).sqrt()", a[0])),
-            ("floor", 1) => Some(format!("({} as f64).floor() as i64", a[0])),
-            ("ceil", 1) => Some(format!("({} as f64).ceil() as i64", a[0])),
-            ("min", 2) => Some(format!("{}.min({})", a[0], a[1])),
-            ("max", 2) => Some(format!("{}.max({})", a[0], a[1])),
-
-            ("to_int", 1) => Some(format!("({} as i64)", a[0])),
-            ("to_float", 1) => Some(format!("({} as f64)", a[0])),
-
-            ("to_str", 1) => Some(format!(
-                "{}.to_string().chars().collect::<Vec<char>>()",
-                a[0]
-            )),
-
-            _ => None,
         }
     }
 }

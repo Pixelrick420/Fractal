@@ -63,14 +63,14 @@ impl DocsWindow {
         let full = ui.max_rect();
 
         ui.painter()
-            .rect_filled(full, egui::Rounding::ZERO, t.panel_bg);
+            .rect_filled(full, egui::CornerRadius::ZERO, t.panel_bg);
 
         let sidebar_w = 220.0;
         let sep_x = full.min.x + sidebar_w;
 
         ui.painter().rect_filled(
             egui::Rect::from_min_max(full.min, egui::pos2(sep_x, full.max.y)),
-            egui::Rounding::ZERO,
+            egui::CornerRadius::ZERO,
             t.line_numbers_bg,
         );
         ui.painter().line_segment(
@@ -96,9 +96,9 @@ impl DocsWindow {
         } else {
             t.border
         };
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(t.button_bg)
-            .rounding(egui::Rounding::same(5.0))
+            .corner_radius(egui::CornerRadius::same(5))
             .stroke(egui::Stroke::new(1.0, search_stroke))
             .show(
                 &mut ui.new_child(egui::UiBuilder::new().max_rect(search_rect)),
@@ -181,7 +181,7 @@ impl DocsWindow {
                 let badge_rect = egui::Rect::from_center_size(badge_center, egui::vec2(22.0, 16.0));
                 ui.painter().rect_filled(
                     badge_rect,
-                    egui::Rounding::same(8.0),
+                    egui::CornerRadius::same(8),
                     egui::Color32::from_rgba_premultiplied(
                         t.accent.r(),
                         t.accent.g(),
@@ -293,12 +293,12 @@ fn draw_chapter_row(
         egui::Color32::TRANSPARENT
     };
 
-    ui.painter().rect_filled(row, egui::Rounding::ZERO, bg);
+    ui.painter().rect_filled(row, egui::CornerRadius::ZERO, bg);
 
     if selected {
         ui.painter().rect_filled(
             egui::Rect::from_min_size(row.min, egui::vec2(3.0, row.height())),
-            egui::Rounding::ZERO,
+            egui::CornerRadius::ZERO,
             t.accent,
         );
     }
@@ -397,7 +397,7 @@ fn rule(ui: &mut egui::Ui, t: &Theme) {
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
     ui.painter().rect_filled(
         r,
-        egui::Rounding::ZERO,
+        egui::CornerRadius::ZERO,
         egui::Color32::from_rgba_premultiplied(t.border.r(), t.border.g(), t.border.b(), 120),
     );
     ui.add_space(10.0);
@@ -405,31 +405,31 @@ fn rule(ui: &mut egui::Ui, t: &Theme) {
 
 fn code(ui: &mut egui::Ui, src: &str, t: &Theme) {
     ui.add_space(6.0);
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(t.editor_bg)
-        .rounding(egui::Rounding::same(7.0))
-        .inner_margin(egui::Margin::same(16.0))
+        .corner_radius(egui::CornerRadius::same(7))
+        .inner_margin(egui::Margin::same(16))
         .stroke(egui::Stroke::new(1.0, t.border))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             let job =
                 Highlighter::new(*t).highlight_to_layout_job(src, egui::FontId::monospace(12.5));
-            ui.label(egui::WidgetText::LayoutJob(job));
+            ui.label(egui::WidgetText::LayoutJob(job.into()));
         });
     ui.add_space(8.0);
 }
 
 fn note(ui: &mut egui::Ui, text: &str, t: &Theme) {
     ui.add_space(6.0);
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(egui::Color32::from_rgba_premultiplied(
             t.border.r(),
             t.border.g(),
             t.border.b(),
             60,
         ))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(14.0, 10.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(14, 10))
         .stroke(egui::Stroke::new(1.0, t.border))
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
@@ -447,15 +447,15 @@ fn note(ui: &mut egui::Ui, text: &str, t: &Theme) {
 
 fn warning(ui: &mut egui::Ui, text: &str, t: &Theme) {
     ui.add_space(6.0);
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(egui::Color32::from_rgba_premultiplied(
             t.border.r(),
             t.border.g(),
             t.border.b(),
             60,
         ))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(14.0, 10.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(14, 10))
         .stroke(egui::Stroke::new(1.0, t.border))
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
@@ -472,10 +472,10 @@ fn warning(ui: &mut egui::Ui, text: &str, t: &Theme) {
 }
 
 fn kv2(ui: &mut egui::Ui, id: &str, cols: [&str; 2], rows: &[(&str, &str)], t: &Theme) {
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(t.editor_bg)
-        .rounding(egui::Rounding::same(7.0))
-        .inner_margin(egui::Margin::same(16.0))
+        .corner_radius(egui::CornerRadius::same(7))
+        .inner_margin(egui::Margin::same(16))
         .stroke(egui::Stroke::new(1.0, t.border))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -503,10 +503,10 @@ fn kv2(ui: &mut egui::Ui, id: &str, cols: [&str; 2], rows: &[(&str, &str)], t: &
 }
 
 fn kv3(ui: &mut egui::Ui, id: &str, cols: [&str; 3], rows: &[(&str, &str, &str)], t: &Theme) {
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(t.editor_bg)
-        .rounding(egui::Rounding::same(7.0))
-        .inner_margin(egui::Margin::same(16.0))
+        .corner_radius(egui::CornerRadius::same(7))
+        .inner_margin(egui::Margin::same(16))
         .stroke(egui::Stroke::new(1.0, t.border))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -540,10 +540,10 @@ fn kv3(ui: &mut egui::Ui, id: &str, cols: [&str; 3], rows: &[(&str, &str, &str)]
 }
 
 fn shortcuts_table(ui: &mut egui::Ui, id: &str, rows: &[(&str, &str)], t: &Theme) {
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(t.editor_bg)
-        .rounding(egui::Rounding::same(7.0))
-        .inner_margin(egui::Margin::same(16.0))
+        .corner_radius(egui::CornerRadius::same(7))
+        .inner_margin(egui::Margin::same(16))
         .stroke(egui::Stroke::new(1.0, t.border))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());

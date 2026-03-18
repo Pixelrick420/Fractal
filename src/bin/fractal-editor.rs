@@ -2,6 +2,7 @@ use eframe::egui;
 use fractal::ui::close_confirm::{
     CloseConfirmAction, CloseConfirmDialog, QuitConfirmAction, QuitConfirmDialog,
 };
+use fractal::ui::debugger::{DebugFrame, DebugSession};
 use fractal::ui::docs::DocsWindow;
 use fractal::ui::editor::{show_empty_state, EmptyStateAction};
 use fractal::ui::file_dialog::{FileDialog, FileDialogMode};
@@ -12,9 +13,8 @@ use fractal::ui::search_bar::{SearchBar, SearchBarAction};
 use fractal::ui::tab::{show_tab_bar, Tab, TabBarAction};
 use fractal::ui::terminal::Terminal;
 use fractal::ui::theme::{Theme, ThemeVariant};
-use fractal::ui::user_profile::{SettingsPanel, UserProfile};
-use fractal::ui::debugger::{DebugSession, DebugFrame};
 use fractal::ui::tree_view::TreeViewWindow;
+use fractal::ui::user_profile::{SettingsPanel, UserProfile};
 use fractal::ui::var_view::VarViewWindow;
 use std::fs;
 use std::path::PathBuf;
@@ -88,11 +88,10 @@ struct FractalEditor {
 
     recent_files: Vec<PathBuf>,
 
-    // ── Debug ─────────────────────────────────────────────────────────────────
-    debug_session:    Option<DebugSession>,
-    debug_frame:      Option<DebugFrame>,
+    debug_session: Option<DebugSession>,
+    debug_frame: Option<DebugFrame>,
     tree_view_window: TreeViewWindow,
-    var_view_window:  VarViewWindow,
+    var_view_window: VarViewWindow,
 }
 
 impl FractalEditor {
@@ -108,7 +107,7 @@ impl FractalEditor {
 
         let mut editor = Self {
             theme,
-            terminal: Terminal::new(theme),
+            terminal: Terminal::new(theme, &cc.egui_ctx),
             file_dialog,
             docs_window: DocsWindow::new(theme),
             menu_state: MenuBarState::default(),
@@ -130,10 +129,10 @@ impl FractalEditor {
             active_tab: 0,
             profile,
             recent_files,
-            debug_session:    None,
-            debug_frame:      None,
+            debug_session: None,
+            debug_frame: None,
             tree_view_window: TreeViewWindow::new(),
-            var_view_window:  VarViewWindow::new(),
+            var_view_window: VarViewWindow::new(),
         };
 
         if !session.open_files.is_empty() {
@@ -297,8 +296,16 @@ impl FractalEditor {
         let code = tab.code.clone();
         let mut found = 0usize;
         let mut byte_pos = 0usize;
-        let lower_code = if match_case { code.clone() } else { code.to_lowercase() };
-        let lower_query = if match_case { query.clone() } else { query.to_lowercase() };
+        let lower_code = if match_case {
+            code.clone()
+        } else {
+            code.to_lowercase()
+        };
+        let lower_query = if match_case {
+            query.clone()
+        } else {
+            query.to_lowercase()
+        };
         while let Some(pos) = lower_code[byte_pos..].find(lower_query.as_str()) {
             let abs_pos = byte_pos + pos;
             if found == idx {
@@ -345,7 +352,10 @@ impl FractalEditor {
         let count = if self.search_bar.match_case {
             tab.code.matches(query.as_str()).count()
         } else {
-            tab.code.to_lowercase().matches(query.to_lowercase().as_str()).count()
+            tab.code
+                .to_lowercase()
+                .matches(query.to_lowercase().as_str())
+                .count()
         };
         tab.code = new_code;
         self.search_bar.current_match = 0;
@@ -361,17 +371,19 @@ impl FractalEditor {
             self.file_dialog.open_for_save("untitled.fr");
             return;
         }
+
         let tab = &mut self.tabs[self.active_tab];
         let source_path = tab.current_file.clone().unwrap();
         let _ = fs::write(&source_path, &tab.code);
-        self.terminal.clear();
-        self.terminal.append("▶ Running fractal-compiler…\n\n");
         tab.is_running = true;
 
-        let buf: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        tab.output_rx = Some(buf.clone());
+        self.terminal.minimized = false;
+
+        let result_buf: Arc<Mutex<Option<CompileResult>>> = Arc::new(Mutex::new(None));
+        let result_buf2 = result_buf.clone();
         let ctx2 = ctx.clone();
         let path_str = source_path.to_string_lossy().to_string();
+        let bin_path = source_path.with_extension("");
 
         thread::spawn(move || {
             let exe_dir = std::env::current_exe()
@@ -384,54 +396,143 @@ impl FractalEditor {
             } else {
                 PathBuf::from("fractal-compiler")
             };
-            match Command::new(&compiler_path)
+
+            let result = match Command::new(&compiler_path)
                 .arg(&path_str)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .output()
             {
-                Ok(out) => {
-                    let mut lines = buf.lock().unwrap();
+                Ok(out) if out.status.success() => {
                     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                    if !stdout.is_empty() { lines.push(stdout); }
-                    if !stderr.is_empty()  { lines.push(stderr); }
-                    if out.status.success() {
-                        lines.push("\n✓ Exited successfully.\n".to_string());
+                    let mut warnings = String::new();
+                    let clean_stdout = strip_ansi(&stdout);
+                    let clean_stderr = strip_ansi(&stderr);
+
+                    let is_noise = |line: &str| -> bool {
+                        let t = line.trim();
+                        t.is_empty()
+                            || t.contains("No semantic errors.")
+                            || t.starts_with("compiled:")
+                            || t.starts_with("compiled :")
+                            || t.starts_with('\u{256c}')
+                            || t.starts_with('\u{2551}')
+                            || t.starts_with('\u{255a}')
+                    };
+
+                    for line in clean_stdout.lines() {
+                        if !is_noise(line) {
+                            warnings.push_str(line.trim());
+                            warnings.push('\n');
+                        }
+                    }
+                    for line in clean_stderr.lines() {
+                        if !is_noise(line) {
+                            warnings.push_str(line.trim());
+                            warnings.push('\n');
+                        }
+                    }
+
+                    if warnings.trim().is_empty() {
+                        CompileResult::Success(bin_path)
                     } else {
-                        let code = out.status.code()
-                            .map(|c| c.to_string())
-                            .unwrap_or_else(|| "?".into());
-                        lines.push(format!("\n✗ Exited with code {code}.\n"));
+                        CompileResult::SuccessWithWarnings(bin_path, warnings)
                     }
                 }
-                Err(e) => {
-                    let mut lines = buf.lock().unwrap();
-                    lines.push(format!("error: failed to launch compiler: {e}\n"));
-                    lines.push("  Is 'fractal-compiler' in PATH or next to this binary?\n".to_string());
+                Ok(out) => {
+                    let mut msg = String::new();
+                    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                    let clean_stdout = strip_ansi(&stdout);
+                    let clean_stderr = strip_ansi(&stderr);
+
+                    let is_noise = |line: &str| -> bool {
+                        let t = line.trim();
+                        t.is_empty()
+                            || t.contains("No semantic errors.")
+                            || t.starts_with("compiled:")
+                            || t.starts_with("compiled :")
+                            || t.starts_with('\u{256c}')
+                            || t.starts_with('\u{2551}')
+                            || t.starts_with('\u{255a}')
+                    };
+
+                    for line in clean_stdout.lines() {
+                        if !is_noise(line) {
+                            msg.push_str(line.trim());
+                            msg.push('\n');
+                        }
+                    }
+                    for line in clean_stderr.lines() {
+                        if !is_noise(line) {
+                            msg.push_str(line.trim());
+                            msg.push('\n');
+                        }
+                    }
+                    if msg.is_empty() {
+                        msg = "Compilation failed (unknown error).".to_string();
+                    }
+                    CompileResult::Error(msg)
                 }
-            }
-            buf.lock().unwrap().push("\x00DONE\x00".to_string());
+                Err(e) => CompileResult::LaunchError(format!(
+                    "Could not launch fractal-compiler: {e}\n\
+                     Is it in PATH or next to this binary?"
+                )),
+            };
+
+            *result_buf2.lock().unwrap() = Some(result);
             ctx2.request_repaint();
+        });
+
+        PENDING_COMPILE.with(|cell| {
+            *cell.borrow_mut() = Some(result_buf);
         });
     }
 
     fn poll_compiler_output(&mut self) {
-        if self.tabs.is_empty() { return; }
-        let tab = &mut self.tabs[self.active_tab];
-        if !tab.is_running { return; }
-        let Some(rx) = tab.output_rx.clone() else { return; };
-        let mut done = false;
-        for line in rx.lock().unwrap().drain(..) {
-            if line == "\x00DONE\x00" {
-                done = true;
-            } else {
-                self.terminal.append(&line);
-            }
+        if self.tabs.is_empty() {
+            return;
         }
-        if done {
+        let tab = &self.tabs[self.active_tab];
+        if !tab.is_running {
+            return;
+        }
+
+        let maybe_result: Option<CompileResult> = PENDING_COMPILE.with(|cell| {
+            let borrow = cell.borrow();
+            if let Some(ref arc) = *borrow {
+                arc.lock().unwrap().take()
+            } else {
+                None
+            }
+        });
+
+        if let Some(result) = maybe_result {
+            PENDING_COMPILE.with(|cell| *cell.borrow_mut() = None);
             self.tabs[self.active_tab].is_running = false;
             self.tabs[self.active_tab].output_rx = None;
+
+            match result {
+                CompileResult::Success(bin_path) => {
+                    self.terminal.run_binary(&bin_path);
+                }
+                CompileResult::SuccessWithWarnings(bin_path, warnings) => {
+                    let first_line = warnings.lines().next().unwrap_or("").trim().to_string();
+                    if !first_line.is_empty() {
+                        self.success_message = Some(format!("Warning: {}", first_line));
+                    }
+                    self.terminal.run_binary(&bin_path);
+                }
+                CompileResult::Error(msg) => {
+                    self.terminal.append(&msg);
+                    self.error_message = Some("Compilation failed — see terminal.".to_string());
+                }
+                CompileResult::LaunchError(msg) => {
+                    self.terminal.append(&msg);
+                    self.error_message = Some("Could not run compiler — see terminal.".to_string());
+                }
+            }
         }
     }
 
@@ -472,18 +573,24 @@ impl FractalEditor {
         let t = self.theme;
         egui::TopBottomPanel::bottom("status_bar")
             .frame(
-                egui::Frame::none()
+                egui::Frame::new()
                     .fill(t.status_bar_bg)
-                    .inner_margin(egui::Margin::symmetric(12.0, 4.0)),
+                    .inner_margin(egui::Margin::symmetric(12, 4)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     if let Some(msg) = self.error_message.clone() {
-                        ui.label(egui::RichText::new(ic::ERROR).size(12.0).color(t.terminal_error));
+                        ui.label(
+                            egui::RichText::new(ic::ERROR)
+                                .size(12.0)
+                                .color(t.terminal_error),
+                        );
                         ui.label(egui::RichText::new(&msg).size(11.0).color(t.terminal_error));
                         let xr = ui.add(
                             egui::Button::new(
-                                egui::RichText::new(ic::TAB_CLOSE).size(11.0).color(t.status_bar_fg),
+                                egui::RichText::new(ic::TAB_CLOSE)
+                                    .size(11.0)
+                                    .color(t.status_bar_fg),
                             )
                             .fill(egui::Color32::TRANSPARENT)
                             .stroke(egui::Stroke::NONE),
@@ -491,11 +598,13 @@ impl FractalEditor {
                         if xr.hovered() {
                             ui.painter().rect_filled(
                                 xr.rect.expand(2.0),
-                                egui::Rounding::same(3.0),
+                                egui::CornerRadius::same(3),
                                 t.button_hover_bg,
                             );
                         }
-                        if xr.clicked() { self.error_message = None; }
+                        if xr.clicked() {
+                            self.error_message = None;
+                        }
                     } else if let Some(msg) = self.success_message.clone() {
                         ui.label(
                             egui::RichText::new(ic::SUCCESS)
@@ -505,7 +614,9 @@ impl FractalEditor {
                         ui.label(egui::RichText::new(&msg).size(11.0).color(t.status_bar_fg));
                         let xr = ui.add(
                             egui::Button::new(
-                                egui::RichText::new(ic::TAB_CLOSE).size(11.0).color(t.status_bar_fg),
+                                egui::RichText::new(ic::TAB_CLOSE)
+                                    .size(11.0)
+                                    .color(t.status_bar_fg),
                             )
                             .fill(egui::Color32::TRANSPARENT)
                             .stroke(egui::Stroke::NONE),
@@ -513,11 +624,13 @@ impl FractalEditor {
                         if xr.hovered() {
                             ui.painter().rect_filled(
                                 xr.rect.expand(2.0),
-                                egui::Rounding::same(3.0),
+                                egui::CornerRadius::same(3),
                                 t.button_hover_bg,
                             );
                         }
-                        if xr.clicked() { self.success_message = None; }
+                        if xr.clicked() {
+                            self.success_message = None;
+                        }
                     } else if let Some(tab) = self.tabs.get(self.active_tab) {
                         let path = tab
                             .current_file
@@ -543,9 +656,12 @@ impl FractalEditor {
                         ui.separator();
                         let n = self.tabs.len();
                         ui.label(
-                            egui::RichText::new(format!("{n} tab{}", if n == 1 { "" } else { "s" }))
-                                .size(11.0)
-                                .color(t.status_bar_fg),
+                            egui::RichText::new(format!(
+                                "{n} tab{}",
+                                if n == 1 { "" } else { "s" }
+                            ))
+                            .size(11.0)
+                            .color(t.status_bar_fg),
                         );
                         if self.search_bar.visible && !self.search_bar.query.is_empty() {
                             ui.separator();
@@ -568,22 +684,19 @@ impl FractalEditor {
             });
     }
 
-    // ── Debug helpers ─────────────────────────────────────────────────────────
-
     fn step_debug(&mut self) {
         use fractal::compiler::lexer::tokenize_with_source;
         use fractal::compiler::parser::parse_with_source;
         use fractal::compiler::semanter::analyze;
 
-        // No active session → compile and create one, show initial frame.
         if self.debug_session.is_none() {
             let code = match self.tabs.get(self.active_tab) {
                 Some(tab) => tab.code.clone(),
-                None      => return,
+                None => return,
             };
             let tokens = tokenize_with_source(&code, "<debug>");
             let root = match parse_with_source(tokens, "<debug>") {
-                Ok(r)  => r,
+                Ok(r) => r,
                 Err(e) => {
                     self.error_message = Some(format!("Parse error: {}", e.message));
                     return;
@@ -592,44 +705,83 @@ impl FractalEditor {
             let sem = analyze(&root);
             if sem.has_errors() {
                 self.error_message = Some(
-                    sem.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>().join("; "),
+                    sem.errors
+                        .iter()
+                        .map(|e| e.message.clone())
+                        .collect::<Vec<_>>()
+                        .join("; "),
                 );
                 return;
             }
             let session = DebugSession::new(&root);
-            let frame   = session.current_frame();
-            self.debug_frame   = Some(frame);
+            let frame = session.current_frame();
+            self.debug_frame = Some(frame);
             self.debug_session = Some(session);
             self.tree_view_window.open = true;
-            self.var_view_window.open  = true;
+            self.var_view_window.open = true;
             self.success_message = Some("Debug session started — press Step to advance.".into());
             return;
         }
 
-        // Session exists → advance one step.
         if let Some(ref mut session) = self.debug_session {
-            let frame    = session.step();
+            let frame = session.step();
             let finished = frame.finished;
-            let errored  = frame.error.is_some();
+            let errored = frame.error.is_some();
             self.debug_frame = Some(frame);
             if finished {
                 self.success_message = Some("Debug: program finished.".into());
-                self.debug_session   = None; // next press restarts
+                self.debug_session = None;
             } else if errored {
-                let msg = self.debug_frame.as_ref()
+                let msg = self
+                    .debug_frame
+                    .as_ref()
                     .and_then(|f| f.error.clone())
                     .unwrap_or_else(|| "Runtime error".into());
                 self.error_message = Some(format!("Debug fault: {msg}"));
-                self.debug_session  = None;
+                self.debug_session = None;
             }
         }
     }
 
     fn stop_debug_session(&mut self) {
         self.debug_session = None;
-        self.debug_frame   = None;
+        self.debug_frame = None;
         self.success_message = Some("Debug session stopped.".into());
     }
+}
+
+enum CompileResult {
+    Success(PathBuf),
+    SuccessWithWarnings(PathBuf, String),
+    Error(String),
+    LaunchError(String),
+}
+
+thread_local! {
+    static PENDING_COMPILE: std::cell::RefCell<Option<Arc<Mutex<Option<CompileResult>>>>> =
+        std::cell::RefCell::new(None);
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                for ch in chars.by_ref() {
+                    if ch.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                chars.next();
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 impl eframe::App for FractalEditor {
@@ -701,10 +853,10 @@ impl eframe::App for FractalEditor {
             .get(self.active_tab)
             .and_then(|t| t.current_file.as_ref())
             .cloned();
-        let docs_open        = self.docs_window.open;
+        let docs_open = self.docs_window.open;
         let is_debug_running = self.debug_session.is_some();
-        let tree_view_open   = self.tree_view_window.open;
-        let var_view_open    = self.var_view_window.open;
+        let tree_view_open = self.tree_view_window.open;
+        let var_view_open = self.var_view_window.open;
 
         let action = show_menu_bar(
             ctx,
@@ -744,13 +896,13 @@ impl eframe::App for FractalEditor {
                 self.active_tab = self.tabs.len() - 1;
                 self.docs_window.open = false;
             }
-            MenuAction::Run    => self.run_code(ctx),
-            MenuAction::StepRun  => self.step_debug(),
+            MenuAction::Run => self.run_code(ctx),
+            MenuAction::StepRun => self.step_debug(),
             MenuAction::StepStop => self.stop_debug_session(),
             MenuAction::ToggleTreeView => self.tree_view_window.open = !self.tree_view_window.open,
-            MenuAction::ToggleVarView  => self.var_view_window.open  = !self.var_view_window.open,
-            MenuAction::ToggleDocs     => self.docs_window.open = !self.docs_window.open,
-            MenuAction::OpenSettings   => self.settings_panel.open(),
+            MenuAction::ToggleVarView => self.var_view_window.open = !self.var_view_window.open,
+            MenuAction::ToggleDocs => self.docs_window.open = !self.docs_window.open,
+            MenuAction::OpenSettings => self.settings_panel.open(),
             MenuAction::OpenRecent(path) => {
                 self.open_file(&path.clone());
                 self.docs_window.open = false;
@@ -800,12 +952,12 @@ impl eframe::App for FractalEditor {
         }
 
         match self.search_bar.show(ctx, &self.theme) {
-            SearchBarAction::FindNext  => self.search_navigate(true),
-            SearchBarAction::FindPrev  => self.search_navigate(false),
+            SearchBarAction::FindNext => self.search_navigate(true),
+            SearchBarAction::FindPrev => self.search_navigate(false),
             SearchBarAction::ReplaceOne => self.replace_current(),
             SearchBarAction::ReplaceAll => self.replace_all(),
             SearchBarAction::Close => {}
-            SearchBarAction::None  => {}
+            SearchBarAction::None => {}
         }
 
         self.handle_close_confirm(ctx);
@@ -837,16 +989,16 @@ impl eframe::App for FractalEditor {
         self.show_status_bar(ctx);
         self.terminal.show(ctx);
 
-        // ── Debug windows (proper floating windows, not panels or tabs) ────────
-        let active_node_id = self.debug_frame
+        let active_node_id = self
+            .debug_frame
             .as_ref()
             .map(|f| f.active_node_id)
             .unwrap_or(0);
 
         if let Some(ref session) = self.debug_session {
-            // tree_view borrows session immutably — split borrow via local ref
             let theme = self.theme;
-            self.tree_view_window.show(ctx, session, active_node_id, &theme);
+            self.tree_view_window
+                .show(ctx, session, active_node_id, &theme);
         }
 
         if let Some(ref frame) = self.debug_frame {
@@ -854,16 +1006,15 @@ impl eframe::App for FractalEditor {
             self.var_view_window.show(ctx, frame, &theme);
         }
 
-        // ── Central editor panel ───────────────────────────────────────────────
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(self.theme.editor_bg))
+            .frame(egui::Frame::new().fill(self.theme.editor_bg))
             .show(ctx, |ui| {
                 if self.docs_window.open {
                     self.docs_window.show(ui);
                 } else if self.tabs.is_empty() {
-                    match show_empty_state(ui, &self.theme, ctx.screen_rect()) {
+                    match show_empty_state(ui, &self.theme, ctx.viewport_rect()) {
                         EmptyStateAction::Open => self.file_dialog.open_for_open(),
-                        EmptyStateAction::New  => {
+                        EmptyStateAction::New => {
                             self.tabs.push(Tab::new(self.theme));
                             self.active_tab = 0;
                         }
@@ -877,7 +1028,8 @@ impl eframe::App for FractalEditor {
                     } else {
                         None
                     };
-                    tab.editor.show_with_id(ui, &mut tab.code, tab.id, fs, ln, sel);
+                    tab.editor
+                        .show_with_id(ui, &mut tab.code, tab.id, fs, ln, sel);
                 }
             });
     }
@@ -885,54 +1037,54 @@ impl eframe::App for FractalEditor {
 
 fn apply_egui_style(ctx: &egui::Context, t: &Theme) {
     let mut s = (*ctx.style()).clone();
-    s.visuals.window_fill        = t.panel_bg;
-    s.visuals.panel_fill         = t.panel_bg;
-    s.visuals.extreme_bg_color   = t.editor_bg;
-    s.visuals.faint_bg_color     = t.button_bg;
-    s.visuals.code_bg_color      = t.editor_bg;
-    s.visuals.window_stroke      = egui::Stroke::new(1.0, t.border);
-    s.visuals.window_rounding    = egui::Rounding::same(8.0);
-    s.visuals.menu_rounding      = egui::Rounding::same(6.0);
-    s.visuals.window_shadow      = egui::Shadow {
-        offset: egui::vec2(0.0, 6.0),
-        blur:   20.0,
-        spread: 0.0,
-        color:  egui::Color32::from_black_alpha(96),
+    s.visuals.window_fill = t.panel_bg;
+    s.visuals.panel_fill = t.panel_bg;
+    s.visuals.extreme_bg_color = t.editor_bg;
+    s.visuals.faint_bg_color = t.button_bg;
+    s.visuals.code_bg_color = t.editor_bg;
+    s.visuals.window_stroke = egui::Stroke::new(1.0, t.border);
+    s.visuals.window_corner_radius = egui::CornerRadius::same(8);
+    s.visuals.menu_corner_radius = egui::CornerRadius::same(6);
+    s.visuals.window_shadow = egui::Shadow {
+        offset: [0, 6],
+        blur: 20,
+        spread: 0,
+        color: egui::Color32::from_black_alpha(96),
     };
-    s.visuals.widgets.noninteractive.bg_fill    = t.panel_bg;
-    s.visuals.widgets.noninteractive.bg_stroke  = egui::Stroke::new(1.0, t.border);
-    s.visuals.widgets.noninteractive.fg_stroke  = egui::Stroke::new(1.5, t.tab_active_fg);
-    s.visuals.widgets.noninteractive.rounding   = egui::Rounding::same(4.0);
-    s.visuals.widgets.inactive.bg_fill          = t.button_bg;
-    s.visuals.widgets.inactive.bg_stroke        = egui::Stroke::new(1.0, t.border);
-    s.visuals.widgets.inactive.fg_stroke        = egui::Stroke::new(1.5, t.button_fg);
-    s.visuals.widgets.inactive.rounding         = egui::Rounding::same(5.0);
-    s.visuals.widgets.inactive.expansion        = 0.0;
-    s.visuals.widgets.hovered.bg_fill           = t.button_hover_bg;
-    s.visuals.widgets.hovered.bg_stroke         = egui::Stroke::new(1.0, t.accent);
-    s.visuals.widgets.hovered.fg_stroke         = egui::Stroke::new(1.5, t.tab_active_fg);
-    s.visuals.widgets.hovered.rounding          = egui::Rounding::same(5.0);
-    s.visuals.widgets.hovered.expansion         = 1.0;
-    s.visuals.widgets.active.bg_fill            = t.accent;
-    s.visuals.widgets.active.bg_stroke          = egui::Stroke::new(1.0, t.accent);
-    s.visuals.widgets.active.fg_stroke          = egui::Stroke::new(1.5, egui::Color32::WHITE);
-    s.visuals.widgets.active.rounding           = egui::Rounding::same(5.0);
-    s.visuals.widgets.active.expansion          = 1.0;
-    s.visuals.widgets.open.bg_fill              = t.button_hover_bg;
-    s.visuals.widgets.open.bg_stroke            = egui::Stroke::new(1.0, t.accent);
-    s.visuals.widgets.open.fg_stroke            = egui::Stroke::new(1.5, t.tab_active_fg);
-    s.visuals.widgets.open.rounding             = egui::Rounding::same(5.0);
-    s.visuals.selection.bg_fill                 = t.selection;
-    s.visuals.selection.stroke                  = egui::Stroke::new(1.0, t.accent);
+    s.visuals.widgets.noninteractive.bg_fill = t.panel_bg;
+    s.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, t.border);
+    s.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.5, t.tab_active_fg);
+    s.visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(4);
+    s.visuals.widgets.inactive.bg_fill = t.button_bg;
+    s.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, t.border);
+    s.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.5, t.button_fg);
+    s.visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(5);
+    s.visuals.widgets.inactive.expansion = 0.0;
+    s.visuals.widgets.hovered.bg_fill = t.button_hover_bg;
+    s.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, t.accent);
+    s.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, t.tab_active_fg);
+    s.visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(5);
+    s.visuals.widgets.hovered.expansion = 1.0;
+    s.visuals.widgets.active.bg_fill = t.accent;
+    s.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, t.accent);
+    s.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
+    s.visuals.widgets.active.corner_radius = egui::CornerRadius::same(5);
+    s.visuals.widgets.active.expansion = 1.0;
+    s.visuals.widgets.open.bg_fill = t.button_hover_bg;
+    s.visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0, t.accent);
+    s.visuals.widgets.open.fg_stroke = egui::Stroke::new(1.5, t.tab_active_fg);
+    s.visuals.widgets.open.corner_radius = egui::CornerRadius::same(5);
+    s.visuals.selection.bg_fill = t.selection;
+    s.visuals.selection.stroke = egui::Stroke::new(1.0, t.accent);
     s.visuals.text_cursor = egui::style::TextCursorStyle {
         stroke: egui::Stroke::new(2.0, t.accent),
         ..Default::default()
     };
-    s.visuals.hyperlink_color    = t.accent;
-    s.spacing.item_spacing       = egui::vec2(8.0, 6.0);
-    s.spacing.button_padding     = egui::vec2(10.0, 6.0);
-    s.spacing.window_margin      = egui::Margin::same(14.0);
-    s.spacing.menu_margin        = egui::Margin::same(4.0);
+    s.visuals.hyperlink_color = t.accent;
+    s.spacing.item_spacing = egui::vec2(8.0, 6.0);
+    s.spacing.button_padding = egui::vec2(10.0, 6.0);
+    s.spacing.window_margin = egui::Margin::same(14);
+    s.spacing.menu_margin = egui::Margin::same(4);
     s.visuals.override_text_color = Some(t.tab_active_fg);
     ctx.set_style(s);
 }

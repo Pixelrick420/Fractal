@@ -70,14 +70,14 @@ impl SettingsPanel {
         let t = self.theme;
         let mut changed = false;
 
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         let painter = ctx.layer_painter(egui::LayerId::new(
-            egui::Order::PanelResizeLine,
+            egui::Order::Middle,
             egui::Id::new("settings_scrim"),
         ));
         painter.rect_filled(
             screen,
-            egui::Rounding::ZERO,
+            egui::CornerRadius::ZERO,
             egui::Color32::from_black_alpha(120),
         );
 
@@ -93,11 +93,12 @@ impl SettingsPanel {
             + 24.0;
         let panel_rect = egui::Rect::from_center_size(screen.center(), egui::vec2(w, h));
 
-        painter.rect_filled(panel_rect, egui::Rounding::same(12.0), t.panel_bg);
+        painter.rect_filled(panel_rect, egui::CornerRadius::same(12), t.panel_bg);
         painter.rect_stroke(
             panel_rect,
-            egui::Rounding::same(12.0),
+            egui::CornerRadius::same(12),
             egui::Stroke::new(1.0, t.border),
+            egui::StrokeKind::Outside,
         );
 
         egui::Area::new(egui::Id::new("settings_area"))
@@ -147,8 +148,8 @@ impl SettingsPanel {
                     style.visuals.override_text_color = Some(fg);
                 }
 
-                egui::Frame::none()
-                    .inner_margin(egui::Margin::same(24.0))
+                egui::Frame::new()
+                    .inner_margin(egui::Margin::same(24))
                     .show(ui, |ui| {
                         ui.set_max_width(w - 48.0);
 
@@ -175,7 +176,7 @@ impl SettingsPanel {
                                     if close_resp.hovered() {
                                         ui.painter().rect_filled(
                                             close_resp.rect,
-                                            egui::Rounding::same(5.0),
+                                            egui::CornerRadius::same(5),
                                             t.button_hover_bg,
                                         );
                                         ui.painter().text(
@@ -234,7 +235,7 @@ impl SettingsPanel {
                                     let plus_hovered = plus_resp.hovered();
                                     ui.painter().rect_filled(
                                         plus_rect,
-                                        egui::Rounding::same(5.0),
+                                        egui::CornerRadius::same(5),
                                         if plus_hovered {
                                             t.button_hover_bg
                                         } else {
@@ -243,8 +244,9 @@ impl SettingsPanel {
                                     );
                                     ui.painter().rect_stroke(
                                         plus_rect,
-                                        egui::Rounding::same(5.0),
+                                        egui::CornerRadius::same(5),
                                         egui::Stroke::new(1.0, t.border),
+                                        egui::StrokeKind::Outside,
                                     );
                                     ui.painter().text(
                                         plus_rect.center(),
@@ -264,13 +266,14 @@ impl SettingsPanel {
                                     );
                                     ui.painter().rect_filled(
                                         val_rect,
-                                        egui::Rounding::same(5.0),
+                                        egui::CornerRadius::same(5),
                                         t.button_bg,
                                     );
                                     ui.painter().rect_stroke(
                                         val_rect,
-                                        egui::Rounding::same(5.0),
+                                        egui::CornerRadius::same(5),
                                         egui::Stroke::new(1.0, t.border),
+                                        egui::StrokeKind::Outside,
                                     );
                                     ui.painter().text(
                                         val_rect.center(),
@@ -285,7 +288,7 @@ impl SettingsPanel {
                                     let minus_hovered = minus_resp.hovered();
                                     ui.painter().rect_filled(
                                         minus_rect,
-                                        egui::Rounding::same(5.0),
+                                        egui::CornerRadius::same(5),
                                         if minus_hovered {
                                             t.button_hover_bg
                                         } else {
@@ -294,8 +297,9 @@ impl SettingsPanel {
                                     );
                                     ui.painter().rect_stroke(
                                         minus_rect,
-                                        egui::Rounding::same(5.0),
+                                        egui::CornerRadius::same(5),
                                         egui::Stroke::new(1.0, t.border),
+                                        egui::StrokeKind::Outside,
                                     );
                                     ui.painter().text(
                                         minus_rect.center(),
@@ -372,7 +376,7 @@ fn theme_row(ui: &mut egui::Ui, label: &str, selected: bool, t: Theme) -> egui::
         };
 
         ui.painter()
-            .rect_filled(rect, egui::Rounding::same(5.0), bg);
+            .rect_filled(rect, egui::CornerRadius::same(5), bg);
 
         if selected {
             let indicator_color = egui::Color32::from_rgb(
@@ -385,7 +389,7 @@ fn theme_row(ui: &mut egui::Ui, label: &str, selected: bool, t: Theme) -> egui::
                     egui::pos2(rect.min.x, rect.min.y + 6.0),
                     egui::vec2(3.0, rect.height() - 12.0),
                 ),
-                egui::Rounding::same(2.0),
+                egui::CornerRadius::same(2),
                 indicator_color,
             );
         }

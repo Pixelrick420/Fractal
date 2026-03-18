@@ -27,7 +27,7 @@ impl CodeEditor {
     ) {
         ui.painter().rect_filled(
             ui.available_rect_before_wrap(),
-            egui::Rounding::ZERO,
+            egui::CornerRadius::ZERO,
             self.theme.editor_bg,
         );
 
@@ -43,11 +43,11 @@ impl CodeEditor {
 
         let theme = self.theme;
         let highlighter = Highlighter::new(theme);
-        let mut layouter = move |ui: &egui::Ui, text: &str, wrap_width: f32| {
+        let mut layouter = move |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
             let font_id = egui::FontId::monospace(font_size);
-            let mut job = highlighter.highlight_to_layout_job(text, font_id);
+            let mut job = highlighter.highlight_to_layout_job(text.as_str(), font_id);
             job.wrap.max_width = wrap_width;
-            ui.fonts(|f| f.layout_job(job))
+            ui.fonts_mut(|f| f.layout_job(job))
         };
 
         if select_range.is_some() {
@@ -59,9 +59,9 @@ impl CodeEditor {
             .show(ui, |ui| {
                 ui.horizontal_top(|ui| {
                     if show_line_numbers {
-                        egui::Frame::none()
+                        egui::Frame::new()
                             .fill(self.theme.line_numbers_bg)
-                            .inner_margin(egui::Margin::symmetric(8.0, 8.0))
+                            .inner_margin(egui::Margin::symmetric(8, 8))
                             .show(ui, |ui| {
                                 ui.set_width(line_num_width);
                                 ui.style_mut().override_text_style =
@@ -97,18 +97,12 @@ impl CodeEditor {
                         let char_start = byte_offset_to_char_index(code, byte_start);
                         let char_end = byte_offset_to_char_index(code, byte_end);
 
-                        let cursor_start = output
-                            .galley
-                            .from_ccursor(egui::text::CCursor::new(char_start));
-                        let cursor_end = output
-                            .galley
-                            .from_ccursor(egui::text::CCursor::new(char_end));
-
+                        let cursor_start = egui::text::CCursor::new(char_start);
+                        let cursor_end = egui::text::CCursor::new(char_end);
                         let origin = output.galley_pos;
-
                         let rows = &output.galley.rows;
-                        let start_rect = output.galley.pos_from_cursor(&cursor_start);
-                        let end_rect = output.galley.pos_from_cursor(&cursor_end);
+                        let start_rect = output.galley.pos_from_cursor(cursor_start);
+                        let end_rect = output.galley.pos_from_cursor(cursor_end);
 
                         let highlight_color = theme.selection;
                         let painter = ui.painter();
@@ -118,11 +112,11 @@ impl CodeEditor {
                                 origin + start_rect.min.to_vec2(),
                                 origin + end_rect.max.to_vec2(),
                             );
-                            painter.rect_filled(rect, egui::Rounding::ZERO, highlight_color);
+                            painter.rect_filled(rect, egui::CornerRadius::ZERO, highlight_color);
                         } else {
                             for row in rows {
-                                let row_min_y = row.rect.min.y;
-                                let row_max_y = row.rect.max.y;
+                                let row_min_y = row.rect().min.y;
+                                let row_max_y = row.rect().max.y;
 
                                 if row_max_y <= start_rect.min.y || row_min_y >= end_rect.max.y {
                                     continue;
@@ -131,19 +125,23 @@ impl CodeEditor {
                                 let x_start = if (row_min_y - start_rect.min.y).abs() < 1.0 {
                                     start_rect.min.x
                                 } else {
-                                    row.rect.min.x
+                                    row.rect().min.x
                                 };
                                 let x_end = if (row_min_y - end_rect.min.y).abs() < 1.0 {
                                     end_rect.max.x
                                 } else {
-                                    row.rect.max.x
+                                    row.rect().max.x
                                 };
 
                                 let rect = egui::Rect::from_min_max(
                                     origin + egui::vec2(x_start, row_min_y),
                                     origin + egui::vec2(x_end, row_max_y),
                                 );
-                                painter.rect_filled(rect, egui::Rounding::ZERO, highlight_color);
+                                painter.rect_filled(
+                                    rect,
+                                    egui::CornerRadius::ZERO,
+                                    highlight_color,
+                                );
                             }
                         }
 
@@ -155,9 +153,10 @@ impl CodeEditor {
                         ui.scroll_to_rect(padded, None);
                     }
 
-                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    if output.response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                    {
                         if let Some(cursor_range) = output.cursor_range {
-                            let pos = cursor_range.primary.ccursor.index;
+                            let pos = cursor_range.primary.index;
                             let indent = indent_for_line_above(code, pos);
                             if !indent.is_empty() {
                                 use egui::TextBuffer as _;
@@ -192,14 +191,14 @@ pub fn show_empty_state(ui: &mut egui::Ui, t: &Theme, full_rect: egui::Rect) -> 
 
     ui.painter().rect_filled(
         ui.available_rect_before_wrap(),
-        egui::Rounding::ZERO,
+        egui::CornerRadius::ZERO,
         t.editor_bg,
     );
 
     let content_w = 320.0_f32.min(full_rect.width() - 64.0);
     let card_rect = egui::Rect::from_center_size(full_rect.center(), egui::vec2(content_w, 260.0));
 
-    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(card_rect), |ui| {
+    ui.scope_builder(egui::UiBuilder::new().max_rect(card_rect), |ui| {
         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
             ui.label(
                 egui::RichText::new(ic::EMPTY_STATE)
@@ -233,7 +232,7 @@ pub fn show_empty_state(ui: &mut egui::Ui, t: &Theme, full_rect: egui::Rect) -> 
                                 .color(egui::Color32::WHITE),
                         )
                         .fill(t.accent)
-                        .rounding(egui::Rounding::same(6.0))
+                        .corner_radius(egui::CornerRadius::same(6))
                         .min_size(egui::vec2(114.0, 34.0)),
                     )
                     .clicked()
@@ -252,7 +251,7 @@ pub fn show_empty_state(ui: &mut egui::Ui, t: &Theme, full_rect: egui::Rect) -> 
                         )
                         .fill(egui::Color32::TRANSPARENT)
                         .stroke(egui::Stroke::new(1.0, t.accent))
-                        .rounding(egui::Rounding::same(6.0))
+                        .corner_radius(egui::CornerRadius::same(6))
                         .min_size(egui::vec2(114.0, 34.0)),
                     )
                     .clicked()

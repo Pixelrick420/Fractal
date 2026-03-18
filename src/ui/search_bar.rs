@@ -202,13 +202,13 @@ impl SearchBar {
 
         egui::TopBottomPanel::top("search_bar_panel")
             .frame(
-                egui::Frame::none()
+                egui::Frame::new()
                     .fill(t.panel_bg)
                     .inner_margin(egui::Margin {
-                        left: 12.0,
-                        right: 12.0,
-                        top: 6.0,
-                        bottom: 6.0,
+                        left: 12,
+                        right: 12,
+                        top: 6,
+                        bottom: 6,
                     }),
             )
             .exact_height(panel_h)
@@ -333,7 +333,7 @@ impl SearchBar {
                         if hov {
                             ui.painter().rect_filled(
                                 r,
-                                egui::Rounding::same(4.0),
+                                egui::CornerRadius::same(4),
                                 t.button_hover_bg,
                             );
                         }

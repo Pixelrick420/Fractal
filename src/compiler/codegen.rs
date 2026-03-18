@@ -1817,14 +1817,19 @@ impl CodeGen {
         let a: Vec<String> = args.iter().map(|x| self.gen_expr(x)).collect();
 
         match (name, n) {
-            ("print", 0) => Some("println!()".into()),
+            ("print", 0) => Some("{ print!(); io::stdout().flush().unwrap(); }".into()),
 
             ("print", 1) => {
                 if let ParseNode::StringLit(s) = &args[0] {
                     let escaped: String = s.chars().map(|c| escape_char(c)).collect();
-                    Some(format!("println!(\"{}\")", escaped))
+                    Some(format!(
+                        "{{ print!(\"{escaped}\"); io::stdout().flush().unwrap(); }}"
+                    ))
                 } else {
-                    Some(format!("println!(\"{{}}\", {})", a[0]))
+                    Some(format!(
+                        "{{ print!(\"{{}}\", {}); io::stdout().flush().unwrap(); }}",
+                        a[0]
+                    ))
                 }
             }
 
@@ -1836,15 +1841,69 @@ impl CodeGen {
                     a[0].clone()
                 };
                 let rest = a[1..].join(", ");
-                Some(format!("println!({}, {})", fmt_lit, rest))
+                Some(format!(
+                    "{{ print!({}, {}); io::stdout().flush().unwrap(); }}",
+                    fmt_lit, rest
+                ))
             }
 
-            ("input", _) => Some(
-                "{ let mut __ln = String::new(); \
-                 io::stdin().lock().read_line(&mut __ln).unwrap(); \
-                 __ln.trim().to_string() }"
-                    .into(),
-            ),
+            ("input", _) => {
+                let vars = &args[1..];
+                if vars.is_empty() {
+                    return Some(
+                        "{ let mut __ln = String::new(); \
+                         io::stdin().lock().read_line(&mut __ln).unwrap(); }"
+                            .into(),
+                    );
+                }
+
+                let mut stmts = String::from(
+                    "{ let mut __ln = String::new(); \
+                     io::stdin().lock().read_line(&mut __ln).unwrap(); \
+                     let mut __toks = __ln.trim().split_whitespace(); ",
+                );
+
+                for var_node in vars {
+                    let (var_name, var_type) =
+                        if let ParseNode::AccessChain { base, steps } = var_node {
+                            if steps.is_empty() {
+                                let ty = self
+                                    .var_types
+                                    .get(base.as_str())
+                                    .cloned()
+                                    .or_else(|| self.local_var_types.get(base.as_str()).cloned())
+                                    .unwrap_or(SemType::Unknown);
+                                (escape_ident(base), ty)
+                            } else {
+                                let lv = self.emit_access_chain_mut(base, steps);
+
+                                (lv, SemType::Int)
+                            }
+                        } else {
+                            continue;
+                        };
+
+                    let parse_expr = match var_type {
+                        SemType::Int => {
+                            "__toks.next().unwrap_or(\"\").parse::<i64>().unwrap_or(0_i64)"
+                        }
+                        SemType::Float => {
+                            "__toks.next().unwrap_or(\"\").parse::<f64>().unwrap_or(0.0_f64)"
+                        }
+                        SemType::Char => {
+                            "__toks.next().unwrap_or(\"\").chars().next().unwrap_or('\\0')"
+                        }
+                        SemType::Boolean => {
+                            "matches!(__toks.next().unwrap_or(\"\"), \"true\" | \"1\")"
+                        }
+                        _ => "__toks.next().unwrap_or(\"\").parse::<i64>().unwrap_or(0_i64)",
+                    };
+
+                    stmts.push_str(&format!("{} = {}; ", var_name, parse_expr));
+                }
+                stmts.push('}');
+                Some(stmts)
+            }
 
             ("append", 2) => {
                 let container = self.gen_list_container(&args[0]);

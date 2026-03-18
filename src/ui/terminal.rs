@@ -1,315 +1,41 @@
 use crate::ui::icons as ic;
 use crate::ui::theme::Theme;
 use eframe::egui;
-
-struct Span {
-    text: String,
-    color: egui::Color32,
-    bold: bool,
-}
-
-fn parse_ansi(line: &str, default_color: egui::Color32) -> Vec<Span> {
-    let mut spans: Vec<Span> = Vec::new();
-    let bytes = line.as_bytes();
-    let len = bytes.len();
-
-    let mut pos = 0;
-    let mut cur_color = default_color;
-    let mut bold = false;
-    let mut text_start = 0;
-
-    macro_rules! flush {
-        ($end:expr) => {
-            if text_start < $end {
-                let text = line[text_start..$end].to_owned();
-                if !text.is_empty() {
-                    spans.push(Span {
-                        text,
-                        color: cur_color,
-                        bold,
-                    });
-                }
-            }
-        };
-    }
-
-    while pos < len {
-        if bytes[pos] != 0x1B {
-            pos += 1;
-            continue;
-        }
-
-        flush!(pos);
-
-        if pos + 1 >= len || bytes[pos + 1] != b'[' {
-            pos += 1;
-            text_start = pos;
-            continue;
-        }
-
-        let seq_start = pos + 2;
-        let mut seq_end = seq_start;
-        while seq_end < len && !bytes[seq_end].is_ascii_alphabetic() {
-            seq_end += 1;
-        }
-
-        if seq_end < len && bytes[seq_end] == b'm' {
-            let params_str = &line[seq_start..seq_end];
-            apply_sgr(params_str, default_color, &mut cur_color, &mut bold);
-        }
-
-        pos = seq_end + 1;
-        text_start = pos;
-    }
-
-    flush!(pos);
-    spans
-}
-
-fn apply_sgr(
-    params: &str,
-    default_color: egui::Color32,
-    cur_color: &mut egui::Color32,
-    bold: &mut bool,
-) {
-    let mut parts = params.split(';').filter_map(|s| s.parse::<u8>().ok());
-
-    while let Some(code) = parts.next() {
-        match code {
-            0 => {
-                *cur_color = default_color;
-                *bold = false;
-            }
-            1 => *bold = true,
-            22 => *bold = false,
-            39 => *cur_color = default_color,
-
-            30 => *cur_color = egui::Color32::from_rgb(64, 64, 64),
-            31 => *cur_color = egui::Color32::from_rgb(204, 0, 0),
-            32 => *cur_color = egui::Color32::from_rgb(0, 170, 0),
-            33 => *cur_color = egui::Color32::from_rgb(170, 85, 0),
-            34 => *cur_color = egui::Color32::from_rgb(0, 85, 204),
-            35 => *cur_color = egui::Color32::from_rgb(170, 0, 170),
-            36 => *cur_color = egui::Color32::from_rgb(0, 170, 170),
-            37 => *cur_color = egui::Color32::from_rgb(192, 192, 192),
-
-            38 => match parts.next() {
-                Some(5) => {
-                    if let Some(idx) = parts.next() {
-                        *cur_color = ansi_256_color(idx);
-                    }
-                }
-                Some(2) => {
-                    let r = parts.next().unwrap_or(0);
-                    let g = parts.next().unwrap_or(0);
-                    let b = parts.next().unwrap_or(0);
-                    *cur_color = egui::Color32::from_rgb(r, g, b);
-                }
-                _ => {}
-            },
-
-            90 => *cur_color = egui::Color32::from_rgb(128, 128, 128),
-            91 => *cur_color = egui::Color32::from_rgb(255, 85, 85),
-            92 => *cur_color = egui::Color32::from_rgb(85, 255, 85),
-            93 => *cur_color = egui::Color32::from_rgb(255, 255, 85),
-            94 => *cur_color = egui::Color32::from_rgb(85, 85, 255),
-            95 => *cur_color = egui::Color32::from_rgb(255, 85, 255),
-            96 => *cur_color = egui::Color32::from_rgb(85, 255, 255),
-            97 => *cur_color = egui::Color32::WHITE,
-
-            _ => {}
-        }
-    }
-}
-
-fn ansi_256_color(idx: u8) -> egui::Color32 {
-    match idx {
-        0 => egui::Color32::from_rgb(0, 0, 0),
-        1 => egui::Color32::from_rgb(204, 0, 0),
-        2 => egui::Color32::from_rgb(0, 170, 0),
-        3 => egui::Color32::from_rgb(170, 85, 0),
-        4 => egui::Color32::from_rgb(0, 85, 204),
-        5 => egui::Color32::from_rgb(170, 0, 170),
-        6 => egui::Color32::from_rgb(0, 170, 170),
-        7 => egui::Color32::from_rgb(192, 192, 192),
-        8 => egui::Color32::from_rgb(128, 128, 128),
-        9 => egui::Color32::from_rgb(255, 85, 85),
-        10 => egui::Color32::from_rgb(85, 255, 85),
-        11 => egui::Color32::from_rgb(255, 255, 85),
-        12 => egui::Color32::from_rgb(85, 85, 255),
-        13 => egui::Color32::from_rgb(255, 85, 255),
-        14 => egui::Color32::from_rgb(85, 255, 255),
-        15 => egui::Color32::WHITE,
-
-        16..=231 => {
-            let i = idx - 16;
-            let b = (i % 6) * 51;
-            let g = ((i / 6) % 6) * 51;
-            let r = (i / 36) * 51;
-            egui::Color32::from_rgb(r, g, b)
-        }
-
-        232..=255 => {
-            let v = 8 + (idx - 232) * 10;
-            egui::Color32::from_rgb(v, v, v)
-        }
-    }
-}
-
-fn has_ansi(line: &str) -> bool {
-    line.contains('\x1B')
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum LineKind {
-    ErrorHeader,
-    WarnHeader,
-    NoteOrHelp,
-    Location,
-    Gutter,
-    SubNote,
-    Plain,
-}
-
-fn classify(line: &str) -> LineKind {
-    let trimmed = line.trim_start();
-    if line.starts_with("error") {
-        return LineKind::ErrorHeader;
-    }
-    if line.starts_with("warning") {
-        return LineKind::WarnHeader;
-    }
-    if line.starts_with("note:") || line.starts_with("help:") {
-        return LineKind::NoteOrHelp;
-    }
-    if trimmed.starts_with("--> ") {
-        return LineKind::Location;
-    }
-    if trimmed.starts_with("= note:") || trimmed.starts_with("= help:") {
-        return LineKind::SubNote;
-    }
-    let maybe_gutter = trimmed
-        .find('|')
-        .map(|i| trimmed[..i].trim().chars().all(|c| c.is_ascii_digit()))
-        .unwrap_or(false);
-    if maybe_gutter {
-        return LineKind::Gutter;
-    }
-    LineKind::Plain
-}
-
-struct Segment {
-    text: String,
-    color: egui::Color32,
-}
-
-fn seg(text: impl Into<String>, color: egui::Color32) -> Segment {
-    Segment {
-        text: text.into(),
-        color,
-    }
-}
-
-fn segments_for_line(line: &str, kind: LineKind, t: &Theme) -> Vec<Segment> {
-    match kind {
-        LineKind::ErrorHeader => segments_kw(line, t.terminal_error, t),
-        LineKind::WarnHeader => segments_kw(line, t.terminal_warning, t),
-        LineKind::NoteOrHelp => {
-            let (kw, rest) = split_at_colon(line);
-            vec![seg(kw, t.terminal_hint), seg(rest, t.terminal_fg)]
-        }
-        LineKind::Location => {
-            if let Some(i) = line.find("-->") {
-                vec![
-                    seg(&line[..i + 3], t.terminal_gutter),
-                    seg(&line[i + 3..], t.terminal_location),
-                ]
-            } else {
-                vec![seg(line, t.terminal_location)]
-            }
-        }
-        LineKind::Gutter => {
-            if let Some(p) = line.find('|') {
-                let content = &line[p + 1..];
-                let is_caret = !content.trim().is_empty()
-                    && content
-                        .trim()
-                        .chars()
-                        .all(|c| matches!(c, '^' | '-' | '+' | '~' | ' '));
-                vec![
-                    seg(&line[..p], t.terminal_line_num),
-                    seg("|", t.terminal_gutter),
-                    seg(
-                        content,
-                        if is_caret {
-                            t.terminal_caret
-                        } else {
-                            t.terminal_fg
-                        },
-                    ),
-                ]
-            } else {
-                vec![seg(line, t.terminal_gutter)]
-            }
-        }
-        LineKind::SubNote => {
-            if let Some(eq) = line.find('=') {
-                let rest = line[eq + 1..].trim_start();
-                let (kw, msg) = split_at_colon(rest);
-                vec![
-                    seg(&line[..eq + 1], t.terminal_gutter),
-                    seg(" ", t.terminal_gutter),
-                    seg(kw, t.terminal_hint),
-                    seg(msg, t.terminal_fg),
-                ]
-            } else {
-                vec![seg(line, t.terminal_hint)]
-            }
-        }
-        LineKind::Plain => vec![seg(line, t.terminal_fg)],
-    }
-}
-
-fn segments_kw(line: &str, kw_color: egui::Color32, t: &Theme) -> Vec<Segment> {
-    let kw_end = line
-        .find(|c: char| !c.is_alphabetic())
-        .unwrap_or(line.len());
-    let keyword = &line[..kw_end];
-    let rest = &line[kw_end..];
-    if rest.starts_with('[') {
-        if let Some(close) = rest.find(']') {
-            return vec![
-                seg(keyword, kw_color),
-                seg(&rest[..=close], t.terminal_error_code),
-                seg(&rest[close + 1..], t.terminal_fg),
-            ];
-        }
-    }
-    vec![seg(keyword, kw_color), seg(rest, t.terminal_fg)]
-}
-
-fn split_at_colon(s: &str) -> (&str, &str) {
-    if let Some(i) = s.find(':') {
-        (&s[..i + 1], &s[i + 1..])
-    } else {
-        (s, "")
-    }
-}
+use egui::Vec2;
+use egui_term::{
+    BackendSettings, ColorPalette, PtyEvent, TerminalBackend, TerminalTheme, TerminalView,
+};
+use std::sync::mpsc::{self, Receiver};
 
 pub struct Terminal {
-    pub output: String,
     pub minimized: bool,
     saved_height: f32,
     theme: Theme,
+    backend: TerminalBackend,
+    pty_receiver: Receiver<(u64, PtyEvent)>,
 }
 
 impl Terminal {
-    pub fn new(theme: Theme) -> Self {
+    pub fn new(theme: Theme, ctx: &egui::Context) -> Self {
+        let (pty_sender, pty_receiver) = mpsc::channel();
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        let backend = TerminalBackend::new(
+            0,
+            ctx.clone(),
+            pty_sender.clone(),
+            BackendSettings {
+                shell,
+                ..Default::default()
+            },
+        )
+        .expect("failed to create terminal backend");
+
         Self {
-            output: String::new(),
             minimized: false,
-            saved_height: 200.0,
+            saved_height: 220.0,
             theme,
+            backend,
+            pty_receiver,
         }
     }
 
@@ -317,30 +43,40 @@ impl Terminal {
         self.theme = theme;
     }
 
-    pub fn append(&mut self, text: &str) {
-        self.output.push_str(text);
-        self.minimized = false;
-    }
-
-    pub fn clear(&mut self) {
-        self.output.clear();
-    }
-
     pub fn toggle_minimized(&mut self) {
         self.minimized = !self.minimized;
     }
 
+    pub fn run_binary(&mut self, bin_path: &std::path::Path) {
+        let cmd = format!("{}\n", bin_path.to_string_lossy());
+        self.backend
+            .process_command(egui_term::BackendCommand::Write(cmd.into_bytes()));
+        self.minimized = false;
+    }
+
+    pub fn clear(&mut self) {
+        self.backend
+            .process_command(egui_term::BackendCommand::Write(b"clear\n".to_vec()));
+    }
+
+    pub fn append(&mut self, text: &str) {
+        self.backend
+            .process_command(egui_term::BackendCommand::Write(text.as_bytes().to_vec()));
+    }
+
     pub fn show(&mut self, ctx: &egui::Context) {
+        while let Ok(_event) = self.pty_receiver.try_recv() {}
+
         let t = self.theme;
         let header_h = 32.0;
 
-        let frame = egui::Frame::none()
+        let frame = egui::Frame::new()
             .fill(t.terminal_bg)
             .inner_margin(egui::Margin {
-                left: 12.0,
-                right: 12.0,
-                top: 0.0,
-                bottom: 0.0,
+                left: 12,
+                right: 12,
+                top: 0,
+                bottom: 0,
             });
 
         if self.minimized {
@@ -349,7 +85,12 @@ impl Terminal {
                 .resizable(false)
                 .exact_height(header_h)
                 .show_separator_line(false)
-                .show(ctx, |ui| self.draw_header(ui, t));
+                .show(ctx, |ui| {
+                    let (_, do_toggle) = self.draw_header(ui, t);
+                    if do_toggle {
+                        self.minimized = !self.minimized;
+                    }
+                });
             self.draw_border(ctx, resp.response.rect, t);
         } else {
             let resp = egui::TopBottomPanel::bottom("terminal_panel_expanded")
@@ -360,10 +101,33 @@ impl Terminal {
                 .default_height(self.saved_height)
                 .show_separator_line(false)
                 .show(ctx, |ui| {
-                    self.draw_header(ui, t);
-                    ui.add_space(3.0);
-                    self.draw_output(ui, t);
+                    let (do_clear, do_toggle) = self.draw_header(ui, t);
+                    if do_clear {
+                        self.clear();
+                    }
+                    if do_toggle {
+                        self.minimized = !self.minimized;
+                    }
+
+                    let avail = ui.available_size();
+                    let term_theme = TerminalTheme::new(Box::new(theme_to_palette(&t)));
+
+                    // Focus the terminal when the pointer is anywhere in the panel
+                    // (including the header). clip_rect() gives the full panel area.
+                    let panel_rect = ui.clip_rect();
+                    let pointer_in_panel = ui.ctx().input(|i| {
+                        i.pointer
+                            .hover_pos()
+                            .map_or(false, |p| panel_rect.contains(p))
+                    });
+
+                    let view = TerminalView::new(ui, &mut self.backend)
+                        .set_focus(pointer_in_panel)
+                        .set_theme(term_theme)
+                        .set_size(Vec2::new(avail.x, avail.y));
+                    ui.add(view);
                 });
+
             let h = resp.response.rect.height();
             if h >= 80.0 {
                 self.saved_height = h;
@@ -372,7 +136,11 @@ impl Terminal {
         }
     }
 
-    fn draw_header(&mut self, ui: &mut egui::Ui, t: Theme) {
+    /// Returns (do_clear, do_toggle)
+    fn draw_header(&mut self, ui: &mut egui::Ui, t: Theme) -> (bool, bool) {
+        let mut do_clear = false;
+        let mut do_toggle = false;
+
         ui.add_space(5.0);
         ui.horizontal(|ui| {
             let toggle_icon = if self.minimized {
@@ -392,7 +160,7 @@ impl Terminal {
             if toggle_resp.hovered() {
                 ui.painter().rect_filled(
                     toggle_resp.rect.expand(2.0),
-                    egui::Rounding::same(4.0),
+                    egui::CornerRadius::same(4),
                     t.button_hover_bg,
                 );
                 ui.painter().text(
@@ -404,7 +172,7 @@ impl Terminal {
                 );
             }
             if toggle_resp.clicked() {
-                self.toggle_minimized();
+                do_toggle = true;
             }
 
             ui.label(
@@ -415,96 +183,39 @@ impl Terminal {
             );
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let clear_id = egui::Id::new("terminal_clear_btn");
-                let (clear_rect, _) =
-                    ui.allocate_exact_size(egui::vec2(64.0, 24.0), egui::Sense::hover());
-                let clear_hovered = ui.rect_contains_pointer(clear_rect);
-                ui.painter().text(
-                    clear_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    format!("{}  Clear", ic::TERM_CLEAR),
-                    egui::FontId::proportional(11.5),
-                    if clear_hovered {
-                        t.terminal_error
-                    } else {
-                        t.tab_inactive_fg
-                    },
-                );
-                if ui
-                    .interact(clear_rect, clear_id, egui::Sense::click())
-                    .clicked()
-                {
-                    self.output.clear();
-                }
-            });
-        });
-    }
+                let clear_resp = ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(ic::TERM_CLEAR)
+                                .size(13.0)
+                                .color(t.tab_inactive_fg),
+                        )
+                        .fill(egui::Color32::TRANSPARENT)
+                        .stroke(egui::Stroke::NONE),
+                    )
+                    .on_hover_text("Clear terminal");
 
-    fn draw_output(&self, ui: &mut egui::Ui, t: Theme) {
-        egui::Frame::none()
-            .fill(t.terminal_bg)
-            .inner_margin(egui::Margin::same(8.0))
-            .show(ui, |ui| {
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        ui.set_min_width(ui.available_width());
-
-                        if self.output.is_empty() {
-                            ui.label(
-                                egui::RichText::new(
-                                    "No output yet. Press Run to compile and execute.",
-                                )
-                                .size(12.0)
-                                .color(
-                                    egui::Color32::from_rgba_unmultiplied(
-                                        t.terminal_fg.r(),
-                                        t.terminal_fg.g(),
-                                        t.terminal_fg.b(),
-                                        140,
-                                    ),
-                                ),
-                            );
-                        } else {
-                            for line in self.output.lines() {
-                                self.draw_line(ui, line, &t);
-                            }
-                        }
-                    });
-            });
-    }
-
-    fn draw_line(&self, ui: &mut egui::Ui, line: &str, t: &Theme) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-
-            if has_ansi(line) {
-                for span in &parse_ansi(line, t.terminal_fg) {
-                    if span.text.is_empty() {
-                        continue;
-                    }
-                    let rt = egui::RichText::new(&span.text)
-                        .size(12.5)
-                        .color(span.color)
-                        .monospace();
-                    ui.label(if span.bold { rt.strong() } else { rt });
-                }
-            } else {
-                let kind = classify(line);
-                for s in &segments_for_line(line, kind, t) {
-                    if s.text.is_empty() {
-                        continue;
-                    }
-                    ui.label(
-                        egui::RichText::new(&s.text)
-                            .size(12.5)
-                            .color(s.color)
-                            .monospace(),
+                if clear_resp.hovered() {
+                    ui.painter().rect_filled(
+                        clear_resp.rect.expand(2.0),
+                        egui::CornerRadius::same(4),
+                        t.button_hover_bg,
+                    );
+                    ui.painter().text(
+                        clear_resp.rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        ic::TERM_CLEAR,
+                        egui::FontId::proportional(13.0),
+                        t.terminal_error,
                     );
                 }
-            }
+                if clear_resp.clicked() {
+                    do_clear = true;
+                }
+            });
         });
+
+        (do_clear, do_toggle)
     }
 
     fn draw_border(&self, ctx: &egui::Context, rect: egui::Rect, t: Theme) {
@@ -512,5 +223,75 @@ impl Terminal {
             [rect.left_top(), rect.right_top()],
             egui::Stroke::new(1.0, t.border),
         );
+    }
+}
+
+fn c32_hex(c: egui::Color32) -> String {
+    format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b())
+}
+
+fn theme_to_palette(t: &Theme) -> ColorPalette {
+    use crate::ui::theme::ThemeVariant;
+    match t.variant {
+        ThemeVariant::Dark => ColorPalette {
+            foreground: c32_hex(t.text_default),
+            background: c32_hex(t.terminal_bg),
+            black: "#0d1117".into(),
+            red: c32_hex(t.terminal_error),
+            green: c32_hex(t.struct_name),
+            yellow: c32_hex(t.number),
+            blue: c32_hex(t.type_name),
+            magenta: c32_hex(t.fn_name),
+            cyan: c32_hex(t.terminal_hint),
+            white: c32_hex(t.text_default),
+            bright_black: c32_hex(t.tab_inactive_fg),
+            bright_red: "#ff7b7b".into(),
+            bright_green: "#7ee787".into(),
+            bright_yellow: "#ffd700".into(),
+            bright_blue: "#79c0ff".into(),
+            bright_magenta: "#d2a8ff".into(),
+            bright_cyan: "#56d364".into(),
+            bright_white: "#f0f6fc".into(),
+            bright_foreground: None,
+            dim_foreground: c32_hex(t.tab_inactive_fg),
+            dim_black: "#0d1117".into(),
+            dim_red: c32_hex(t.terminal_error),
+            dim_green: c32_hex(t.struct_name),
+            dim_yellow: c32_hex(t.number),
+            dim_blue: c32_hex(t.type_name),
+            dim_magenta: c32_hex(t.fn_name),
+            dim_cyan: c32_hex(t.terminal_hint),
+            dim_white: c32_hex(t.tab_inactive_fg),
+        },
+        ThemeVariant::Light => ColorPalette {
+            foreground: c32_hex(t.text_default),
+            background: c32_hex(t.terminal_bg),
+            black: "#e8ebf5".into(),
+            red: c32_hex(t.terminal_error),
+            green: c32_hex(t.struct_name),
+            yellow: c32_hex(t.number),
+            blue: c32_hex(t.type_name),
+            magenta: c32_hex(t.fn_name),
+            cyan: c32_hex(t.terminal_hint),
+            white: c32_hex(t.text_default),
+            bright_black: c32_hex(t.tab_inactive_fg),
+            bright_red: "#c01c1c".into(),
+            bright_green: "#007000".into(),
+            bright_yellow: "#945a00".into(),
+            bright_blue: "#3c50c8".into(),
+            bright_magenta: "#6f42c1".into(),
+            bright_cyan: "#00787c".into(),
+            bright_white: "#1c2236".into(),
+            bright_foreground: None,
+            dim_foreground: c32_hex(t.tab_inactive_fg),
+            dim_black: "#e8ebf5".into(),
+            dim_red: c32_hex(t.terminal_error),
+            dim_green: c32_hex(t.struct_name),
+            dim_yellow: c32_hex(t.number),
+            dim_blue: c32_hex(t.type_name),
+            dim_magenta: c32_hex(t.fn_name),
+            dim_cyan: c32_hex(t.terminal_hint),
+            dim_white: c32_hex(t.tab_inactive_fg),
+        },
     }
 }

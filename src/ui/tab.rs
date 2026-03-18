@@ -84,7 +84,7 @@ pub fn show_tab_bar(
 
     egui::TopBottomPanel::top("tab_bar")
         .frame(
-            egui::Frame::none()
+            egui::Frame::new()
                 .fill(t.tab_bar_bg)
                 .inner_margin(egui::Margin::ZERO),
         )
@@ -103,7 +103,7 @@ pub fn show_tab_bar(
 
                     painter.rect_filled(
                         rect,
-                        egui::Rounding::ZERO,
+                        egui::CornerRadius::ZERO,
                         if is_active {
                             t.tab_active_bg
                         } else {
@@ -114,7 +114,7 @@ pub fn show_tab_bar(
                     if is_active {
                         painter.rect_filled(
                             egui::Rect::from_min_size(rect.min, egui::vec2(tab_w, 2.0)),
-                            egui::Rounding::ZERO,
+                            egui::CornerRadius::ZERO,
                             t.accent,
                         );
                     }
@@ -205,7 +205,7 @@ pub fn show_tab_bar(
                     egui::Color32::TRANSPARENT
                 };
                 ui.painter_at(new_rect)
-                    .rect_filled(new_rect, egui::Rounding::same(4.0), new_bg);
+                    .rect_filled(new_rect, egui::CornerRadius::same(4), new_bg);
                 let new_col = if new_resp.hovered() {
                     t.tab_active_fg
                 } else {

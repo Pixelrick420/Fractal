@@ -1,6 +1,7 @@
 use crate::ui::icons as ic;
 use crate::ui::theme::Theme;
 use eframe::egui;
+use egui::{LayerId, Order, Popup, PopupAnchor, PopupCloseBehavior};
 use std::path::PathBuf;
 
 #[derive(Default)]
@@ -12,9 +13,9 @@ pub enum MenuAction {
     SaveCurrent,
     New,
     Run,
-      /// Start/continue step-by-step debug session.
+
     StepRun,
-      /// Reset / stop the debug session.
+
     StepStop,
     ToggleDocs,
     ToggleTreeView,
@@ -24,9 +25,7 @@ pub enum MenuAction {
     Search,
     Replace,
     None,
-    
-    
-  }
+}
 
 const BTN_W: f32 = 72.0;
 const BTN_H: f32 = 28.0;
@@ -35,19 +34,19 @@ const ICON_BTN_W: f32 = 34.0;
 
 const FLYOUT_GAP: f32 = 0.0;
 
-  pub fn show_menu_bar(
-      ctx: &egui::Context,
-      _state: &mut MenuBarState,
-      current_file: Option<&PathBuf>,
-      is_running: bool,
-      docs_open: bool,
-      is_debugging: bool,
-      tree_view_open: bool,
-      var_view_open: bool,
-      theme: &Theme,
-      recent_files: &[PathBuf],
-      search_bar_visible: bool,
-  ) -> MenuAction {
+pub fn show_menu_bar(
+    ctx: &egui::Context,
+    _state: &mut MenuBarState,
+    current_file: Option<&PathBuf>,
+    is_running: bool,
+    is_debugging: bool,
+    docs_open: bool,
+    tree_view_open: bool,
+    var_view_open: bool,
+    theme: &Theme,
+    recent_files: &[PathBuf],
+    search_bar_visible: bool,
+) -> MenuAction {
     let mut action = MenuAction::None;
 
     ctx.input_mut(|i| {
@@ -79,15 +78,19 @@ const FLYOUT_GAP: f32 = 0.0;
 
     let t = theme;
 
+    let flyout_open_id = egui::Id::new("recent_flyout_open");
+    let flyout_row_rect_id = egui::Id::new("recent_row_rect");
+    let recent_clicked_id = egui::Id::new("recent_clicked_path");
+
     egui::TopBottomPanel::top("menu_bar")
         .frame(
-            egui::Frame::none()
+            egui::Frame::new()
                 .fill(t.tab_bar_bg)
                 .inner_margin(egui::Margin {
-                    left: 12.0,
-                    right: 12.0,
-                    top: 0.0,
-                    bottom: 0.0,
+                    left: 12,
+                    right: 12,
+                    top: 0,
+                    bottom: 0,
                 }),
         )
         .show(ctx, |ui| {
@@ -119,35 +122,38 @@ const FLYOUT_GAP: f32 = 0.0;
                 let (div_rect, _) =
                     ui.allocate_exact_size(egui::vec2(1.0, 18.0), egui::Sense::hover());
                 ui.painter()
-                    .rect_filled(div_rect, egui::Rounding::ZERO, t.border);
+                    .rect_filled(div_rect, egui::CornerRadius::ZERO, t.border);
                 ui.add_space(10.0);
 
                 let file_id = ui.make_persistent_id("menu_file_popup");
                 let (file_rect, _) =
                     ui.allocate_exact_size(egui::vec2(BTN_W, BTN_H), egui::Sense::hover());
+
+                let popup_open = Popup::is_id_open(ctx, file_id);
                 let file_clicked = ui
                     .interact(file_rect, file_id.with("btn"), egui::Sense::click())
                     .clicked();
-                let file_hovered = ui.rect_contains_pointer(file_rect);
-                let popup_open = ui.memory(|m| m.is_popup_open(file_id));
-                let file_active = file_hovered || popup_open;
-
                 if file_clicked {
-                    ui.memory_mut(|m| m.toggle_popup(file_id));
+                    Popup::toggle_id(ctx, file_id);
                 }
+
+                let file_hovered = ui.rect_contains_pointer(file_rect);
+                let file_active = file_hovered || popup_open;
 
                 paint_menu_button(ui, file_rect, "File", ic::FILE_OPEN, file_active, false, t);
 
-                let flyout_open_id = egui::Id::new("recent_flyout_open");
-                let flyout_row_rect_id = egui::Id::new("recent_row_rect");
-                let recent_clicked_id = egui::Id::new("recent_clicked_path");
+                let anchor = file_rect;
 
-                egui::popup::popup_below_widget(
-                    ui,
-                    file_id,
-                    &ui.interact(file_rect, file_id.with("anchor"), egui::Sense::hover()),
-                    egui::popup::PopupCloseBehavior::CloseOnClickOutside,
-                    |ui| {
+                if popup_open {
+                    Popup::new(
+                        file_id,
+                        ctx.clone(),
+                        PopupAnchor::ParentRect(anchor),
+                        LayerId::new(Order::Foreground, file_id),
+                    )
+                    .open_memory(None)
+                    .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
+                    .show(|ui| {
                         let s = ui.style_mut();
                         s.visuals.window_fill = t.menu_bg;
                         s.visuals.panel_fill = t.menu_bg;
@@ -160,11 +166,11 @@ const FLYOUT_GAP: f32 = 0.0;
 
                         if icon_menu_item(ui, ic::FILE_NEW, "New File", "Ctrl+N", t) {
                             action = MenuAction::New;
-                            ui.memory_mut(|m| m.close_popup());
+                            Popup::close_id(ctx, file_id);
                         }
                         if icon_menu_item(ui, ic::FILE_OPEN, "Open…", "Ctrl+O", t) {
                             action = MenuAction::OpenDialog;
-                            ui.memory_mut(|m| m.close_popup());
+                            Popup::close_id(ctx, file_id);
                         }
                         if icon_menu_item(ui, ic::FILE_SAVE, "Save", "Ctrl+S", t) {
                             action = if current_file.is_some() {
@@ -172,11 +178,11 @@ const FLYOUT_GAP: f32 = 0.0;
                             } else {
                                 MenuAction::SaveDialog
                             };
-                            ui.memory_mut(|m| m.close_popup());
+                            Popup::close_id(ctx, file_id);
                         }
                         if icon_menu_item(ui, ic::FILE_SAVE_AS, "Save As…", "Ctrl+Shift+S", t) {
                             action = MenuAction::SaveDialog;
-                            ui.memory_mut(|m| m.close_popup());
+                            Popup::close_id(ctx, file_id);
                         }
 
                         styled_separator(ui, t);
@@ -195,7 +201,7 @@ const FLYOUT_GAP: f32 = 0.0;
 
                         if show_flyout {
                             ui.painter()
-                                .rect_filled(r_row, egui::Rounding::same(4.0), t.accent);
+                                .rect_filled(r_row, egui::CornerRadius::same(4), t.accent);
                         }
                         let row_fg = if show_flyout { t.tab_bar_bg } else { t.menu_fg };
                         ui.painter().text(
@@ -224,11 +230,11 @@ const FLYOUT_GAP: f32 = 0.0;
 
                         if icon_menu_item(ui, ic::MAGNIFY, "Find…", "Ctrl+F", t) {
                             action = MenuAction::Search;
-                            ui.memory_mut(|m| m.close_popup());
+                            Popup::close_id(ctx, file_id);
                         }
                         if icon_menu_item(ui, ic::ARROWS_CLOCKWISE, "Replace…", "Ctrl+H", t) {
                             action = MenuAction::Replace;
-                            ui.memory_mut(|m| m.close_popup());
+                            Popup::close_id(ctx, file_id);
                         }
 
                         styled_separator(ui, t);
@@ -236,13 +242,13 @@ const FLYOUT_GAP: f32 = 0.0;
                         let docs_label = if docs_open { "Close Docs" } else { "Open Docs" };
                         if icon_menu_item(ui, ic::DOCS, docs_label, "Ctrl+D", t) {
                             action = MenuAction::ToggleDocs;
-                            ui.memory_mut(|m| m.close_popup());
+                            Popup::close_id(ctx, file_id);
                         }
                         ui.add_space(4.0);
-                    },
-                );
+                    });
+                }
 
-                let popup_is_open = ui.memory(|m| m.is_popup_open(file_id));
+                let popup_is_open = Popup::is_id_open(ctx, file_id);
                 let flyout_active =
                     ctx.data(|d| d.get_temp::<bool>(flyout_open_id).unwrap_or(false));
                 let row_rect: Option<egui::Rect> = ctx.data(|d| d.get_temp(flyout_row_rect_id));
@@ -256,17 +262,17 @@ const FLYOUT_GAP: f32 = 0.0;
                             .order(egui::Order::Foreground)
                             .fixed_pos(flyout_pos)
                             .show(ctx, |ui| {
-                                egui::Frame::none()
+                                egui::Frame::new()
                                     .fill(t.menu_bg)
                                     .stroke(egui::Stroke::new(1.0, t.border))
-                                    .rounding(egui::Rounding::same(6.0))
+                                    .corner_radius(egui::CornerRadius::same(6))
                                     .shadow(egui::Shadow {
-                                        offset: egui::vec2(0.0, 4.0),
-                                        blur: 12.0,
-                                        spread: 0.0,
+                                        offset: [0, 4],
+                                        blur: 12,
+                                        spread: 0,
                                         color: egui::Color32::from_black_alpha(80),
                                     })
-                                    .inner_margin(egui::Margin::same(4.0))
+                                    .inner_margin(egui::Margin::same(4))
                                     .show(ui, |ui| {
                                         ui.set_min_width(260.0);
                                         ui.add_space(2.0);
@@ -306,7 +312,7 @@ const FLYOUT_GAP: f32 = 0.0;
                                                 if ih {
                                                     ui.painter().rect_filled(
                                                         ir,
-                                                        egui::Rounding::same(4.0),
+                                                        egui::CornerRadius::same(4),
                                                         t.accent,
                                                     );
                                                 }
@@ -351,7 +357,7 @@ const FLYOUT_GAP: f32 = 0.0;
                                                     ctx.data_mut(|d| {
                                                         d.insert_temp(flyout_open_id, false)
                                                     });
-                                                    ui.memory_mut(|m| m.close_popup());
+                                                    Popup::close_id(ctx, file_id);
                                                 }
                                             }
                                         }
@@ -407,98 +413,126 @@ const FLYOUT_GAP: f32 = 0.0;
                 );
 
                 let run_resp = ui.interact(run_rect, run_id, egui::Sense::click());
-                if run_resp.clicked() && !is_running {   
+                if run_resp.clicked() && !is_running {
                     action = MenuAction::Run;
                 }
-                
-                  ui.add_space(6.0);
-                
-                  // ── Step button ──────────────────────────────────────────────────────────
-                  let step_label = if is_debugging { "Step  F5" } else { "Debug  F5" };
-                  let step_id    = egui::Id::new("menu_step_btn");
-                  let (step_rect, _) =
-                      ui.allocate_exact_size(egui::vec2(BTN_W + 14.0, BTN_H), egui::Sense::hover());
-                  let step_hovered = ui.rect_contains_pointer(step_rect);
-                
-                  paint_step_button(ui, step_rect, step_label, is_debugging, step_hovered, t);
-                
-                  let step_resp = ui.interact(step_rect, step_id, egui::Sense::click());
-                  if step_resp.clicked() {
-                      action = MenuAction::StepRun;
-                  }
-                
-                  // ── Stop button (only shown while debugging) ──────────────────────────────
-                  if is_debugging {
-                      ui.add_space(4.0);
-                      let stop_id = egui::Id::new("menu_stop_btn");
-                      let (stop_rect, _) =
-                          ui.allocate_exact_size(egui::vec2(BTN_W, BTN_H), egui::Sense::hover());
-                      let stop_hovered = ui.rect_contains_pointer(stop_rect);
-                
-                      if stop_hovered {
-                          ui.painter().rect_filled(stop_rect, egui::Rounding::same(BTN_ROUNDING), t.terminal_error);
-                      }
-                      let stop_fg = if stop_hovered { t.tab_bar_bg } else { t.terminal_error };
-                      ui.painter().text(
-                          stop_rect.center(),
-                          egui::Align2::CENTER_CENTER,
-                          "■  Stop",
-                          egui::FontId::proportional(12.5),
-                          stop_fg,
-                      );
-                      if ui.interact(stop_rect, stop_id, egui::Sense::click()).clicked() {
-                          action = MenuAction::StepStop;
-                      }
-                  }
-                
-                  ui.add_space(6.0);
-                
-                  // ── View separator + toggles ──────────────────────────────────────────────
-                  let (div_rect2, _) =
-                      ui.allocate_exact_size(egui::vec2(1.0, 18.0), egui::Sense::hover());
-                  ui.painter().rect_filled(div_rect2, egui::Rounding::ZERO, t.border);
-                  ui.add_space(6.0);
-                
-                  // "View" drop-down (opens the two debug windows)
-                  let view_id = ui.make_persistent_id("menu_view_popup");
-                  let (view_rect, _) =
-                      ui.allocate_exact_size(egui::vec2(BTN_W, BTN_H), egui::Sense::hover());
-                  let view_clicked  = ui.interact(view_rect, view_id.with("btn"), egui::Sense::click()).clicked();
-                  let view_hovered  = ui.rect_contains_pointer(view_rect);
-                  let view_popup_open = ui.memory(|m| m.is_popup_open(view_id));
-                  let view_active   = view_hovered || view_popup_open;
-                
-                  if view_clicked {
-                      ui.memory_mut(|m| m.toggle_popup(view_id));
-                  }
-                  paint_menu_button(ui, view_rect, "View", ic::SETTINGS, view_active, false, t);
-                
-                  egui::popup::popup_below_widget(
-                      ui,
-                      view_id,
-                      &ui.interact(view_rect, view_id.with("anchor"), egui::Sense::hover()),
-                      egui::popup::PopupCloseBehavior::CloseOnClickOutside,
-                      |ui| {
-                          let s = ui.style_mut();
-                          s.visuals.window_fill = t.menu_bg;
-                          s.visuals.override_text_color = Some(t.menu_fg);
-                          s.visuals.widgets.hovered.bg_fill = t.menu_hover_bg;
-                          ui.set_min_width(220.0);
-                          ui.add_space(4.0);
-                
-                          let tree_label = if tree_view_open { "✓  AST Tree" } else { "   AST Tree" };
-                          if icon_menu_item(ui, "", tree_label, "", t) {
-                              action = MenuAction::ToggleTreeView;
-                              ui.memory_mut(|m| m.close_popup());
-                          }
-                          let var_label = if var_view_open { "✓  Variable State" } else { "   Variable State" };
-                          if icon_menu_item(ui, "", var_label, "", t) {
-                              action = MenuAction::ToggleVarView;
-                              ui.memory_mut(|m| m.close_popup());
-                          }
-                          ui.add_space(4.0);
-                      },
-                  );
+
+                ui.add_space(6.0);
+
+                let step_label = if is_debugging {
+                    "Step  F5"
+                } else {
+                    "Debug  F5"
+                };
+                let step_id = egui::Id::new("menu_step_btn");
+                let (step_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(BTN_W + 14.0, BTN_H), egui::Sense::hover());
+                let step_hovered = ui.rect_contains_pointer(step_rect);
+
+                paint_step_button(ui, step_rect, step_label, is_debugging, step_hovered, t);
+
+                let step_resp = ui.interact(step_rect, step_id, egui::Sense::click());
+                if step_resp.clicked() {
+                    action = MenuAction::StepRun;
+                }
+
+                if is_debugging {
+                    ui.add_space(4.0);
+                    let stop_id = egui::Id::new("menu_stop_btn");
+                    let (stop_rect, _) =
+                        ui.allocate_exact_size(egui::vec2(BTN_W, BTN_H), egui::Sense::hover());
+                    let stop_hovered = ui.rect_contains_pointer(stop_rect);
+
+                    if stop_hovered {
+                        ui.painter().rect_filled(
+                            stop_rect,
+                            egui::CornerRadius::same(BTN_ROUNDING as u8),
+                            t.terminal_error,
+                        );
+                    }
+                    let stop_fg = if stop_hovered {
+                        t.tab_bar_bg
+                    } else {
+                        t.terminal_error
+                    };
+                    ui.painter().text(
+                        stop_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "■  Stop",
+                        egui::FontId::proportional(12.5),
+                        stop_fg,
+                    );
+                    if ui
+                        .interact(stop_rect, stop_id, egui::Sense::click())
+                        .clicked()
+                    {
+                        action = MenuAction::StepStop;
+                    }
+                }
+
+                ui.add_space(6.0);
+
+                let (div_rect2, _) =
+                    ui.allocate_exact_size(egui::vec2(1.0, 18.0), egui::Sense::hover());
+                ui.painter()
+                    .rect_filled(div_rect2, egui::CornerRadius::ZERO, t.border);
+                ui.add_space(6.0);
+
+                let view_id = ui.make_persistent_id("menu_view_popup");
+                let (view_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(BTN_W, BTN_H), egui::Sense::hover());
+
+                let view_popup_open = Popup::is_id_open(ctx, view_id);
+                let view_clicked = ui
+                    .interact(view_rect, view_id.with("btn"), egui::Sense::click())
+                    .clicked();
+                if view_clicked {
+                    Popup::toggle_id(ctx, view_id);
+                }
+
+                let view_hovered = ui.rect_contains_pointer(view_rect);
+                let view_active = view_hovered || view_popup_open;
+
+                paint_menu_button(ui, view_rect, "View", ic::SETTINGS, view_active, false, t);
+
+                if view_popup_open {
+                    Popup::new(
+                        view_id,
+                        ctx.clone(),
+                        PopupAnchor::ParentRect(view_rect),
+                        LayerId::new(Order::Foreground, view_id),
+                    )
+                    .open_memory(None)
+                    .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
+                    .show(|ui| {
+                        let s = ui.style_mut();
+                        s.visuals.window_fill = t.menu_bg;
+                        s.visuals.override_text_color = Some(t.menu_fg);
+                        s.visuals.widgets.hovered.bg_fill = t.menu_hover_bg;
+                        ui.set_min_width(220.0);
+                        ui.add_space(4.0);
+
+                        let tree_label = if tree_view_open {
+                            "✓  AST Tree"
+                        } else {
+                            "   AST Tree"
+                        };
+                        if icon_menu_item(ui, "", tree_label, "", t) {
+                            action = MenuAction::ToggleTreeView;
+                            Popup::close_id(ctx, view_id);
+                        }
+                        let var_label = if var_view_open {
+                            "✓  Variable State"
+                        } else {
+                            "   Variable State"
+                        };
+                        if icon_menu_item(ui, "", var_label, "", t) {
+                            action = MenuAction::ToggleVarView;
+                            Popup::close_id(ctx, view_id);
+                        }
+                        ui.add_space(4.0);
+                    });
+                }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let gear_id = egui::Id::new("menu_gear_btn");
@@ -535,11 +569,14 @@ fn paint_menu_button(
     t: &Theme,
 ) {
     if active {
-        ui.painter()
-            .rect_filled(rect, egui::Rounding::same(BTN_ROUNDING), t.button_hover_bg);
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(BTN_ROUNDING as u8),
+            t.button_hover_bg,
+        );
         ui.painter().rect_stroke(
             rect,
-            egui::Rounding::same(BTN_ROUNDING),
+            egui::CornerRadius::same(BTN_ROUNDING as u8),
             egui::Stroke::new(
                 1.0,
                 egui::Color32::from_rgba_premultiplied(
@@ -549,6 +586,7 @@ fn paint_menu_button(
                     180,
                 ),
             ),
+            egui::StrokeKind::Outside,
         );
     }
     let fg = if active {
@@ -574,7 +612,7 @@ fn paint_run_button(
     hovered: bool,
     t: &Theme,
 ) {
-    let rounding = egui::Rounding::same(BTN_ROUNDING);
+    let rounding = egui::CornerRadius::same(BTN_ROUNDING as u8);
     if is_running {
         ui.painter().rect_filled(
             rect,
@@ -593,6 +631,7 @@ fn paint_run_button(
                     60,
                 ),
             ),
+            egui::StrokeKind::Outside,
         );
     } else if hovered {
         ui.painter().rect_filled(rect, rounding, t.accent);
@@ -619,7 +658,7 @@ fn paint_run_button(
 }
 
 fn paint_icon_button(ui: &egui::Ui, rect: egui::Rect, icon: &str, active: bool, t: &Theme) {
-    let rounding = egui::Rounding::same(BTN_ROUNDING);
+    let rounding = egui::CornerRadius::same(BTN_ROUNDING as u8);
     if active {
         ui.painter().rect_filled(rect, rounding, t.button_hover_bg);
         ui.painter().rect_stroke(
@@ -634,6 +673,7 @@ fn paint_icon_button(ui: &egui::Ui, rect: egui::Rect, icon: &str, active: bool, 
                     180,
                 ),
             ),
+            egui::StrokeKind::Outside,
         );
     }
     let fg = if active {
@@ -655,7 +695,7 @@ fn styled_separator(ui: &mut egui::Ui, t: &Theme) {
     let (sep_rect, _) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
     ui.painter()
-        .rect_filled(sep_rect, egui::Rounding::ZERO, t.border);
+        .rect_filled(sep_rect, egui::CornerRadius::ZERO, t.border);
     ui.add_space(2.0);
 }
 
@@ -665,7 +705,7 @@ fn icon_menu_item(ui: &mut egui::Ui, icon: &str, label: &str, shortcut: &str, t:
     let hovered = resp.hovered();
     if hovered {
         ui.painter()
-            .rect_filled(rect, egui::Rounding::same(4.0), t.accent);
+            .rect_filled(rect, egui::CornerRadius::same(4), t.accent);
     }
     let text_fg = if hovered { t.tab_bar_bg } else { t.menu_fg };
     ui.painter().text(
@@ -701,22 +741,17 @@ fn icon_menu_item(ui: &mut egui::Ui, icon: &str, label: &str, shortcut: &str, t:
     }
     resp.clicked()
 }
+
 fn paint_step_button(
     ui: &egui::Ui,
     rect: egui::Rect,
     label: &str,
     is_active: bool,
     hovered: bool,
-    t: &crate::ui::theme::Theme,
+    t: &Theme,
 ) {
-    use eframe::egui;
-    let rounding = egui::Rounding::same(5.0); // BTN_ROUNDING = 5.0
-    let _border_color = egui::Color32::from_rgb(
-        // step button uses a warm amber accent to visually distinguish from Run
-        210, 153, 34,
-    );
+    let rounding = egui::CornerRadius::same(BTN_ROUNDING as u8);
     if is_active {
-        // Pulsing amber outline when a session is live.
         ui.painter().rect_filled(
             rect,
             rounding,
@@ -725,7 +760,11 @@ fn paint_step_button(
         ui.painter().rect_stroke(
             rect,
             rounding,
-            egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(210, 153, 34, 120)),
+            egui::Stroke::new(
+                1.0,
+                egui::Color32::from_rgba_premultiplied(210, 153, 34, 120),
+            ),
+            egui::StrokeKind::Outside,
         );
     } else if hovered {
         ui.painter().rect_filled(

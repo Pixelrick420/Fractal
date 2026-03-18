@@ -133,13 +133,13 @@ impl FileDialog {
         let window_frame = egui::Frame {
             fill: t.panel_bg,
             stroke: egui::Stroke::new(1.0, t.border),
-            rounding: egui::Rounding::same(10.0),
-            inner_margin: egui::Margin::same(0.0),
-            outer_margin: egui::Margin::same(0.0),
+            corner_radius: egui::CornerRadius::same(10),
+            inner_margin: egui::Margin::same(0),
+            outer_margin: egui::Margin::same(0),
             shadow: egui::epaint::Shadow {
-                offset: egui::vec2(0.0, 8.0),
-                blur: 32.0,
-                spread: 0.0,
+                offset: [0, 8],
+                blur: 32,
+                spread: 0,
                 color: egui::Color32::from_black_alpha(80),
             },
         };
@@ -177,12 +177,12 @@ impl FileDialog {
                     s.spacing.item_spacing = egui::vec2(6.0, 2.0);
                 }
 
-                egui::Frame::none()
+                egui::Frame::new()
                     .inner_margin(egui::Margin {
-                        left: 16.0,
-                        right: 10.0,
-                        top: 13.0,
-                        bottom: 11.0,
+                        left: 16,
+                        right: 10,
+                        top: 13,
+                        bottom: 11,
                     })
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width());
@@ -212,7 +212,7 @@ impl FileDialog {
                                     if close_hovered {
                                         ui.painter().rect_filled(
                                             cr,
-                                            egui::Rounding::same(5.0),
+                                            egui::CornerRadius::same(5),
                                             close_hover_bg,
                                         );
                                     }
@@ -240,14 +240,14 @@ impl FileDialog {
                     egui::Sense::hover(),
                 );
                 ui.painter()
-                    .rect_filled(div, egui::Rounding::ZERO, t.border);
+                    .rect_filled(div, egui::CornerRadius::ZERO, t.border);
 
-                egui::Frame::none()
+                egui::Frame::new()
                     .inner_margin(egui::Margin {
-                        left: 14.0,
-                        right: 14.0,
-                        top: 10.0,
-                        bottom: 14.0,
+                        left: 14,
+                        right: 14,
+                        top: 10,
+                        bottom: 14,
                     })
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
@@ -258,7 +258,7 @@ impl FileDialog {
                             if up_hovered {
                                 ui.painter().rect_filled(
                                     up_rect,
-                                    egui::Rounding::same(4.0),
+                                    egui::CornerRadius::same(4),
                                     hover_bg,
                                 );
                             }
@@ -283,7 +283,8 @@ impl FileDialog {
 
                             let (vr, _) =
                                 ui.allocate_exact_size(egui::vec2(1.0, 14.0), egui::Sense::hover());
-                            ui.painter().rect_filled(vr, egui::Rounding::ZERO, t.border);
+                            ui.painter()
+                                .rect_filled(vr, egui::CornerRadius::ZERO, t.border);
                             ui.add_space(2.0);
 
                             let parts: Vec<PathBuf> = {
@@ -334,11 +335,11 @@ impl FileDialog {
 
                         ui.add_space(8.0);
 
-                        egui::Frame::none()
+                        egui::Frame::new()
                             .fill(t.panel_bg)
                             .stroke(egui::Stroke::new(1.0, t.border))
-                            .rounding(egui::Rounding::same(6.0))
-                            .inner_margin(egui::Margin::same(4.0))
+                            .corner_radius(egui::CornerRadius::same(6))
+                            .inner_margin(egui::Margin::same(4))
                             .show(ui, |ui| {
                                 egui::ScrollArea::vertical()
                                     .max_height(250.0)
@@ -360,13 +361,13 @@ impl FileDialog {
                                             if is_selected {
                                                 ui.painter().rect_filled(
                                                     row_rect,
-                                                    egui::Rounding::same(4.0),
+                                                    egui::CornerRadius::same(4),
                                                     selected_bg,
                                                 );
                                             } else if row_resp.hovered() {
                                                 ui.painter().rect_filled(
                                                     row_rect,
-                                                    egui::Rounding::same(4.0),
+                                                    egui::CornerRadius::same(4),
                                                     hover_bg,
                                                 );
                                             }

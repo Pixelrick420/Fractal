@@ -414,24 +414,6 @@ impl Analyzer {
             },
 
             ParseNode::AccessChain { base, steps } => {
-                if self.current_return_type.is_some() {
-                    if let Some(sym) = self.scopes.lookup(base) {
-                        if sym.scope_depth == 0
-                            && matches!(sym.kind, SymbolKind::Variable)
-                            && matches!(
-                                &sym.sem_type,
-                                SemType::List { .. } | SemType::Array { .. } | SemType::Struct(_)
-                            )
-                        {
-                            self.error(format!(
-                                "function cannot access global variable `{}`; \
-                                 global lists, arrays, and structs are not visible inside \
-                                 functions — pass `{}` as a parameter instead",
-                                base, base
-                            ));
-                        }
-                    }
-                }
                 let qualified_key: Option<String> =
                     if let Some(AccessStep::Field(first_field)) = steps.first() {
                         let key = format!("{}::{}", base, first_field);
@@ -528,8 +510,11 @@ impl Analyzer {
                             {
                                 if *idx < 0 || *idx >= *size {
                                     self.error(format!(
-                                        "index {} is out of bounds for array of size {}",
-                                        idx, size
+                                        "index {} is out of bounds for array of size {} \
+                                         (valid indices: 0..{})",
+                                        idx,
+                                        size,
+                                        size - 1
                                     ));
                                 }
                             }
@@ -570,10 +555,16 @@ impl Analyzer {
                                     && matches!(param_types[0], SemType::Unknown);
 
                                 if !variadic && arg_types.len() != param_types.len() {
+                                    let expected_sig = param_types
+                                        .iter()
+                                        .map(|t| t.display())
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
                                     self.error(format!(
-                                        "function `{}` expects {} argument(s), got {}",
+                                        "function `{}` expects {} argument(s) ({}), got {}",
                                         func_name,
                                         param_types.len(),
+                                        expected_sig,
                                         arg_types.len()
                                     ));
                                 }
@@ -1424,29 +1415,7 @@ impl Analyzer {
                 let saved_origin = self.current_origin.clone();
                 self.current_origin = format!("fn:{}", name);
 
-                if matches!(ret, SemType::Void) {
-                    for param in params {
-                        if let ParseNode::Param {
-                            data_type,
-                            name: pname,
-                        } = param
-                        {
-                            let pt = self.resolve_type_node(data_type);
-                            if matches!(pt, SemType::Struct(_)) {
-                                self.warn(format!(
-                                    "`:void` function `{}` takes struct parameter `{}` by value; \
-                                     any mutations to `{}` inside the function are silently \
-                                     discarded — change the return type to `:struct<{}>` and \
-                                     return the modified struct, then assign the result at the call site",
-                                    name,
-                                    pname,
-                                    pname,
-                                    if let SemType::Struct(ref sname) = pt { sname.as_str() } else { "?" }
-                                ));
-                            }
-                        }
-                    }
-                }
+                if matches!(ret, SemType::Void) {}
 
                 self.scopes.push();
                 for param in params {

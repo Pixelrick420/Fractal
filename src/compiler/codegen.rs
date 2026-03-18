@@ -1,4 +1,3 @@
-use crate::compiler::builtins::{CodegenRule, ALL_BUILTINS};
 use crate::compiler::parser::{
     AccessStep, AddOp, AssignOp, CmpOp, MulOp, ParseNode, ShiftOp, UnOp,
 };
@@ -31,14 +30,20 @@ struct CodeGen {
 
     bool_params: std::collections::HashSet<String>,
 
+    array_params: std::collections::HashSet<String>,
+
+    array_param_elem_types: HashMap<String, SemType>,
+
+    list_params: std::collections::HashSet<String>,
+
+    list_param_elem_types: HashMap<String, SemType>,
+
     func_return_types: HashMap<String, SemType>,
 
     hoist_buf: Vec<String>,
     hoist_counter: usize,
 
     local_var_types: HashMap<String, SemType>,
-
-    for_depth: usize,
 }
 
 impl CodeGen {
@@ -78,11 +83,14 @@ impl CodeGen {
             struct_params: std::collections::HashSet::new(),
             struct_param_types: HashMap::new(),
             bool_params: std::collections::HashSet::new(),
+            array_params: std::collections::HashSet::new(),
+            list_params: std::collections::HashSet::new(),
+            array_param_elem_types: HashMap::new(),
+            list_param_elem_types: HashMap::new(),
             func_return_types,
             hoist_buf: Vec::new(),
             hoist_counter: 0,
             local_var_types: HashMap::new(),
-            for_depth: 0,
         }
     }
 
@@ -118,21 +126,25 @@ impl CodeGen {
             ParseNode::TypeBoolean => "bool".into(),
             ParseNode::TypeVoid => "()".into(),
             ParseNode::TypeArray { elem, size } => match elem.as_ref() {
-                ParseNode::TypeStruct { name } => format!("[Option<Box<{}>>; {}]", name, size),
+                ParseNode::TypeStruct { name } => {
+                    format!("[Option<Box<{}>>; {}]", escape_struct_name(name), size)
+                }
                 _ => format!("[{}; {}]", self.type_str(elem), size),
             },
             ParseNode::TypeList { elem } => match elem.as_ref() {
-                ParseNode::TypeStruct { name } => format!("Vec<Option<Box<{}>>>", name),
+                ParseNode::TypeStruct { name } => {
+                    format!("Vec<Option<Box<{}>>>", escape_struct_name(name))
+                }
                 _ => format!("Vec<{}>", self.type_str(elem)),
             },
-            ParseNode::TypeStruct { name } => name.clone(),
+            ParseNode::TypeStruct { name } => escape_struct_name(name),
             _ => "/* ? */".into(),
         }
     }
 
     fn field_type_str(&self, node: &ParseNode) -> String {
         match node {
-            ParseNode::TypeStruct { name } => format!("Option<Box<{}>>", name),
+            ParseNode::TypeStruct { name } => format!("Option<Box<{}>>", escape_struct_name(name)),
             _ => format!("Option<{}>", self.type_str(node)),
         }
     }
@@ -140,7 +152,9 @@ impl CodeGen {
     fn ret_type_str(&self, node: &ParseNode) -> String {
         match node {
             ParseNode::TypeVoid => String::new(),
-            ParseNode::TypeStruct { name } => format!(" -> Option<Box<{}>>", name),
+            ParseNode::TypeStruct { name } => {
+                format!(" -> Option<Box<{}>>", escape_struct_name(name))
+            }
             _ => format!(" -> {}", self.type_str(node)),
         }
     }
@@ -155,13 +169,15 @@ impl CodeGen {
                 ParseNode::TypeStruct { name } => {
                     format!(
                         "std::array::from_fn(|_| Some(Box::new({}::default())))",
-                        name
+                        escape_struct_name(name)
                     )
                 }
                 _ => format!("[{}; {}]", self.zero_val(elem), size),
             },
             ParseNode::TypeList { .. } => "Vec::new()".into(),
-            ParseNode::TypeStruct { name } => format!("Some(Box::new({}::default()))", name),
+            ParseNode::TypeStruct { name } => {
+                format!("Some(Box::new({}::default()))", escape_struct_name(name))
+            }
             _ => "Default::default()".into(),
         }
     }
@@ -222,8 +238,8 @@ impl CodeGen {
     }
 
     fn gen_structdef(&mut self, name: &str, fields: &[ParseNode]) {
-        self.line("#[derive(Debug, Clone, Default, PartialEq)]");
-        self.line(&format!("pub struct {} {{", name));
+        self.line("#[derive(Debug, Clone, Default)]");
+        self.line(&format!("pub struct {} {{", escape_struct_name(name)));
         self.indent();
         for f in fields {
             if let ParseNode::Field {
@@ -259,6 +275,10 @@ impl CodeGen {
         let prev_params = std::mem::take(&mut self.struct_params);
         let prev_param_types = std::mem::take(&mut self.struct_param_types);
         let prev_bool_params = std::mem::take(&mut self.bool_params);
+        let prev_array_params = std::mem::take(&mut self.array_params);
+        let prev_list_params = std::mem::take(&mut self.list_params);
+        let prev_array_param_elem_types = std::mem::take(&mut self.array_param_elem_types);
+        let prev_list_param_elem_types = std::mem::take(&mut self.list_param_elem_types);
         let prev_local_vars = std::mem::take(&mut self.local_var_types);
         for p in params {
             if let ParseNode::Param {
@@ -273,6 +293,20 @@ impl CodeGen {
                 if matches!(data_type.as_ref(), ParseNode::TypeBoolean) {
                     self.bool_params.insert(pname.clone());
                 }
+                if matches!(data_type.as_ref(), ParseNode::TypeArray { .. }) {
+                    self.array_params.insert(pname.clone());
+                    if let ParseNode::TypeArray { elem, .. } = data_type.as_ref() {
+                        let elem_sem = self.parse_node_to_sem_type(elem);
+                        self.array_param_elem_types.insert(pname.clone(), elem_sem);
+                    }
+                }
+                if matches!(data_type.as_ref(), ParseNode::TypeList { .. }) {
+                    self.list_params.insert(pname.clone());
+                    if let ParseNode::TypeList { elem } = data_type.as_ref() {
+                        let elem_sem = self.parse_node_to_sem_type(elem);
+                        self.list_param_elem_types.insert(pname.clone(), elem_sem);
+                    }
+                }
             }
         }
 
@@ -285,8 +319,24 @@ impl CodeGen {
                 } => {
                     let ty = match data_type.as_ref() {
                         ParseNode::TypeStruct { name: sname } => {
-                            format!("Option<Box<{}>>", sname)
+                            format!("&mut Option<Box<{}>>", escape_struct_name(sname))
                         }
+                        ParseNode::TypeArray { elem, size } => match elem.as_ref() {
+                            ParseNode::TypeStruct { name: sname } => {
+                                format!(
+                                    "&mut [Option<Box<{}>>; {}]",
+                                    escape_struct_name(sname),
+                                    size
+                                )
+                            }
+                            _ => format!("&mut [{}; {}]", self.type_str(elem), size),
+                        },
+                        ParseNode::TypeList { elem } => match elem.as_ref() {
+                            ParseNode::TypeStruct { name: sname } => {
+                                format!("&mut Vec<Option<Box<{}>>>", escape_struct_name(sname))
+                            }
+                            _ => format!("&mut Vec<{}>", self.type_str(elem)),
+                        },
                         _ => self.type_str(data_type),
                     };
                     Some(format!("mut {}: {}", escape_ident(pname), ty))
@@ -316,6 +366,10 @@ impl CodeGen {
         self.struct_params = prev_params;
         self.struct_param_types = prev_param_types;
         self.bool_params = prev_bool_params;
+        self.array_params = prev_array_params;
+        self.list_params = prev_list_params;
+        self.array_param_elem_types = prev_array_param_elem_types;
+        self.list_param_elem_types = prev_list_param_elem_types;
         self.local_var_types = prev_local_vars;
     }
 
@@ -449,6 +503,10 @@ impl CodeGen {
                 }
                 self.dedent();
                 self.line("}");
+
+                if matches!(condition.as_ref(), ParseNode::BoolLit(true)) {
+                    self.line("unreachable!();");
+                }
             }
 
             ParseNode::Return(expr) => match expr.as_ref() {
@@ -463,7 +521,11 @@ impl CodeGen {
                     if let Some(sname) = self.current_return_struct.clone() {
                         let body = self.emit_struct_lit_body(&sname.clone(), fields);
                         self.flush_hoists();
-                        self.line(&format!("return Some(Box::new({} {{ {} }}));", sname, body));
+                        self.line(&format!(
+                            "return Some(Box::new({} {{ {} }}));",
+                            escape_struct_name(&sname),
+                            body
+                        ));
                     } else {
                         let parts: Vec<_> = fields
                             .iter()
@@ -482,12 +544,24 @@ impl CodeGen {
 
                 ParseNode::AccessChain { base: n, steps }
                     if steps.is_empty()
-                        && (matches!(
-                            self.var_types
-                                .get(n.as_str())
-                                .or_else(|| self.local_var_types.get(n.as_str())),
-                            Some(SemType::Struct(_))
-                        ) || self.struct_params.contains(n.as_str())) =>
+                        && (matches!(self.var_types.get(n.as_str()), Some(SemType::Struct(_)))
+                            || matches!(
+                                self.local_var_types.get(n.as_str()),
+                                Some(SemType::Struct(_))
+                            )
+                            || self.struct_params.contains(n.as_str())) =>
+                {
+                    self.line(&format!("return {}.clone();", escape_ident(n)));
+                }
+
+                ParseNode::AccessChain { base: n, steps }
+                    if steps.is_empty() && self.array_params.contains(n.as_str()) =>
+                {
+                    self.line(&format!("return {}.clone();", escape_ident(n)));
+                }
+
+                ParseNode::AccessChain { base: n, steps }
+                    if steps.is_empty() && self.list_params.contains(n.as_str()) =>
                 {
                     self.line(&format!("return {}.clone();", escape_ident(n)));
                 }
@@ -504,14 +578,7 @@ impl CodeGen {
             }
 
             ParseNode::Break => self.line("break;"),
-            ParseNode::Continue => {
-                if self.for_depth > 0 {
-                    let label = format!("'__for_{}", self.for_depth - 1);
-                    self.line(&format!("break {};", label));
-                } else {
-                    self.line("continue;");
-                }
-            }
+            ParseNode::Continue => self.line("continue;"),
 
             ParseNode::ExprStmt(e) => {
                 self.gen_call_stmt(e);
@@ -539,6 +606,23 @@ impl CodeGen {
         if matches!(data_type, ParseNode::TypeBoolean) {
             self.local_var_types
                 .insert(name.to_string(), SemType::Boolean);
+        }
+        if let ParseNode::TypeArray { elem, size } = data_type {
+            self.local_var_types.insert(
+                name.to_string(),
+                SemType::Array {
+                    elem: Box::new(self.parse_node_to_sem_type(elem)),
+                    size: *size,
+                },
+            );
+        }
+        if let ParseNode::TypeList { elem } = data_type {
+            self.local_var_types.insert(
+                name.to_string(),
+                SemType::List {
+                    elem: Box::new(self.parse_node_to_sem_type(elem)),
+                },
+            );
         }
 
         let ty = self.type_str(data_type);
@@ -578,12 +662,19 @@ impl CodeGen {
         );
 
         let rhs = match init {
-            None => format!("Some(Box::new({}::default()))", struct_name),
+            None => format!(
+                "Some(Box::new({}::default()))",
+                escape_struct_name(struct_name)
+            ),
             Some(ParseNode::Null) => "None".to_string(),
             Some(ParseNode::StructLit(fields)) => {
                 let sn = struct_name.to_string();
                 let body = self.emit_struct_lit_body(&sn, fields);
-                format!("Some(Box::new({} {{ {} }}))", struct_name, body)
+                format!(
+                    "Some(Box::new({} {{ {} }}))",
+                    escape_struct_name(struct_name),
+                    body
+                )
             }
             Some(other) => self.gen_expr(other),
         };
@@ -591,7 +682,7 @@ impl CodeGen {
         self.line(&format!(
             "let mut {}: Option<Box<{}>> = {};",
             escape_ident(var_name),
-            struct_name,
+            escape_struct_name(struct_name),
             rhs
         ));
     }
@@ -620,10 +711,24 @@ impl CodeGen {
                         let sname = sname.clone();
                         if let ParseNode::StructLit(nested_fields) = fexpr {
                             let body = self.emit_struct_lit_body(&sname, nested_fields);
-                            format!("{}: Some(Box::new({} {{ {} }}))", fname, sname, body)
+                            format!(
+                                "{}: Some(Box::new({} {{ {} }}))",
+                                fname,
+                                escape_struct_name(&sname),
+                                body
+                            )
                         } else {
                             let val = self.gen_expr(fexpr);
-                            format!("{}: Some(Box::new({}))", fname, val)
+
+                            let rhs_is_call = matches!(fexpr,
+                                ParseNode::AccessChain { steps, .. }
+                                    if matches!(steps.last(), Some(AccessStep::Call(_)))
+                            );
+                            if rhs_is_call {
+                                format!("{}: {}", fname, val)
+                            } else {
+                                format!("{}: Some(Box::new({}))", fname, val)
+                            }
                         }
                     }
                     _ => {
@@ -637,72 +742,8 @@ impl CodeGen {
             .join(", ")
     }
 
-    fn expr_references_base(node: &ParseNode, base: &str) -> bool {
-        match node {
-            ParseNode::AccessChain { base: b, .. } => b == base,
-            ParseNode::Add { left, right, .. }
-            | ParseNode::Mul { left, right, .. }
-            | ParseNode::Cmp { left, right, .. }
-            | ParseNode::LogAnd { left, right }
-            | ParseNode::LogOr { left, right }
-            | ParseNode::BitAnd { left, right }
-            | ParseNode::BitOr { left, right }
-            | ParseNode::BitXor { left, right }
-            | ParseNode::BitShift { left, right, .. } => {
-                Self::expr_references_base(left, base) || Self::expr_references_base(right, base)
-            }
-            ParseNode::Unary { operand, .. } | ParseNode::LogNot { operand } => {
-                Self::expr_references_base(operand, base)
-            }
-            ParseNode::Cast { expr, .. } => Self::expr_references_base(expr, base),
-            _ => false,
-        }
-    }
-
-    fn hoist_conflicting_indices(&mut self, base: &str, steps: &[AccessStep]) -> Vec<AccessStep> {
-        steps
-            .iter()
-            .map(|step| match step {
-                AccessStep::Index(idx_expr) if Self::expr_references_base(idx_expr, base) => {
-                    let idx_val = self.gen_expr(idx_expr);
-                    let tmp = format!("__idx_{}", self.hoist_counter);
-                    self.hoist_counter += 1;
-                    self.line(&format!("let {} = {} as usize;", tmp, idx_val));
-
-                    AccessStep::Index(Box::new(ParseNode::AccessChain {
-                        base: tmp,
-                        steps: vec![],
-                    }))
-                }
-                other => other.clone(),
-            })
-            .collect()
-    }
-
     fn gen_assign(&mut self, lvalue: &ParseNode, op: &AssignOp, expr: &ParseNode) {
         if let ParseNode::AccessChain { base, steps } = lvalue {
-            let base_is_struct = matches!(
-                self.var_types
-                    .get(base.as_str())
-                    .or_else(|| self.local_var_types.get(base.as_str())),
-                Some(SemType::Struct(_))
-            ) || self.struct_params.contains(base.as_str());
-
-            let steps: std::borrow::Cow<[AccessStep]> = if base_is_struct
-                && steps.iter().any(|s| {
-                    if let AccessStep::Index(e) = s {
-                        Self::expr_references_base(e, base)
-                    } else {
-                        false
-                    }
-                }) {
-                let hoisted = self.hoist_conflicting_indices(base, steps);
-                std::borrow::Cow::Owned(hoisted)
-            } else {
-                std::borrow::Cow::Borrowed(steps)
-            };
-            let steps: &[AccessStep] = &steps;
-
             if let Some(AccessStep::Field(fname)) = steps.last() {
                 let fname = fname.clone();
                 let is_null = matches!(expr, ParseNode::Null);
@@ -717,7 +758,11 @@ impl CodeGen {
                         {
                             let sname = sname.clone();
                             let body = self.emit_struct_lit_body(&sname, fields);
-                            format!("Some(Box::new({} {{ {} }}))", sname, body)
+                            format!(
+                                "Some(Box::new({} {{ {} }}))",
+                                escape_struct_name(&sname),
+                                body
+                            )
                         } else {
                             let parts: Vec<_> = fields
                                 .iter()
@@ -730,11 +775,28 @@ impl CodeGen {
                         }
                     } else {
                         let val = self.gen_expr(expr);
-                        let needs_box = matches!(
+                        let field_is_struct = matches!(
                             self.resolve_field_type(base, steps, &fname),
                             Some(SemType::Struct(_))
                         );
-                        if needs_box {
+
+                        let rhs_is_already_option_box = field_is_struct && {
+                            if let ParseNode::AccessChain {
+                                base: _rhs_base,
+                                steps: rhs_steps,
+                            } = expr
+                            {
+                                matches!(rhs_steps.last(), Some(AccessStep::Call(_))) || {
+                                    rhs_steps.len() == 1
+                                        && matches!(&rhs_steps[0], AccessStep::Call(_))
+                                }
+                            } else {
+                                false
+                            }
+                        };
+                        if rhs_is_already_option_box {
+                            val
+                        } else if field_is_struct {
                             format!("Some(Box::new({}))", val)
                         } else {
                             format!("Some({})", val)
@@ -753,13 +815,6 @@ impl CodeGen {
                 }
                 return;
             }
-
-            let lv = self.emit_access_chain_mut(base, steps);
-            let op_str = Self::assign_op_str(op);
-            let rv = self.gen_expr(expr);
-            self.flush_hoists();
-            self.line(&format!("{} {} {};", lv, op_str, rv));
-            return;
         }
 
         let lv = self.gen_lvalue(lvalue);
@@ -846,20 +901,6 @@ impl CodeGen {
         }
     }
 
-    fn expr_is_struct(&self, node: &ParseNode) -> bool {
-        match node {
-            ParseNode::AccessChain { base, steps } if steps.is_empty() => {
-                matches!(
-                    self.var_types
-                        .get(base.as_str())
-                        .or_else(|| self.local_var_types.get(base.as_str())),
-                    Some(SemType::Struct(_))
-                ) || self.struct_params.contains(base.as_str())
-            }
-            _ => false,
-        }
-    }
-
     fn gen_list_container(&mut self, node: &ParseNode) -> String {
         match node {
             ParseNode::AccessChain { base, steps } => {
@@ -888,6 +929,21 @@ impl CodeGen {
                 self.struct_param_types
                     .get(base)
                     .map(|sname| SemType::Struct(sname.clone()))
+            })
+            .or_else(|| {
+                self.array_param_elem_types
+                    .get(base)
+                    .map(|elem| SemType::Array {
+                        elem: Box::new(elem.clone()),
+                        size: 0,
+                    })
+            })
+            .or_else(|| {
+                self.list_param_elem_types
+                    .get(base)
+                    .map(|elem| SemType::List {
+                        elem: Box::new(elem.clone()),
+                    })
             });
         let base_is_struct = matches!(&base_sem, Some(SemType::Struct(_)));
         let mut cur_type = base_sem;
@@ -927,7 +983,12 @@ impl CodeGen {
 
                 AccessStep::Index(idx_expr) => {
                     let idx = self.gen_expr(idx_expr);
-                    out = format!("{}[{} as usize]", out, idx);
+
+                    let tmp = format!("__idx_{}", self.hoist_counter);
+                    self.hoist_counter += 1;
+                    self.hoist_buf
+                        .push(format!("let {} = {} as usize;", tmp, idx));
+                    out = format!("{}[{}]", out, tmp);
                     cur_type = match cur_type {
                         Some(SemType::Array { elem, .. }) => Some(*elem),
                         Some(SemType::List { elem }) => Some(*elem),
@@ -1021,22 +1082,14 @@ impl CodeGen {
         let sp_s = self.gen_expr(step);
 
         let vn = escape_ident(var_name);
-
-        let label = format!("'__for_{}", self.for_depth);
         self.line("{");
         self.indent();
         self.line(&format!("let mut {}: {} = {};", vn, ty, s_s));
         self.line(&format!("while {} < {} {{", vn, st_s));
         self.indent();
-        self.line(&format!("{}: {{", label));
-        self.indent();
-        self.for_depth += 1;
         for stmt in body {
             self.gen_stmt(stmt);
         }
-        self.for_depth -= 1;
-        self.dedent();
-        self.line("}");
         self.line(&format!("{} += {};", vn, sp_s));
         self.dedent();
         self.line("}");
@@ -1086,6 +1139,91 @@ impl CodeGen {
             }
         }
 
+        let mut array_struct_args: HashMap<String, Vec<(usize, String)>> = HashMap::new();
+        for (i, arg) in call_args.iter().enumerate() {
+            if let ParseNode::AccessChain { base, steps } = arg {
+                if steps.len() == 1 {
+                    if let AccessStep::Index(idx_expr) = &steps[0] {
+                        if self.access_chain_is_struct(base, steps) {
+                            let idx = self.gen_expr(idx_expr);
+                            array_struct_args
+                                .entry(base.clone())
+                                .or_default()
+                                .push((i, idx));
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut split_hoisted: HashMap<usize, String> = HashMap::new();
+        for (arr_base, entries) in &array_struct_args {
+            if entries.len() >= 2 {
+                let mut sorted = entries.clone();
+                sorted.sort_by_key(|(i, _)| *i);
+
+                let arr_escaped = escape_ident(arr_base);
+
+                if sorted.len() == 2 {
+                    let (i0, idx0) = &sorted[0];
+                    let (i1, idx1) = &sorted[1];
+                    let tmp0 = format!("__spl_{}_{}", arr_base, i0);
+                    let tmp1 = format!("__spl_{}_{}", arr_base, i1);
+
+                    let lo_tmp = format!("__split_lo_{}", arr_base);
+                    let hi_tmp = format!("__split_hi_{}", arr_base);
+                    let mid_tmp = format!("__split_mid_{}", arr_base);
+
+                    self.line(&format!(
+                        "let {mid} = if ({a} as usize) < ({b} as usize) {{ {a} as usize + 1 }} else {{ {b} as usize + 1 }};",
+                        mid = mid_tmp,
+                        a = idx0,
+                        b = idx1,
+                    ));
+                    self.line(&format!(
+                        "let ({lo}, {hi}) = {arr}.split_at_mut({mid});",
+                        lo = lo_tmp,
+                        hi = hi_tmp,
+                        arr = arr_escaped,
+                        mid = mid_tmp,
+                    ));
+
+                    self.line(&format!(
+                        "let {t0} = if ({a} as usize) < ({b} as usize) {{ &mut {lo}[{a} as usize] }} else {{ &mut {hi}[{a} as usize - {mid}] }};",
+                        t0 = tmp0,
+                        a = idx0,
+                        b = idx1,
+                        lo = lo_tmp,
+                        hi = hi_tmp,
+                        mid = mid_tmp,
+                    ));
+
+                    self.line(&format!(
+                        "let {t1} = if ({b} as usize) < ({a} as usize) {{ &mut {lo}[{b} as usize] }} else {{ &mut {hi}[{b} as usize - {mid}] }};",
+                        t1 = tmp1,
+                        a = idx0,
+                        b = idx1,
+                        lo = lo_tmp,
+                        hi = hi_tmp,
+                        mid = mid_tmp,
+                    ));
+                    split_hoisted.insert(*i0, tmp0);
+                    split_hoisted.insert(*i1, tmp1);
+                } else {
+                    for (i, idx) in &sorted {
+                        let tmp = format!("__spl_{}_{}", arr_base, i);
+                        self.line(&format!(
+                            "let {tmp} = unsafe {{ &mut *({arr}.as_mut_ptr().add({idx} as usize)) }};",
+                            tmp = tmp,
+                            arr = arr_escaped,
+                            idx = idx,
+                        ));
+                        split_hoisted.insert(*i, tmp);
+                    }
+                }
+            }
+        }
+
         let mut hoisted: Vec<(usize, String)> = Vec::new();
         for (i, arg) in call_args.iter().enumerate() {
             if let ParseNode::AccessChain { base, steps } = arg {
@@ -1103,7 +1241,9 @@ impl CodeGen {
             .iter()
             .enumerate()
             .map(|(i, arg)| {
-                if let Some(tmp) = hoisted_map.get(&i) {
+                if let Some(tmp) = split_hoisted.get(&i) {
+                    tmp.clone()
+                } else if let Some(tmp) = hoisted_map.get(&i) {
                     tmp.clone()
                 } else {
                     self.gen_call_arg(arg)
@@ -1147,13 +1287,36 @@ impl CodeGen {
                         false
                     };
 
+                if steps.is_empty() {
+                    let base_type = self
+                        .var_types
+                        .get(base.as_str())
+                        .cloned()
+                        .or_else(|| self.local_var_types.get(base.as_str()).cloned());
+                    let is_array_or_list = matches!(
+                        &base_type,
+                        Some(SemType::Array { .. }) | Some(SemType::List { .. })
+                    );
+                    let is_array_param = self.array_params.contains(base.as_str());
+                    let is_list_param = self.list_params.contains(base.as_str());
+                    if is_array_or_list || is_array_param || is_list_param {
+                        let esc = escape_ident(base);
+
+                        if is_array_param || is_list_param {
+                            return esc;
+                        } else {
+                            return format!("unsafe {{ &mut *(&mut {} as *mut _) }}", esc);
+                        }
+                    }
+                }
+
                 if is_struct_result || call_returns_struct {
                     if matches!(steps.last(), Some(AccessStep::Call(_))) {
                         let val = self.emit_access_chain(base, steps);
                         let tmp = format!("__hoist_{}", self.hoist_counter);
                         self.hoist_counter += 1;
                         self.hoist_buf.push(format!("let mut {} = {};", tmp, val));
-                        return tmp;
+                        return format!("&mut {}", tmp);
                     }
 
                     let base_escaped = escape_ident(base);
@@ -1167,33 +1330,35 @@ impl CodeGen {
 
                     if steps.is_empty() {
                         if base_is_param {
-                            return format!("{}.clone()", base_escaped);
+                            return base_escaped;
                         }
-                        return format!("{}.clone()", base_escaped);
+                        return format!("&mut {}", base_escaped);
                     }
 
                     let mut out = base_escaped.clone();
                     if base_is_param || base_is_local_struct {
-                        out = format!("{}.as_ref().unwrap()", out);
+                        out = format!("{}.as_mut().unwrap()", out);
                     }
                     for (i, step) in steps.iter().enumerate() {
                         let is_last = i == steps.len() - 1;
                         match step {
                             AccessStep::Field(f) => {
                                 if is_last {
-                                    return format!("{}.{}.clone()", out, f);
+                                    return format!("&mut {}.{}", out, f);
                                 } else {
-                                    out = format!("{}.{}.as_ref().unwrap()", out, f);
+                                    out = format!("{}.{}.as_mut().unwrap()", out, f);
                                 }
                             }
                             AccessStep::Index(e) => {
                                 let idx = self.gen_expr(e);
-                                out = format!("{}[{} as usize]", out, idx);
                                 if is_last {
-                                    return format!("{}.clone()", out);
-                                } else {
-                                    out = format!("{}.as_ref().unwrap()", out);
+                                    return format!(
+                                        "unsafe {{ &mut *{}.as_mut_ptr().add({} as usize) }}",
+                                        out, idx
+                                    );
                                 }
+                                out = format!("{}[{} as usize]", out, idx);
+                                out = format!("{}.as_mut().unwrap()", out);
                             }
                             AccessStep::Call(args) => {
                                 let av: Vec<_> =
@@ -1202,39 +1367,46 @@ impl CodeGen {
                             }
                         }
                     }
-                    out
+                    format!("&mut {}", out)
                 } else {
-                    let val = self.emit_access_chain(base, steps);
+                    self.emit_access_chain(base, steps)
+                }
+            }
+            _ => self.gen_expr(node),
+        }
+    }
 
-                    let is_array_or_list = steps.is_empty()
-                        && matches!(
-                            self.var_types
-                                .get(base.as_str())
-                                .or_else(|| self.local_var_types.get(base.as_str())),
-                            Some(SemType::Array { .. }) | Some(SemType::List { .. })
-                        );
-                    if is_array_or_list {
-                        format!("{}.clone()", val)
-                    } else {
-                        val
-                    }
-                }
-            }
-            _ => {
-                if let ParseNode::StringLit(s) = node {
-                    let chars: Vec<String> =
-                        s.chars().map(|c| format!("'{}'", escape_char(c))).collect();
-                    format!("[{}]", chars.join(", "))
-                } else {
-                    self.gen_expr(node)
-                }
-            }
+    fn parse_node_to_sem_type(&self, node: &ParseNode) -> SemType {
+        match node {
+            ParseNode::TypeInt => SemType::Int,
+            ParseNode::TypeFloat => SemType::Float,
+            ParseNode::TypeChar => SemType::Char,
+            ParseNode::TypeBoolean => SemType::Boolean,
+            ParseNode::TypeVoid => SemType::Void,
+            ParseNode::TypeArray { elem, size } => SemType::Array {
+                elem: Box::new(self.parse_node_to_sem_type(elem)),
+                size: *size,
+            },
+            ParseNode::TypeList { elem } => SemType::List {
+                elem: Box::new(self.parse_node_to_sem_type(elem)),
+            },
+            ParseNode::TypeStruct { name } => SemType::Struct(name.clone()),
+            _ => SemType::Unknown,
         }
     }
 
     fn access_chain_is_struct(&self, base: &str, steps: &[AccessStep]) -> bool {
         let mut cur = if let Some(sname) = self.struct_param_types.get(base) {
             Some(SemType::Struct(sname.clone()))
+        } else if let Some(elem) = self.array_param_elem_types.get(base) {
+            Some(SemType::Array {
+                elem: Box::new(elem.clone()),
+                size: 0,
+            })
+        } else if let Some(elem) = self.list_param_elem_types.get(base) {
+            Some(SemType::List {
+                elem: Box::new(elem.clone()),
+            })
         } else {
             self.var_types
                 .get(base)
@@ -1455,8 +1627,8 @@ impl CodeGen {
         if steps.len() == 1 {
             if let AccessStep::Field(fname) = &steps[0] {
                 if !self.var_types.contains_key(base)
-                    && !self.struct_params.contains(base)
                     && !self.local_var_types.contains_key(base)
+                    && !self.struct_params.contains(base)
                 {
                     if base_is_param_struct {
                         return format!("{}.as_ref().unwrap().{}.unwrap()", base_escaped, fname);
@@ -1470,8 +1642,8 @@ impl CodeGen {
             if let AccessStep::Field(qualified_name) = &steps[0] {
                 let full = format!("{}::{}", base_escaped, qualified_name);
                 if !self.var_types.contains_key(base)
-                    && !self.struct_params.contains(base)
                     && !self.local_var_types.contains_key(base)
+                    && !self.struct_params.contains(base)
                 {
                     if base_is_param_struct {
                         let mut out = format!("{}.as_ref().unwrap()", base_escaped);
@@ -1526,7 +1698,22 @@ impl CodeGen {
             .var_types
             .get(base)
             .cloned()
-            .or_else(|| self.local_var_types.get(base).cloned());
+            .or_else(|| self.local_var_types.get(base).cloned())
+            .or_else(|| {
+                self.array_param_elem_types
+                    .get(base)
+                    .map(|elem| SemType::Array {
+                        elem: Box::new(elem.clone()),
+                        size: 0,
+                    })
+            })
+            .or_else(|| {
+                self.list_param_elem_types
+                    .get(base)
+                    .map(|elem| SemType::List {
+                        elem: Box::new(elem.clone()),
+                    })
+            });
 
         let base_is_struct = base_is_param_struct || matches!(&base_sem, Some(SemType::Struct(_)));
         let mut cur_type = if let Some(sname) = self.struct_param_types.get(base) {
@@ -1591,7 +1778,32 @@ impl CodeGen {
                 AccessStep::Call(args) => {
                     let av: Vec<_> = args.iter().map(|a| self.gen_call_arg(a)).collect();
                     out = format!("{}({})", out, av.join(", "));
-                    cur_type = None;
+
+                    let call_ret: Option<SemType> = {
+                        let fname = if i > 0 {
+                            if let Some(AccessStep::Field(f)) = steps.get(i - 1) {
+                                let q = format!("{}::{}", base, f);
+                                self.func_return_types
+                                    .get(f.as_str())
+                                    .or_else(|| self.func_return_types.get(&q))
+                                    .cloned()
+                            } else {
+                                None
+                            }
+                        } else {
+                            let q = format!("{}::{}", base, base);
+                            self.func_return_types
+                                .get(base)
+                                .or_else(|| self.func_return_types.get(&q))
+                                .cloned()
+                        };
+                        fname
+                    };
+
+                    if matches!(&call_ret, Some(SemType::Struct(_))) && !is_last {
+                        out = format!("{}.as_ref().unwrap()", out);
+                    }
+                    cur_type = call_ret;
                 }
             }
         }
@@ -1600,102 +1812,89 @@ impl CodeGen {
     }
 
     fn try_builtin(&mut self, name: &str, args: &[ParseNode]) -> Option<String> {
-        let def = ALL_BUILTINS.iter().find(|b| b.name == name)?;
         let n = args.len();
 
         let a: Vec<String> = args.iter().map(|x| self.gen_expr(x)).collect();
 
-        match &def.codegen {
-            CodegenRule::Template(tpl) => {
-                let mut out = tpl.to_string();
-                for (i, arg) in a.iter().enumerate() {
-                    out = out.replace(&format!("{{{}}}", i), arg);
+        match (name, n) {
+            ("print", 0) => Some("println!()".into()),
+
+            ("print", 1) => {
+                if let ParseNode::StringLit(s) = &args[0] {
+                    let escaped: String = s.chars().map(|c| escape_char(c)).collect();
+                    Some(format!("println!(\"{}\")", escaped))
+                } else {
+                    Some(format!("println!(\"{{}}\", {})", a[0]))
                 }
-                Some(out)
             }
 
-            CodegenRule::Print => Some(match n {
-                0 => "println!()".into(),
-                1 => {
-                    if let ParseNode::StringLit(s) = &args[0] {
-                        let esc: String = s.chars().map(escape_char).collect();
-                        format!("println!(\"{}\")", esc)
-                    } else {
-                        format!("println!(\"{{}}\", {})", a[0])
-                    }
-                }
-                _ => {
-                    let fmt = if let ParseNode::StringLit(s) = &args[0] {
-                        let esc: String = s.chars().map(escape_char).collect();
-                        format!("\"{}\"", esc)
-                    } else {
-                        a[0].clone()
-                    };
-                    format!("println!({}, {})", fmt, a[1..].join(", "))
-                }
-            }),
+            ("print", _) => {
+                let fmt_lit = if let ParseNode::StringLit(s) = &args[0] {
+                    let escaped: String = s.chars().map(|c| escape_char(c)).collect();
+                    format!("\"{}\"", escaped)
+                } else {
+                    a[0].clone()
+                };
+                let rest = a[1..].join(", ");
+                Some(format!("println!({}, {})", fmt_lit, rest))
+            }
 
-            CodegenRule::Input => Some(
+            ("input", _) => Some(
                 "{ let mut __ln = String::new(); \
                  io::stdin().lock().read_line(&mut __ln).unwrap(); \
                  __ln.trim().to_string() }"
                     .into(),
             ),
 
-            CodegenRule::Append => {
-                if n < 2 {
-                    return None;
-                }
+            ("append", 2) => {
                 let container = self.gen_list_container(&args[0]);
                 let val = self.gen_expr(&args[1]);
-                let needs_clone = self.expr_is_struct(&args[1]);
-                if needs_clone {
-                    Some(format!("{}.push({}.clone())", container, val))
-                } else {
-                    Some(format!("{}.push({})", container, val))
-                }
-            }
 
-            CodegenRule::Pop => {
+                Some(format!("{}.push({}.clone())", container, val))
+            }
+            ("pop", 1) => {
                 let container = self.gen_list_container(&args[0]);
                 Some(format!("{}.pop().unwrap()", container))
             }
-
-            CodegenRule::Insert => match n {
-                2 => {
-                    let container = self.gen_list_container(&args[0]);
-                    let val = self.gen_expr(&args[1]);
-                    let needs_clone = self.expr_is_struct(&args[1]);
-                    let val = if needs_clone {
-                        format!("{}.clone()", val)
-                    } else {
-                        val
-                    };
-                    Some(format!("{}.insert(0, {})", container, val))
-                }
-                3 => {
-                    let container = self.gen_list_container(&args[0]);
-                    let idx = self.gen_expr(&args[1]);
-                    let val = self.gen_expr(&args[2]);
-                    let needs_clone = self.expr_is_struct(&args[2]);
-                    let val = if needs_clone {
-                        format!("{}.clone()", val)
-                    } else {
-                        val
-                    };
-                    Some(format!("{}.insert({} as usize, {})", container, idx, val))
-                }
-                _ => None,
-            },
-
-            CodegenRule::Delete => {
-                if n < 2 {
-                    return None;
-                }
+            ("insert", 2) => {
+                let container = self.gen_list_container(&args[0]);
+                let val = self.gen_call_arg(&args[1]);
+                Some(format!("{}.insert(0, {})", container, val))
+            }
+            ("insert", 3) => {
+                let container = self.gen_list_container(&args[0]);
+                let idx = self.gen_expr(&args[1]);
+                let val = self.gen_call_arg(&args[2]);
+                Some(format!("{}.insert({} as usize, {})", container, idx, val))
+            }
+            ("delete", 2) => {
                 let container = self.gen_list_container(&args[0]);
                 let idx = self.gen_expr(&args[1]);
                 Some(format!("{}.remove({} as usize)", container, idx))
             }
+            ("find", 2) => Some(format!(
+                "{}.iter().position(|__x| *__x == {}).map(|i| i as i64).unwrap_or(-1_i64)",
+                a[0], a[1]
+            )),
+            ("len", 1) => Some(format!("({}.len() as i64)", a[0])),
+
+            ("pow", 2) => Some(format!("({} as f64).powf({} as f64)", a[0], a[1])),
+            ("abs", 1) => Some(format!("{}.abs()", a[0])),
+            ("sqrt", 1) => Some(format!("({} as f64).sqrt()", a[0])),
+            ("floor", 1) => Some(format!("({} as f64).floor() as i64", a[0])),
+            ("ceil", 1) => Some(format!("({} as f64).ceil() as i64", a[0])),
+            ("min", 2) => Some(format!("{}.min({})", a[0], a[1])),
+            ("max", 2) => Some(format!("{}.max({})", a[0], a[1])),
+
+            ("to_int", 1) => Some(format!("({} as i64)", a[0])),
+            ("to_float", 1) => Some(format!("({} as f64)", a[0])),
+
+            ("to_str", 1) => Some(format!(
+                "{}.to_string().chars().collect::<Vec<char>>()",
+                a[0]
+            )),
+
+            _ => None,
         }
     }
 }
@@ -1710,6 +1909,46 @@ fn escape_ident(name: &str) -> String {
     ];
     if RUST_KEYWORDS.contains(&name) {
         format!("r#{}", name)
+    } else {
+        name.to_string()
+    }
+}
+
+fn escape_struct_name(name: &str) -> String {
+    const RUST_BUILTIN_TYPES: &[&str] = &[
+        "Box",
+        "Vec",
+        "Option",
+        "Result",
+        "String",
+        "Ok",
+        "Err",
+        "Some",
+        "None",
+        "Drop",
+        "Copy",
+        "Clone",
+        "Send",
+        "Sync",
+        "Sized",
+        "Fn",
+        "FnMut",
+        "FnOnce",
+        "Iterator",
+        "Default",
+        "From",
+        "Into",
+        "ToString",
+        "AsRef",
+        "AsMut",
+        "PartialEq",
+        "Eq",
+        "PartialOrd",
+        "Ord",
+        "Hash",
+    ];
+    if RUST_BUILTIN_TYPES.contains(&name) {
+        format!("Fr{}", name)
     } else {
         name.to_string()
     }

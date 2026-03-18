@@ -8,7 +8,7 @@ use fractal::compiler::codegen;
 use fractal::compiler::semanter::analyze;
 use fractal::compiler::{lexer, parser, preprocessor};
 
-const DEBUG: bool = true;
+const DEBUG: bool = false;
 const DELETE: bool = true;
 
 fn print_error(msg: &str) {

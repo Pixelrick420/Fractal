@@ -139,6 +139,23 @@ impl ScopeStack {
     }
 }
 
+fn format_notes(rest: &str) {
+    for raw in rest.lines() {
+        let trimmed = raw.trim();
+
+        let text = if let Some(t) = trimmed.strip_prefix("note:") {
+            Some(t)
+        } else {
+            trimmed.strip_prefix("hint:")
+        };
+        if let Some(t) = text {
+            eprintln!(" \x1b[1;34m  =\x1b[0m \x1b[1;32mhint\x1b[0m: {}", t.trim());
+        } else if !trimmed.is_empty() {
+            eprintln!(" \x1b[1;34m  =\x1b[0m {}", trimmed);
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SemanticWarning {
     pub message: String,
@@ -146,7 +163,9 @@ pub struct SemanticWarning {
 
 impl fmt::Display for SemanticWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "\x1b[1;33mWarning:\x1b[0m {}", self.message)
+        let mut lines = self.message.splitn(2, '\n');
+        let main = lines.next().unwrap_or(&self.message);
+        write!(f, "\x1b[1;33mWarning:\x1b[0m {}", main)
     }
 }
 
@@ -165,7 +184,9 @@ impl SemanticError {
 
 impl fmt::Display for SemanticError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "\x1b[1;31mSemantic Error:\x1b[0m {}", self.message)
+        let mut lines = self.message.splitn(2, '\n');
+        let main = lines.next().unwrap_or(&self.message);
+        write!(f, "\x1b[1;31mSemantic Error:\x1b[0m {}", main)
     }
 }
 
@@ -185,6 +206,8 @@ impl SemanticResult {
             println!("\x1b[1;33m⚠  {} warning(s):\x1b[0m", self.warnings.len());
             for w in &self.warnings {
                 eprintln!("   {}", w);
+                let rest = w.message.splitn(2, '\n').nth(1).unwrap_or("");
+                format_notes(rest);
             }
             println!();
         }
@@ -194,6 +217,8 @@ impl SemanticResult {
             println!("\x1b[1;31m✗  {} error(s):\x1b[0m", self.errors.len());
             for e in &self.errors {
                 eprintln!("   {}", e);
+                let rest = e.message.splitn(2, '\n').nth(1).unwrap_or("");
+                format_notes(rest);
             }
             println!();
         }
@@ -1304,7 +1329,15 @@ impl Analyzer {
                 self.current_origin = saved_origin;
             }
 
-            ParseNode::StructDef { .. } => {}
+            ParseNode::StructDef { name, .. } => {
+                if self.current_return_type.is_some() {
+                    self.error(format!(
+                        "struct `{}` cannot be defined inside a function; \
+                         move it to the top level (outside all `!func` bodies)",
+                        name
+                    ));
+                }
+            }
 
             ParseNode::FuncDef {
                 name,
@@ -1324,6 +1357,30 @@ impl Analyzer {
                 let prev_ret = self.current_return_type.replace(ret.clone());
                 let saved_origin = self.current_origin.clone();
                 self.current_origin = format!("fn:{}", name);
+
+                if matches!(ret, SemType::Void) {
+                    for param in params {
+                        if let ParseNode::Param {
+                            data_type,
+                            name: pname,
+                        } = param
+                        {
+                            let pt = self.resolve_type_node(data_type);
+                            if matches!(pt, SemType::Struct(_)) {
+                                self.warn(format!(
+                                    "`:void` function `{}` takes struct parameter `{}` by value; \
+                                     any mutations to `{}` inside the function are silently \
+                                     discarded — change the return type to `:struct<{}>` and \
+                                     return the modified struct, then assign the result at the call site",
+                                    name,
+                                    pname,
+                                    pname,
+                                    if let SemType::Struct(ref sname) = pt { sname.as_str() } else { "?" }
+                                ));
+                            }
+                        }
+                    }
+                }
 
                 self.scopes.push();
                 for param in params {

@@ -233,6 +233,22 @@ pub struct Parser {
     loop_depth: usize,
 }
 
+fn format_notes(rest: &str) {
+    for raw in rest.lines() {
+        let trimmed = raw.trim();
+        let text = if let Some(t) = trimmed.strip_prefix("note:") {
+            Some(t)
+        } else {
+            trimmed.strip_prefix("hint:")
+        };
+        if let Some(t) = text {
+            eprintln!(" \x1b[1;34m  =\x1b[0m \x1b[1;32mhint\x1b[0m: {}", t.trim());
+        } else if !trimmed.is_empty() {
+            eprintln!(" \x1b[1;34m  =\x1b[0m {}", trimmed);
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ParseError {
     pub message: String,
@@ -262,13 +278,15 @@ impl ParseError {
                 .to_string()
         };
 
-        eprintln!(
-            "\x1b[1;31merror[P000]\x1b[0m\x1b[1m: {}\x1b[0m",
-            self.message
-        );
+        let mut lines = self.message.splitn(2, '\n');
+        let main_msg = lines.next().unwrap_or(&self.message);
+        let rest = lines.next().unwrap_or("");
+
+        eprintln!("\x1b[1;31merror[P000]\x1b[0m\x1b[1m: {}\x1b[0m", main_msg);
 
         if self.line == 0 {
             eprintln!(" \x1b[1;34m-->\x1b[0m {}", display_file);
+            format_notes(rest);
             eprintln!();
             return;
         }
@@ -291,6 +309,7 @@ impl ParseError {
         eprintln!(" \x1b[1;34m{pad} |\x1b[0m");
         eprintln!(" \x1b[1;34m{line_str} |\x1b[0m {src_line}");
         eprintln!(" \x1b[1;34m{pad} |\x1b[0m \x1b[1;31m{caret_pad}^ here\x1b[0m");
+        format_notes(rest);
         eprintln!();
     }
 }
@@ -917,6 +936,13 @@ impl Parser {
                     ));
                 }
                 self.advance();
+
+                if matches!(self.peek(), Some(TokenType::EndL)) {
+                    return Err(self.err(
+                        "bare `!return;` is not valid\n   \
+                         note: to return from a `:void` function use `!return !null;`",
+                    ));
+                }
                 let expr = self.parse_expression()?;
                 self.expect(&TokenType::EndL)?;
                 Ok(ParseNode::Return(Box::new(expr)))

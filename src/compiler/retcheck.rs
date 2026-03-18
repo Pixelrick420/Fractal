@@ -9,6 +9,37 @@ pub fn block_always_returns(stmts: &[ParseNode]) -> bool {
     false
 }
 
+fn block_contains_exit_no_break(stmts: &[ParseNode]) -> bool {
+    for stmt in stmts {
+        if node_contains_exit_no_break(stmt) {
+            return true;
+        }
+    }
+    false
+}
+
+fn node_contains_exit_no_break(node: &ParseNode) -> bool {
+    match node {
+        ParseNode::Return(_) | ParseNode::Exit(_) => true,
+        ParseNode::Break => false,
+        ParseNode::If {
+            then_block,
+            else_block,
+            ..
+        } => {
+            block_contains_exit_no_break(then_block)
+                || else_block
+                    .as_deref()
+                    .map_or(false, block_contains_exit_no_break)
+        }
+
+        ParseNode::For { body, .. } | ParseNode::While { body, .. } => {
+            block_contains_exit_no_break(body)
+        }
+        _ => false,
+    }
+}
+
 fn stmt_always_returns(node: &ParseNode) -> bool {
     match node {
         ParseNode::Return(_) | ParseNode::Exit(_) => true,
@@ -26,7 +57,12 @@ fn stmt_always_returns(node: &ParseNode) -> bool {
             then_returns && else_returns
         }
 
-        ParseNode::For { .. } | ParseNode::While { .. } => false,
+        ParseNode::While { condition, body } => {
+            matches!(condition.as_ref(), ParseNode::BoolLit(true))
+                && block_contains_exit_no_break(body)
+        }
+
+        ParseNode::For { .. } => false,
 
         _ => false,
     }

@@ -62,7 +62,7 @@ pub static ALL_BUILTINS: &[BuiltinDef] = &[
     },
     BuiltinDef {
         name: "insert",
-        params: &[BType::Any, BType::Any],
+        params: &[BType::Any],
         ret: BType::Void,
         codegen: CodegenRule::Insert,
     },

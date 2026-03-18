@@ -37,6 +37,8 @@ struct CodeGen {
     hoist_counter: usize,
 
     local_var_types: HashMap<String, SemType>,
+
+    for_depth: usize,
 }
 
 impl CodeGen {
@@ -80,6 +82,7 @@ impl CodeGen {
             hoist_buf: Vec::new(),
             hoist_counter: 0,
             local_var_types: HashMap::new(),
+            for_depth: 0,
         }
     }
 
@@ -219,7 +222,7 @@ impl CodeGen {
     }
 
     fn gen_structdef(&mut self, name: &str, fields: &[ParseNode]) {
-        self.line("#[derive(Debug, Clone, Default)]");
+        self.line("#[derive(Debug, Clone, Default, PartialEq)]");
         self.line(&format!("pub struct {} {{", name));
         self.indent();
         for f in fields {
@@ -501,7 +504,14 @@ impl CodeGen {
             }
 
             ParseNode::Break => self.line("break;"),
-            ParseNode::Continue => self.line("continue;"),
+            ParseNode::Continue => {
+                if self.for_depth > 0 {
+                    let label = format!("'__for_{}", self.for_depth - 1);
+                    self.line(&format!("break {};", label));
+                } else {
+                    self.line("continue;");
+                }
+            }
 
             ParseNode::ExprStmt(e) => {
                 self.gen_call_stmt(e);
@@ -524,6 +534,11 @@ impl CodeGen {
             let sname = sname.clone();
             self.gen_struct_decl(&sname, name, init);
             return;
+        }
+
+        if matches!(data_type, ParseNode::TypeBoolean) {
+            self.local_var_types
+                .insert(name.to_string(), SemType::Boolean);
         }
 
         let ty = self.type_str(data_type);
@@ -831,6 +846,20 @@ impl CodeGen {
         }
     }
 
+    fn expr_is_struct(&self, node: &ParseNode) -> bool {
+        match node {
+            ParseNode::AccessChain { base, steps } if steps.is_empty() => {
+                matches!(
+                    self.var_types
+                        .get(base.as_str())
+                        .or_else(|| self.local_var_types.get(base.as_str())),
+                    Some(SemType::Struct(_))
+                ) || self.struct_params.contains(base.as_str())
+            }
+            _ => false,
+        }
+    }
+
     fn gen_list_container(&mut self, node: &ParseNode) -> String {
         match node {
             ParseNode::AccessChain { base, steps } => {
@@ -992,14 +1021,22 @@ impl CodeGen {
         let sp_s = self.gen_expr(step);
 
         let vn = escape_ident(var_name);
+
+        let label = format!("'__for_{}", self.for_depth);
         self.line("{");
         self.indent();
         self.line(&format!("let mut {}: {} = {};", vn, ty, s_s));
         self.line(&format!("while {} < {} {{", vn, st_s));
         self.indent();
+        self.line(&format!("{}: {{", label));
+        self.indent();
+        self.for_depth += 1;
         for stmt in body {
             self.gen_stmt(stmt);
         }
+        self.for_depth -= 1;
+        self.dedent();
+        self.line("}");
         self.line(&format!("{} += {};", vn, sp_s));
         self.dedent();
         self.line("}");
@@ -1183,7 +1220,15 @@ impl CodeGen {
                     }
                 }
             }
-            _ => self.gen_expr(node),
+            _ => {
+                if let ParseNode::StringLit(s) = node {
+                    let chars: Vec<String> =
+                        s.chars().map(|c| format!("'{}'", escape_char(c))).collect();
+                    format!("[{}]", chars.join(", "))
+                } else {
+                    self.gen_expr(node)
+                }
+            }
         }
     }
 
@@ -1366,7 +1411,9 @@ impl CodeGen {
                         ParseNode::AccessChain { base: n, steps }
                             if steps.is_empty()
                                 && (matches!(
-                                    self.var_types.get(n.as_str()),
+                                    self.var_types
+                                        .get(n.as_str())
+                                        .or_else(|| self.local_var_types.get(n.as_str())),
                                     Some(SemType::Boolean)
                                 ) || self.bool_params.contains(n.as_str())) =>
                         {
@@ -1601,16 +1648,7 @@ impl CodeGen {
                 }
                 let container = self.gen_list_container(&args[0]);
                 let val = self.gen_expr(&args[1]);
-
-                let needs_clone = match &args[1] {
-                    ParseNode::AccessChain { base, steps } if steps.is_empty() => matches!(
-                        self.var_types
-                            .get(base.as_str())
-                            .or_else(|| self.local_var_types.get(base.as_str())),
-                        Some(SemType::Struct(_))
-                    ),
-                    _ => false,
-                };
+                let needs_clone = self.expr_is_struct(&args[1]);
                 if needs_clone {
                     Some(format!("{}.push({}.clone())", container, val))
                 } else {
@@ -1627,12 +1665,24 @@ impl CodeGen {
                 2 => {
                     let container = self.gen_list_container(&args[0]);
                     let val = self.gen_expr(&args[1]);
+                    let needs_clone = self.expr_is_struct(&args[1]);
+                    let val = if needs_clone {
+                        format!("{}.clone()", val)
+                    } else {
+                        val
+                    };
                     Some(format!("{}.insert(0, {})", container, val))
                 }
                 3 => {
                     let container = self.gen_list_container(&args[0]);
                     let idx = self.gen_expr(&args[1]);
                     let val = self.gen_expr(&args[2]);
+                    let needs_clone = self.expr_is_struct(&args[2]);
+                    let val = if needs_clone {
+                        format!("{}.clone()", val)
+                    } else {
+                        val
+                    };
                     Some(format!("{}.insert({} as usize, {})", container, idx, val))
                 }
                 _ => None,

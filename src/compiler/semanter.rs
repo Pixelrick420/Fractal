@@ -414,6 +414,24 @@ impl Analyzer {
             },
 
             ParseNode::AccessChain { base, steps } => {
+                if self.current_return_type.is_some() {
+                    if let Some(sym) = self.scopes.lookup(base) {
+                        if sym.scope_depth == 0
+                            && matches!(sym.kind, SymbolKind::Variable)
+                            && matches!(
+                                &sym.sem_type,
+                                SemType::List { .. } | SemType::Array { .. } | SemType::Struct(_)
+                            )
+                        {
+                            self.error(format!(
+                                "function cannot access global variable `{}`; \
+                                 global lists, arrays, and structs are not visible inside \
+                                 functions — pass `{}` as a parameter instead",
+                                base, base
+                            ));
+                        }
+                    }
+                }
                 let qualified_key: Option<String> =
                     if let Some(AccessStep::Field(first_field)) = steps.first() {
                         let key = format!("{}::{}", base, first_field);
@@ -609,7 +627,22 @@ impl Analyzer {
                                     if let Some(SemType::List { elem: list_elem }) =
                                         arg_types.first()
                                     {
-                                        let value_ty = &arg_types[1];
+                                        let value_ty = arg_types.last().unwrap();
+
+                                        let is_insert = func_name == "insert"
+                                            || func_name.ends_with("::insert");
+                                        if is_insert && arg_types.len() == 3 {
+                                            if !matches!(
+                                                &arg_types[1],
+                                                SemType::Int | SemType::Unknown
+                                            ) {
+                                                self.error(format!(
+                                                    "`insert` index (argument 2) must be `:int`, \
+                                                     got `{}`",
+                                                    arg_types[1].display()
+                                                ));
+                                            }
+                                        }
                                         if !matches!(value_ty, SemType::Unknown)
                                             && !matches!(list_elem.as_ref(), SemType::Unknown)
                                             && !Self::types_compatible(list_elem, value_ty)
@@ -649,6 +682,18 @@ impl Analyzer {
                                 }
 
                                 let is_print = func_name == "print";
+                                if is_print {
+                                    if let Some(first_arg) = args.first() {
+                                        if !matches!(first_arg, ParseNode::StringLit(_)) {
+                                            self.error(
+                                                "first argument to `print` must be a string literal; \
+                                                 e.g. `print(\"{}\", value)` — a variable of type \
+                                                 `:array<:char>` is not accepted as a format string"
+                                                    .to_string(),
+                                            );
+                                        }
+                                    }
+                                }
                                 if is_print && arg_types.len() >= 2 {
                                     for (i, at) in arg_types[1..].iter().enumerate() {
                                         let printable = matches!(
@@ -676,6 +721,27 @@ impl Analyzer {
                                 if is_pop {
                                     if let Some(SemType::List { elem }) = arg_types.first() {
                                         return *elem.clone();
+                                    }
+                                }
+
+                                let is_to_str = func_name == "to_str";
+                                if is_to_str {
+                                    if let Some(at) = arg_types.first() {
+                                        if !matches!(
+                                            at,
+                                            SemType::Int
+                                                | SemType::Float
+                                                | SemType::Char
+                                                | SemType::Boolean
+                                                | SemType::Unknown
+                                        ) {
+                                            self.error(format!(
+                                                "`to_str` only works on primitive types \
+                                                 (`:int`, `:float`, `:char`, `:boolean`), \
+                                                 got `{}`",
+                                                at.display()
+                                            ));
+                                        }
                                     }
                                 }
 
@@ -1531,7 +1597,19 @@ impl Analyzer {
                             ));
                             return;
                         }
-                        if !Self::types_compatible(&decl_ty, &init_ty) {
+
+                        if matches!(decl_ty, SemType::List { .. })
+                            && matches!(init_ty, SemType::Array { .. })
+                            && !matches!(init_expr.as_ref(), ParseNode::ArrayLit(_))
+                        {
+                            self.error(format!(
+                                "cannot initialise `{}` (type `{}`) with value of type `{}`; \
+                                 arrays and lists are distinct types",
+                                name,
+                                decl_ty.display(),
+                                init_ty.display()
+                            ));
+                        } else if !Self::types_compatible(&decl_ty, &init_ty) {
                             let msg = match (&decl_ty, &init_ty) {
                                 (
                                     SemType::Array { elem: de, size: ds },
@@ -1709,6 +1787,17 @@ impl Analyzer {
                             rv_ty.display(),
                             lv_ty.display()
                         ));
+                    } else if !is_compound_op
+                        && matches!(lv_ty, SemType::List { .. })
+                        && matches!(rv_ty, SemType::Array { .. })
+                        && !matches!(expr.as_ref(), ParseNode::ArrayLit(_))
+                    {
+                        self.error(format!(
+                            "cannot assign value of type `{}` to target of type `{}`; \
+                             arrays and lists are distinct types",
+                            rv_ty.display(),
+                            lv_ty.display()
+                        ));
                     }
                 }
             }
@@ -1774,6 +1863,17 @@ impl Analyzer {
                         "`!for` step expression must be `:int`, got `{}`",
                         step_ty.display()
                     ));
+                }
+
+                if let ParseNode::IntLit(s) = step.as_ref() {
+                    if *s <= 0 {
+                        self.error(format!(
+                            "`!for` step must be a positive integer, got `{}`; \
+                             a step of 0 produces an infinite loop and a negative step \
+                             means the loop will never execute for increasing ranges",
+                            s
+                        ));
+                    }
                 }
                 self.scopes.push();
 

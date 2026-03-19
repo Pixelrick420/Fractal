@@ -1,9 +1,11 @@
-use crate::compiler::parser::{
-    AccessStep, AddOp, AssignOp, CmpOp, MulOp, ParseNode, ShiftOp, UnOp,
-};
+use crate::compiler::parser::ParseNode;
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 
-#[derive(Debug, Clone)]
+// ─── Value type (kept for AST eval preview only) ─────────────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum FractalValue {
     Int(i64),
     Float(f64),
@@ -56,6 +58,8 @@ impl FractalValue {
     }
 }
 
+// ─── AST Tree ─────────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone)]
 pub struct TreeNode {
     pub id: usize,
@@ -63,6 +67,8 @@ pub struct TreeNode {
     pub depth: usize,
     pub children: Vec<usize>,
     pub parent: Option<usize>,
+    /// Collapsed state: if true, children are hidden in the tree view
+    pub collapsed: bool,
 }
 
 pub fn build_tree_table(root: &ParseNode) -> Vec<TreeNode> {
@@ -84,6 +90,7 @@ fn visit_node(
         depth,
         children: vec![],
         parent,
+        collapsed: false,
     });
     let kids: Vec<usize> = children_of(node)
         .into_iter()
@@ -92,6 +99,8 @@ fn visit_node(
     t[id].children = kids;
     id
 }
+
+use crate::compiler::parser::AccessStep;
 
 fn children_of(n: &ParseNode) -> Vec<&ParseNode> {
     match n {
@@ -255,59 +264,26 @@ fn type_str(n: &ParseNode) -> String {
     }
 }
 
+// ─── Debug snapshot (read from file) ─────────────────────────────────────────
+
+/// One snapshot written by the compiled binary's `__fractal_debug!()` call.
 #[derive(Debug, Clone)]
-pub struct StepEntry {
-    pub node_id: usize,
+pub struct DebugSnapshot {
+    /// Step index (0-based) as written by the binary
+    pub step: usize,
+    /// Human-readable label e.g. "Decl x"
     pub label: String,
+    /// Source line number
     pub source_line: usize,
-    pub action: StepAction,
-}
-
-#[derive(Debug, Clone)]
-pub enum StepAction {
-    Decl {
-        name: String,
-        init: Option<ParseNode>,
-    },
-    Assign {
-        lvalue: ParseNode,
-        op: AssignOp,
-        rhs: ParseNode,
-    },
-    IfCheck {
-        condition: ParseNode,
-        after_index: usize,
-    },
-    Jump {
-        target_index: usize,
-    },
-    ForInit {
-        var_name: String,
-        start: ParseNode,
-    },
-    ForCheck {
-        var_name: String,
-        stop: ParseNode,
-        step_expr: ParseNode,
-        body_end_index: usize,
-    },
-    ExprStmt {
-        expr: ParseNode,
-    },
-    FuncReturn {
-        expr: Option<ParseNode>,
-    },
-    Exit,
-}
-
-#[derive(Debug, Clone)]
-pub struct DebugFrame {
-    pub active_node_id: usize,
-    pub step_label: String,
-    pub source_line: usize,
+    /// All scopes at this point, innermost last
     pub scopes: Vec<ScopeSnapshot>,
+    /// Call stack, bottom first
     pub call_stack: Vec<String>,
+    /// Any output produced since the previous snapshot
+    pub output_since_last: String,
+    /// Whether this is the final snapshot (program finished)
     pub finished: bool,
+    /// Runtime error if any
     pub error: Option<String>,
 }
 
@@ -322,731 +298,442 @@ pub struct VarRow {
     pub name: String,
     pub type_label: String,
     pub value: String,
+    /// true if value changed since the previous snapshot
+    pub changed: bool,
 }
 
+/// The frame shown in the UI – same shape as before so existing UI code needs minimal changes.
 #[derive(Debug, Clone)]
-struct CallFrame {
-    func_name: String,
-    scopes: Vec<HashMap<String, FractalValue>>,
+pub struct DebugFrame {
+    pub active_node_id: usize,
+    pub step_label: String,
+    pub source_line: usize,
+    pub scopes: Vec<ScopeSnapshot>,
+    pub call_stack: Vec<String>,
+    pub finished: bool,
+    pub error: Option<String>,
+    /// Buffered output to show in the output panel
+    pub buffered_output: String,
 }
 
-impl CallFrame {
-    fn new(name: impl Into<String>) -> Self {
-        Self {
-            func_name: name.into(),
-            scopes: vec![HashMap::new()],
-        }
-    }
-    fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
-    }
-    fn pop_scope(&mut self) {
-        if self.scopes.len() > 1 {
-            self.scopes.pop();
-        }
-    }
-    fn set(&mut self, name: &str, val: FractalValue) {
-        for s in self.scopes.iter_mut().rev() {
-            if s.contains_key(name) {
-                s.insert(name.into(), val);
-                return;
-            }
-        }
-        self.scopes.last_mut().unwrap().insert(name.into(), val);
-    }
-    fn declare(&mut self, name: &str, val: FractalValue) {
-        self.scopes.last_mut().unwrap().insert(name.into(), val);
-    }
-    fn get(&self, name: &str) -> Option<&FractalValue> {
-        for s in self.scopes.iter().rev() {
-            if let Some(v) = s.get(name) {
-                return Some(v);
-            }
-        }
-        None
-    }
-    fn all_vars(&self) -> Vec<(String, FractalValue)> {
-        let mut seen = std::collections::HashSet::new();
-        let mut out = Vec::new();
-        for scope in self.scopes.iter().rev() {
-            for (k, v) in scope {
-                if seen.insert(k.clone()) {
-                    out.push((k.clone(), v.clone()));
-                }
-            }
-        }
-        out.sort_by(|a, b| a.0.cmp(&b.0));
-        out
-    }
-}
+// ─── Debug session (file-reader mode) ────────────────────────────────────────
 
+/// Reads snapshots one at a time from the debug JSON-lines file written by the
+/// compiled binary.  The binary writes one JSON object per line, so we just
+/// tail the file as the program runs and serve snapshots to the UI on demand.
 pub struct DebugSession {
-    steps: Vec<StepEntry>,
+    /// Path to the `<stem>-debug.jsonl` file being produced by the running binary.
+    debug_file: PathBuf,
+    /// Snapshots already read from the file.
+    snapshots: Vec<DebugSnapshot>,
+    /// Index of the snapshot *currently shown* in the UI (0 = before any step).
     cursor: usize,
-    call_stack: Vec<CallFrame>,
+    /// How many bytes of the file we have already consumed.
+    file_offset: u64,
+    /// The AST tree for the tree-view panel.
     pub tree: Vec<TreeNode>,
     pub finished: bool,
 }
 
 impl DebugSession {
-    pub fn new(root: &ParseNode) -> Self {
+    /// Create a new session that will read from `debug_file`.
+    /// `root` is the AST of the program (for the tree view).
+    pub fn new(root: &ParseNode, debug_file: PathBuf) -> Self {
         let tree = build_tree_table(root);
-        let mut steps = Vec::new();
-        if let ParseNode::Program(items) = root {
-            for item in items {
-                match item {
-                    ParseNode::FuncDef { .. } | ParseNode::StructDef { .. } => {}
-                    _ => flatten_node(item, &mut steps),
-                }
-            }
-        }
         Self {
-            steps,
+            debug_file,
+            snapshots: Vec::new(),
             cursor: 0,
-            call_stack: vec![CallFrame::new("global")],
+            file_offset: 0,
             tree,
             finished: false,
         }
     }
 
-    pub fn total_steps(&self) -> usize {
-        self.steps.len()
+    /// Poll the debug file for new snapshots without advancing the cursor.
+    /// Call this every frame so the UI can show "N steps available".
+    pub fn poll_file(&mut self) {
+        let Ok(content) = fs::read_to_string(&self.debug_file) else {
+            return;
+        };
+        // Only process bytes we haven't seen yet
+        let new_part = if self.file_offset as usize <= content.len() {
+            &content[self.file_offset as usize..]
+        } else {
+            return;
+        };
+        for line in new_part.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some(snap) = parse_snapshot_line(line) {
+                self.file_offset += (line.len() + 1) as u64; // +1 for newline
+                let was_finished = snap.finished;
+                self.snapshots.push(snap);
+                if was_finished {
+                    self.finished = true;
+                }
+            }
+        }
+        // Recalculate offset properly (line-by-line counting can drift)
+        // Use a simpler approach: count all consumed lines
+        let total_lines_consumed = self.snapshots.len();
+        let mut offset = 0usize;
+        for (i, line) in content.lines().enumerate() {
+            if i >= total_lines_consumed {
+                break;
+            }
+            offset += line.len() + 1;
+        }
+        self.file_offset = offset as u64;
     }
+
+    pub fn total_steps(&self) -> usize {
+        self.snapshots.len()
+    }
+
     pub fn cursor(&self) -> usize {
         self.cursor
     }
 
+    /// How many snapshots are available ahead of the cursor.
+    pub fn steps_available(&self) -> usize {
+        self.snapshots.len().saturating_sub(self.cursor)
+    }
+
+    /// Return the frame for the current cursor position without advancing.
     pub fn current_frame(&self) -> DebugFrame {
-        if self.cursor >= self.steps.len() || self.finished {
-            return self.make_frame(0, "Program finished".into(), 0, None);
+        if self.snapshots.is_empty() {
+            return placeholder_frame();
         }
-        let e = &self.steps[self.cursor];
-        self.make_frame(e.node_id, e.label.clone(), e.source_line, None)
+        let idx = self.cursor.saturating_sub(1).min(self.snapshots.len() - 1);
+        snap_to_frame(&self.snapshots[idx], self.tree.len())
     }
 
-    pub fn step(&mut self) -> DebugFrame {
-        if self.finished || self.cursor >= self.steps.len() {
-            self.finished = true;
-            return self.make_frame(0, "Program finished".into(), 0, None);
+    /// Advance cursor by one and return the new frame.
+    /// Returns None if no new snapshot is available yet (program still running).
+    pub fn step(&mut self) -> Option<DebugFrame> {
+        if self.cursor >= self.snapshots.len() {
+            return None; // no new data yet
         }
-        let entry = self.steps[self.cursor].clone();
+        let snap = &self.snapshots[self.cursor];
+        let frame = snap_to_frame(snap, self.tree.len());
         self.cursor += 1;
-        let mut error: Option<String> = None;
-
-        match entry.action {
-            StepAction::Decl { name, init } => {
-                let val = init
-                    .map(|e| self.eval_node(&e))
-                    .unwrap_or(FractalValue::Null);
-                if let Some(f) = self.call_stack.last_mut() {
-                    f.declare(&name, val);
-                }
-            }
-            StepAction::Assign { lvalue, op, rhs } => {
-                let rval = self.eval_node(&rhs);
-                error = self.do_assign(&lvalue, op, rval);
-            }
-            StepAction::IfCheck {
-                condition,
-                after_index,
-            } => {
-                if !truthy(&self.eval_node(&condition)) {
-                    self.cursor = after_index;
-                }
-            }
-            StepAction::Jump { target_index } => {
-                self.cursor = target_index;
-            }
-            StepAction::ForInit { var_name, start } => {
-                let val = self.eval_node(&start);
-                if let Some(f) = self.call_stack.last_mut() {
-                    f.push_scope();
-                    f.declare(&var_name, val);
-                }
-            }
-            StepAction::ForCheck {
-                var_name,
-                stop,
-                step_expr,
-                body_end_index,
-            } => {
-                let cur = self
-                    .get_var(&var_name)
-                    .cloned()
-                    .unwrap_or(FractalValue::Int(0));
-                let stop_v = self.eval_node(&stop);
-                if int_ge(&cur, &stop_v) {
-                    if let Some(f) = self.call_stack.last_mut() {
-                        f.pop_scope();
-                    }
-                    self.cursor = body_end_index;
-                } else {
-                    let step_v = self.eval_node(&step_expr);
-                    let next = int_add(&cur, &step_v);
-                    if let Some(f) = self.call_stack.last_mut() {
-                        f.set(&var_name, next);
-                    }
-                }
-            }
-            StepAction::ExprStmt { expr } => {
-                self.eval_node(&expr);
-            }
-            StepAction::FuncReturn { expr } => {
-                let _ = expr.map(|e| self.eval_node(&e));
-                self.call_stack.pop();
-                if self.call_stack.is_empty() {
-                    self.call_stack.push(CallFrame::new("global"));
-                }
-            }
-            StepAction::Exit => {
-                self.finished = true;
-            }
-        }
-
-        if self.cursor >= self.steps.len() {
+        if frame.finished {
             self.finished = true;
         }
-        self.make_frame(entry.node_id, entry.label, entry.source_line, error)
+        Some(frame)
     }
 
-    fn make_frame(
-        &self,
-        nid: usize,
-        label: String,
-        line: usize,
-        error: Option<String>,
-    ) -> DebugFrame {
-        DebugFrame {
-            active_node_id: nid,
-            step_label: label,
-            source_line: line,
-            scopes: self.snapshot(),
-            call_stack: self
-                .call_stack
-                .iter()
-                .map(|f| f.func_name.clone())
-                .collect(),
-            finished: self.finished || self.cursor >= self.steps.len(),
-            error,
+    /// Toggle the collapsed state of an AST tree node.
+    pub fn toggle_collapsed(&mut self, node_id: usize) {
+        if let Some(n) = self.tree.get_mut(node_id) {
+            n.collapsed = !n.collapsed;
         }
     }
 
-    fn snapshot(&self) -> Vec<ScopeSnapshot> {
-        self.call_stack
-            .iter()
-            .map(|frame| {
-                let vars = frame
-                    .all_vars()
-                    .into_iter()
-                    .map(|(name, val)| VarRow {
-                        name,
-                        type_label: val.type_label().into(),
-                        value: val.display(),
-                    })
-                    .collect();
-                ScopeSnapshot {
-                    label: frame.func_name.clone(),
-                    vars,
-                }
-            })
-            .collect()
-    }
-
-    fn get_var(&self, name: &str) -> Option<&FractalValue> {
-        for f in self.call_stack.iter().rev() {
-            if let Some(v) = f.get(name) {
-                return Some(v);
-            }
+    /// Collapse all children of a node recursively.
+    pub fn collapse_all(&mut self, node_id: usize) {
+        let children: Vec<usize> = self
+            .tree
+            .get(node_id)
+            .map(|n| n.children.clone())
+            .unwrap_or_default();
+        if let Some(n) = self.tree.get_mut(node_id) {
+            n.collapsed = true;
         }
-        None
-    }
-
-    fn do_assign(
-        &mut self,
-        lvalue: &ParseNode,
-        op: AssignOp,
-        rval: FractalValue,
-    ) -> Option<String> {
-        if let ParseNode::AccessChain { base, steps } = lvalue {
-            if steps.is_empty() {
-                let cur = self.get_var(base).cloned().unwrap_or(FractalValue::Null);
-                let next = apply_op(cur, op, rval);
-                if let Some(f) = self.call_stack.last_mut() {
-                    f.set(base, next);
-                }
-            }
-        }
-        None
-    }
-
-    pub fn eval_node(&mut self, node: &ParseNode) -> FractalValue {
-        match node {
-            ParseNode::IntLit(n) => FractalValue::Int(*n),
-            ParseNode::FloatLit(f) => FractalValue::Float(*f),
-            ParseNode::CharLit(c) => FractalValue::Char(*c),
-            ParseNode::BoolLit(b) => FractalValue::Bool(*b),
-            ParseNode::StringLit(s) => FractalValue::Str(s.clone()),
-            ParseNode::Null => FractalValue::Null,
-            ParseNode::Identifier(name) => {
-                self.get_var(name).cloned().unwrap_or(FractalValue::Null)
-            }
-
-            ParseNode::AccessChain { base, steps } => {
-                let steps_owned = steps.clone();
-                let mut val = self.get_var(base).cloned().unwrap_or(FractalValue::Null);
-                for step in &steps_owned {
-                    val = match step {
-                        AccessStep::Field(f) => match &val {
-                            FractalValue::Struct(map) => {
-                                map.get(f).cloned().unwrap_or(FractalValue::Null)
-                            }
-                            _ => FractalValue::Null,
-                        },
-                        AccessStep::Index(idx_node) => {
-                            let idx = match self.eval_node(idx_node) {
-                                FractalValue::Int(i) => i as usize,
-                                _ => 0,
-                            };
-                            match &val {
-                                FractalValue::Array(a) | FractalValue::List(a) => {
-                                    a.get(idx).cloned().unwrap_or(FractalValue::Null)
-                                }
-                                _ => FractalValue::Null,
-                            }
-                        }
-                        AccessStep::Call(args) => {
-                            let arg_vals: Vec<FractalValue> =
-                                args.iter().map(|a| self.eval_node(a)).collect();
-                            self.call_builtin(base, &arg_vals)
-                        }
-                    };
-                }
-                val
-            }
-
-            ParseNode::Cast { target_type, expr } => cast_value(self.eval_node(expr), target_type),
-
-            ParseNode::ArrayLit(elems) => {
-                FractalValue::Array(elems.iter().map(|e| self.eval_node(e)).collect())
-            }
-
-            ParseNode::LogOr { left, right } => {
-                let l = self.eval_node(left);
-                if truthy(&l) {
-                    return FractalValue::Bool(true);
-                }
-                FractalValue::Bool(truthy(&self.eval_node(right)))
-            }
-            ParseNode::LogAnd { left, right } => {
-                let l = self.eval_node(left);
-                if !truthy(&l) {
-                    return FractalValue::Bool(false);
-                }
-                FractalValue::Bool(truthy(&self.eval_node(right)))
-            }
-            ParseNode::LogNot { operand } => FractalValue::Bool(!truthy(&self.eval_node(operand))),
-
-            ParseNode::Cmp { left, right, op } => {
-                let (l, r) = (self.eval_node(left), self.eval_node(right));
-                FractalValue::Bool(cmp_vals(&l, &r, op))
-            }
-
-            ParseNode::Add { left, right, op } => {
-                let (l, r) = (self.eval_node(left), self.eval_node(right));
-                match (l, r) {
-                    (FractalValue::Int(a), FractalValue::Int(b)) => {
-                        FractalValue::Int(if matches!(op, AddOp::Add) {
-                            a + b
-                        } else {
-                            a - b
-                        })
-                    }
-                    (FractalValue::Float(a), FractalValue::Float(b)) => {
-                        FractalValue::Float(if matches!(op, AddOp::Add) {
-                            a + b
-                        } else {
-                            a - b
-                        })
-                    }
-                    _ => FractalValue::Null,
-                }
-            }
-
-            ParseNode::Mul { left, right, op } => {
-                let (l, r) = (self.eval_node(left), self.eval_node(right));
-                match (l, r) {
-                    (FractalValue::Int(a), FractalValue::Int(b)) => match op {
-                        MulOp::Mul => FractalValue::Int(a * b),
-                        MulOp::Div => FractalValue::Int(if b == 0 { 0 } else { a / b }),
-                        MulOp::Mod => FractalValue::Int(if b == 0 { 0 } else { a % b }),
-                    },
-                    (FractalValue::Float(a), FractalValue::Float(b)) => match op {
-                        MulOp::Mul => FractalValue::Float(a * b),
-                        MulOp::Div => FractalValue::Float(a / b),
-                        _ => FractalValue::Null,
-                    },
-                    _ => FractalValue::Null,
-                }
-            }
-
-            ParseNode::Unary { op, operand } => {
-                let v = self.eval_node(operand);
-                match (v, op) {
-                    (FractalValue::Int(n), UnOp::Neg) => FractalValue::Int(-n),
-                    (FractalValue::Float(f), UnOp::Neg) => FractalValue::Float(-f),
-                    (FractalValue::Int(n), UnOp::BitNot) => FractalValue::Int(!n),
-                    _ => FractalValue::Null,
-                }
-            }
-
-            ParseNode::BitAnd { left, right } => {
-                match (self.eval_node(left), self.eval_node(right)) {
-                    (FractalValue::Int(a), FractalValue::Int(b)) => FractalValue::Int(a & b),
-                    _ => FractalValue::Null,
-                }
-            }
-            ParseNode::BitOr { left, right } => match (self.eval_node(left), self.eval_node(right))
-            {
-                (FractalValue::Int(a), FractalValue::Int(b)) => FractalValue::Int(a | b),
-                _ => FractalValue::Null,
-            },
-            ParseNode::BitXor { left, right } => {
-                match (self.eval_node(left), self.eval_node(right)) {
-                    (FractalValue::Int(a), FractalValue::Int(b)) => FractalValue::Int(a ^ b),
-                    _ => FractalValue::Null,
-                }
-            }
-            ParseNode::BitShift { left, right, op } => {
-                match (self.eval_node(left), self.eval_node(right)) {
-                    (FractalValue::Int(a), FractalValue::Int(b)) => {
-                        FractalValue::Int(if matches!(op, ShiftOp::Left) {
-                            a << b
-                        } else {
-                            a >> b
-                        })
-                    }
-                    _ => FractalValue::Null,
-                }
-            }
-
-            ParseNode::ExprStmt(e) => self.eval_node(e),
-            _ => FractalValue::Null,
+        for c in children {
+            self.collapse_all(c);
         }
     }
 
-    fn call_builtin(&mut self, name: &str, args: &[FractalValue]) -> FractalValue {
-        match name {
-            "len" => match args.first() {
-                Some(FractalValue::Array(v) | FractalValue::List(v)) => {
-                    FractalValue::Int(v.len() as i64)
-                }
-                _ => FractalValue::Int(0),
-            },
-            "abs" => match args.first() {
-                Some(FractalValue::Int(n)) => FractalValue::Int(n.abs()),
-                Some(FractalValue::Float(f)) => FractalValue::Float(f.abs()),
-                _ => FractalValue::Null,
-            },
-            "sqrt" => match args.first() {
-                Some(FractalValue::Float(f)) => FractalValue::Float(f.sqrt()),
-                _ => FractalValue::Null,
-            },
-            _ => FractalValue::Void,
-        }
-    }
-}
-
-fn flatten_node(node: &ParseNode, steps: &mut Vec<StepEntry>) {
-    let node_id = steps.len();
-    match node {
-        ParseNode::Decl { name, init, .. } => push(
-            steps,
-            node_id,
-            format!("Decl  {}", name),
-            StepAction::Decl {
-                name: name.clone(),
-                init: init.as_deref().cloned(),
-            },
-        ),
-
-        ParseNode::StructDecl { var_name, init, .. } => push(
-            steps,
-            node_id,
-            format!("StructDecl  {}", var_name),
-            StepAction::Decl {
-                name: var_name.clone(),
-                init: init.as_deref().cloned(),
-            },
-        ),
-
-        ParseNode::Assign { lvalue, op, expr } => push(
-            steps,
-            node_id,
-            format!("Assign  {:?}", op),
-            StepAction::Assign {
-                lvalue: *lvalue.clone(),
-                op: op.clone(),
-                rhs: *expr.clone(),
-            },
-        ),
-
-        ParseNode::If {
-            condition,
-            then_block,
-            else_block,
-        } => {
-            let check_idx = steps.len();
-            push(
-                steps,
-                node_id,
-                "If  (condition)".into(),
-                StepAction::IfCheck {
-                    condition: *condition.clone(),
-                    after_index: 0,
-                },
-            );
-            for s in then_block {
-                flatten_node(s, steps);
-            }
-            if let Some(eb) = else_block {
-                let jump_idx = steps.len();
-                push(
-                    steps,
-                    node_id,
-                    "Jump (skip else)".into(),
-                    StepAction::Jump { target_index: 0 },
-                );
-                let else_start = steps.len();
-                patch_if(steps, check_idx, else_start);
-                for s in eb {
-                    flatten_node(s, steps);
-                }
-                patch_jump(steps, jump_idx, steps.len());
+    /// Expand a node and all its ancestors so it is visible.
+    pub fn reveal_node(&mut self, node_id: usize) {
+        let mut cur = Some(node_id);
+        while let Some(id) = cur {
+            if let Some(n) = self.tree.get_mut(id) {
+                n.collapsed = false;
+                cur = n.parent;
             } else {
-                patch_if(steps, check_idx, steps.len());
+                break;
             }
         }
-
-        ParseNode::For {
-            var_name,
-            start,
-            stop,
-            step,
-            body,
-            ..
-        } => {
-            push(
-                steps,
-                node_id,
-                format!("ForInit  {}", var_name),
-                StepAction::ForInit {
-                    var_name: var_name.clone(),
-                    start: *start.clone(),
-                },
-            );
-            let check_idx = steps.len();
-            push(
-                steps,
-                node_id,
-                format!("ForCheck  {}", var_name),
-                StepAction::ForCheck {
-                    var_name: var_name.clone(),
-                    stop: *stop.clone(),
-                    step_expr: *step.clone(),
-                    body_end_index: 0,
-                },
-            );
-            for s in body {
-                flatten_node(s, steps);
-            }
-            let back = steps.len();
-            push(
-                steps,
-                node_id,
-                "ForBack".into(),
-                StepAction::Jump {
-                    target_index: check_idx,
-                },
-            );
-            patch_for(steps, check_idx, back + 1);
-        }
-
-        ParseNode::While { condition, body } => {
-            let check_idx = steps.len();
-            push(
-                steps,
-                node_id,
-                "While  (condition)".into(),
-                StepAction::IfCheck {
-                    condition: *condition.clone(),
-                    after_index: 0,
-                },
-            );
-            for s in body {
-                flatten_node(s, steps);
-            }
-            let back = steps.len();
-            push(
-                steps,
-                node_id,
-                "WhileBack".into(),
-                StepAction::Jump {
-                    target_index: check_idx,
-                },
-            );
-            patch_if(steps, check_idx, back + 1);
-        }
-
-        ParseNode::Return(e) => push(
-            steps,
-            node_id,
-            "Return".into(),
-            StepAction::FuncReturn {
-                expr: Some(*e.clone()),
-            },
-        ),
-
-        ParseNode::Exit(_) => push(steps, node_id, "Exit".into(), StepAction::Exit),
-
-        ParseNode::ExprStmt(e) => push(
-            steps,
-            node_id,
-            "ExprStmt".into(),
-            StepAction::ExprStmt { expr: *e.clone() },
-        ),
-
-        _ => {}
     }
 }
 
-fn push(steps: &mut Vec<StepEntry>, nid: usize, label: String, action: StepAction) {
-    let line = steps.len() + 1;
-    steps.push(StepEntry {
-        node_id: nid,
+fn placeholder_frame() -> DebugFrame {
+    DebugFrame {
+        active_node_id: 0,
+        step_label: "Waiting for debug output…".into(),
+        source_line: 0,
+        scopes: vec![],
+        call_stack: vec!["main".into()],
+        finished: false,
+        error: None,
+        buffered_output: String::new(),
+    }
+}
+
+fn snap_to_frame(snap: &DebugSnapshot, _tree_len: usize) -> DebugFrame {
+    DebugFrame {
+        active_node_id: snap.step, // we map step index to node id as best-effort
+        step_label: snap.label.clone(),
+        source_line: snap.source_line,
+        scopes: snap.scopes.clone(),
+        call_stack: snap.call_stack.clone(),
+        finished: snap.finished,
+        error: snap.error.clone(),
+        buffered_output: snap.output_since_last.clone(),
+    }
+}
+
+// ─── JSON snapshot parser ─────────────────────────────────────────────────────
+
+/// Parse a single JSON-lines snapshot written by the compiled binary.
+/// Format (one line):
+/// {"step":0,"label":"Decl x","line":2,"stack":["main"],"scopes":[{"label":"main","vars":[{"name":"x","type":":int","value":"0","changed":false}]}],"output":"","finished":false,"error":null}
+fn parse_snapshot_line(line: &str) -> Option<DebugSnapshot> {
+    // Minimal hand-rolled JSON parser to avoid adding a dependency in codegen output.
+    // We rely on the exact format emitted by the debug macro.
+    let step = extract_u64(line, "\"step\"")?;
+    let label = extract_str(line, "\"label\"").unwrap_or_default();
+    let source_line = extract_u64(line, "\"line\"").unwrap_or(0) as usize;
+    let output = extract_str(line, "\"output\"").unwrap_or_default();
+    let finished = extract_bool(line, "\"finished\"").unwrap_or(false);
+    let error = extract_nullable_str(line, "\"error\"");
+    let call_stack = extract_str_array(line, "\"stack\"");
+    let scopes = extract_scopes(line);
+
+    Some(DebugSnapshot {
+        step: step as usize,
         label,
-        source_line: line,
-        action,
-    });
+        source_line,
+        scopes,
+        call_stack,
+        output_since_last: output,
+        finished,
+        error,
+    })
 }
-fn patch_if(steps: &mut Vec<StepEntry>, idx: usize, target: usize) {
-    if let Some(StepAction::IfCheck { after_index, .. }) = steps.get_mut(idx).map(|e| &mut e.action)
-    {
-        *after_index = target;
-    }
+
+fn extract_u64(s: &str, key: &str) -> Option<u64> {
+    let pos = s.find(key)?;
+    let after = &s[pos + key.len()..];
+    let colon = after.find(':')? + 1;
+    let digits: String = after[colon..]
+        .chars()
+        .skip_while(|c| c.is_whitespace())
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    digits.parse().ok()
 }
-fn patch_jump(steps: &mut Vec<StepEntry>, idx: usize, target: usize) {
-    if let Some(StepAction::Jump { target_index }) = steps.get_mut(idx).map(|e| &mut e.action) {
-        *target_index = target;
-    }
-}
-fn patch_for(steps: &mut Vec<StepEntry>, idx: usize, target: usize) {
-    if let Some(StepAction::ForCheck { body_end_index, .. }) =
-        steps.get_mut(idx).map(|e| &mut e.action)
-    {
-        *body_end_index = target;
+
+fn extract_bool(s: &str, key: &str) -> Option<bool> {
+    let pos = s.find(key)?;
+    let after = &s[pos + key.len()..];
+    let colon = after.find(':')? + 1;
+    let val: String = after[colon..]
+        .chars()
+        .skip_while(|c| c.is_whitespace())
+        .take_while(|c| c.is_alphabetic())
+        .collect();
+    match val.as_str() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
     }
 }
 
-fn truthy(v: &FractalValue) -> bool {
-    match v {
-        FractalValue::Bool(b) => *b,
-        FractalValue::Int(n) => *n != 0,
-        FractalValue::Float(f) => *f != 0.0,
-        FractalValue::Null => false,
-        _ => true,
+fn extract_str(s: &str, key: &str) -> Option<String> {
+    let pos = s.find(key)?;
+    let after = &s[pos + key.len()..];
+    let colon = after.find(':')? + 1;
+    let rest = after[colon..].trim_start();
+    if !rest.starts_with('"') {
+        return None;
     }
+    Some(parse_json_string(&rest[1..]))
 }
-fn int_ge(a: &FractalValue, b: &FractalValue) -> bool {
-    matches!((a, b), (FractalValue::Int(x), FractalValue::Int(y)) if x >= y)
-}
-fn int_add(a: &FractalValue, b: &FractalValue) -> FractalValue {
-    match (a, b) {
-        (FractalValue::Int(x), FractalValue::Int(y)) => FractalValue::Int(x + y),
-        _ => a.clone(),
+
+fn extract_nullable_str(s: &str, key: &str) -> Option<String> {
+    let pos = s.find(key)?;
+    let after = &s[pos + key.len()..];
+    let colon = after.find(':')? + 1;
+    let rest = after[colon..].trim_start();
+    if rest.starts_with("null") {
+        return None;
     }
+    if rest.starts_with('"') {
+        return Some(parse_json_string(&rest[1..]));
+    }
+    None
 }
-fn cmp_vals(l: &FractalValue, r: &FractalValue, op: &CmpOp) -> bool {
-    match (l, r) {
-        (FractalValue::Int(a), FractalValue::Int(b)) => cmp_ord(a, b, op),
-        (FractalValue::Float(a), FractalValue::Float(b)) => cmp_ord_f(a, b, op),
-        (FractalValue::Char(a), FractalValue::Char(b)) => cmp_ord(a, b, op),
-        (FractalValue::Bool(a), FractalValue::Bool(b)) => {
-            matches!(op, CmpOp::EqEq) && a == b || matches!(op, CmpOp::Ne) && a != b
+
+fn parse_json_string(s: &str) -> String {
+    let mut out = String::new();
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '"' {
+            break;
         }
-        _ => false,
-    }
-}
-fn cmp_ord<T: PartialOrd>(a: &T, b: &T, op: &CmpOp) -> bool {
-    match op {
-        CmpOp::Gt => a > b,
-        CmpOp::Lt => a < b,
-        CmpOp::Ge => a >= b,
-        CmpOp::Le => a <= b,
-        CmpOp::EqEq => a == b,
-        CmpOp::Ne => a != b,
-    }
-}
-fn cmp_ord_f(a: &f64, b: &f64, op: &CmpOp) -> bool {
-    match op {
-        CmpOp::Gt => a > b,
-        CmpOp::Lt => a < b,
-        CmpOp::Ge => a >= b,
-        CmpOp::Le => a <= b,
-        CmpOp::EqEq => (a - b).abs() < f64::EPSILON,
-        CmpOp::Ne => (a - b).abs() >= f64::EPSILON,
-    }
-}
-fn apply_op(cur: FractalValue, op: AssignOp, rval: FractalValue) -> FractalValue {
-    match op {
-        AssignOp::Eq => rval,
-        AssignOp::PlusEq => int_add(&cur, &rval),
-        AssignOp::MinusEq => match (cur, rval) {
-            (FractalValue::Int(a), FractalValue::Int(b)) => FractalValue::Int(a - b),
-            (FractalValue::Float(a), FractalValue::Float(b)) => FractalValue::Float(a - b),
-            _ => FractalValue::Null,
-        },
-        AssignOp::StarEq => match (cur, rval) {
-            (FractalValue::Int(a), FractalValue::Int(b)) => FractalValue::Int(a * b),
-            (FractalValue::Float(a), FractalValue::Float(b)) => FractalValue::Float(a * b),
-            _ => FractalValue::Null,
-        },
-        AssignOp::SlashEq => match (cur, rval) {
-            (FractalValue::Int(a), FractalValue::Int(b)) => {
-                FractalValue::Int(if b == 0 { 0 } else { a / b })
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => break,
             }
-            (FractalValue::Float(a), FractalValue::Float(b)) => FractalValue::Float(a / b),
-            _ => FractalValue::Null,
-        },
-        AssignOp::PercentEq => match (cur, rval) {
-            (FractalValue::Int(a), FractalValue::Int(b)) => {
-                FractalValue::Int(if b == 0 { 0 } else { a % b })
-            }
-            _ => FractalValue::Null,
-        },
-        AssignOp::AmpEq => match (cur, rval) {
-            (FractalValue::Int(a), FractalValue::Int(b)) => FractalValue::Int(a & b),
-            _ => FractalValue::Null,
-        },
-        AssignOp::PipeEq => match (cur, rval) {
-            (FractalValue::Int(a), FractalValue::Int(b)) => FractalValue::Int(a | b),
-            _ => FractalValue::Null,
-        },
-        AssignOp::CaretEq => match (cur, rval) {
-            (FractalValue::Int(a), FractalValue::Int(b)) => FractalValue::Int(a ^ b),
-            _ => FractalValue::Null,
-        },
-    }
-}
-fn cast_value(v: FractalValue, target: &ParseNode) -> FractalValue {
-    match (v, target) {
-        (FractalValue::Float(f), ParseNode::TypeInt) => FractalValue::Int(f as i64),
-        (FractalValue::Int(n), ParseNode::TypeFloat) => FractalValue::Float(n as f64),
-        (FractalValue::Int(n), ParseNode::TypeChar) => {
-            FractalValue::Char(char::from_u32(n as u32).unwrap_or('\0'))
+        } else {
+            out.push(c);
         }
-        (FractalValue::Char(c), ParseNode::TypeInt) => FractalValue::Int(c as i64),
-        (FractalValue::Int(n), ParseNode::TypeBoolean) => FractalValue::Bool(n != 0),
-        (FractalValue::Bool(b), ParseNode::TypeInt) => FractalValue::Int(b as i64),
-        (v, _) => v,
     }
+    out
+}
+
+fn extract_str_array(s: &str, key: &str) -> Vec<String> {
+    let Some(pos) = s.find(key) else {
+        return vec![];
+    };
+    let after = &s[pos + key.len()..];
+    let Some(colon) = after.find(':') else {
+        return vec![];
+    };
+    let rest = after[colon + 1..].trim_start();
+    if !rest.starts_with('[') {
+        return vec![];
+    }
+    let Some(end) = rest.find(']') else {
+        return vec![];
+    };
+    let inner = &rest[1..end];
+    let mut result = Vec::new();
+    for part in inner.split(',') {
+        let p = part.trim();
+        if p.starts_with('"') && p.ends_with('"') && p.len() >= 2 {
+            result.push(p[1..p.len() - 1].to_string());
+        }
+    }
+    result
+}
+
+fn extract_scopes(s: &str) -> Vec<ScopeSnapshot> {
+    // Find "scopes":[...] — walk the JSON array of scope objects
+    let Some(pos) = s.find("\"scopes\"") else {
+        return vec![];
+    };
+    let after = &s[pos + 8..];
+    let Some(colon) = after.find(':') else {
+        return vec![];
+    };
+    let rest = after[colon + 1..].trim_start();
+    if !rest.starts_with('[') {
+        return vec![];
+    }
+
+    let mut scopes = Vec::new();
+    let bytes = rest.as_bytes();
+    let mut i = 1usize; // skip '['
+    let mut depth = 0i32;
+
+    // Find each {...} object inside the outer [ ]
+    let mut obj_start = None;
+    while i < bytes.len() {
+        match bytes[i] as char {
+            '{' => {
+                if depth == 0 {
+                    obj_start = Some(i);
+                }
+                depth += 1;
+            }
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(start) = obj_start {
+                        let obj = &rest[start..=i];
+                        if let Some(sc) = parse_scope_object(obj) {
+                            scopes.push(sc);
+                        }
+                        obj_start = None;
+                    }
+                }
+            }
+            ']' if depth == 0 => break,
+            _ => {}
+        }
+        i += 1;
+    }
+    scopes
+}
+
+fn parse_scope_object(obj: &str) -> Option<ScopeSnapshot> {
+    let label = extract_str(obj, "\"label\"").unwrap_or_default();
+    let vars = extract_vars(obj);
+    Some(ScopeSnapshot { label, vars })
+}
+
+fn extract_vars(obj: &str) -> Vec<VarRow> {
+    let Some(pos) = obj.find("\"vars\"") else {
+        return vec![];
+    };
+    let after = &obj[pos + 6..];
+    let Some(colon) = after.find(':') else {
+        return vec![];
+    };
+    let rest = after[colon + 1..].trim_start();
+    if !rest.starts_with('[') {
+        return vec![];
+    }
+
+    let mut vars = Vec::new();
+    let bytes = rest.as_bytes();
+    let mut i = 1usize;
+    let mut depth = 0i32;
+    let mut obj_start = None;
+
+    while i < bytes.len() {
+        match bytes[i] as char {
+            '{' => {
+                if depth == 0 {
+                    obj_start = Some(i);
+                }
+                depth += 1;
+            }
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(start) = obj_start {
+                        let var_obj = &rest[start..=i];
+                        if let Some(row) = parse_var_object(var_obj) {
+                            vars.push(row);
+                        }
+                        obj_start = None;
+                    }
+                }
+            }
+            ']' if depth == 0 => break,
+            _ => {}
+        }
+        i += 1;
+    }
+    vars
+}
+
+fn parse_var_object(obj: &str) -> Option<VarRow> {
+    let name = extract_str(obj, "\"name\"")?;
+    let type_label = extract_str(obj, "\"type\"").unwrap_or_default();
+    let value = extract_str(obj, "\"value\"").unwrap_or_default();
+    let changed = extract_bool(obj, "\"changed\"").unwrap_or(false);
+    Some(VarRow {
+        name,
+        type_label,
+        value,
+        changed,
+    })
 }

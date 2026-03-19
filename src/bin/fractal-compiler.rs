@@ -24,12 +24,17 @@ fn section(title: &str) {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        print_error(&format!("Usage: {} <path/to/file.fr>", &args[0]));
-        process::exit(1);
-    }
 
-    let source_file = &args[1];
+    let (debug_mode, source_file_str) = match args.as_slice() {
+        [_, f] => (false, f.clone()),
+        [_, flag, f] if flag == "--debug" => (true, f.clone()),
+        _ => {
+            print_error(&format!("Usage: {} [--debug] <path/to/file.fr>", &args[0]));
+            process::exit(1);
+        }
+    };
+
+    let source_file = &source_file_str;
 
     let contents = match fs::read_to_string(source_file) {
         Ok(data) => data,
@@ -84,7 +89,18 @@ fn main() {
                 process::exit(1);
             }
 
-            let rs_code = codegen::generate(&node, &result);
+            let out_path = Path::new(source_file).with_extension("rs");
+
+            let debug_jsonl_path = Path::new(source_file)
+                .with_extension("debug.jsonl")
+                .to_string_lossy()
+                .to_string();
+
+            let rs_code = if debug_mode {
+                codegen::generate_debug(&node, &result, &debug_jsonl_path)
+            } else {
+                codegen::generate(&node, &result)
+            };
 
             if DEBUG {
                 section("STAGE 5 — GENERATED RUST CODE");
@@ -92,8 +108,6 @@ fn main() {
                     eprintln!("{:>4} │ {}", i + 1, line);
                 }
             }
-
-            let out_path = Path::new(source_file).with_extension("rs");
 
             if let Err(e) = fs::write(&out_path, &rs_code) {
                 print_error(&format!("could not write `{}`: {}", out_path.display(), e));
@@ -105,8 +119,18 @@ fn main() {
             if DEBUG {
                 section("STAGE 6 — RUSTC");
             }
+
+            let crate_name = Path::new(source_file)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("fractal_program")
+                .replace('.', "_")
+                .replace('-', "_");
+
             let rustc_status = process::Command::new("rustc")
                 .arg(&out_path)
+                .arg("--crate-name")
+                .arg(&crate_name)
                 .arg("-o")
                 .arg(&bin_path)
                 .arg("-C")
@@ -126,6 +150,10 @@ fn main() {
                         .and_then(|n| n.to_str())
                         .unwrap_or("<binary>");
                     eprintln!("\x1b[1;32m compiled:\x1b[0m `{}`", display);
+                    if debug_mode {
+                        let meta_path = Path::new(source_file).with_extension("debug-meta");
+                        let _ = fs::write(&meta_path, &debug_jsonl_path);
+                    }
                 }
                 Ok(_) => {
                     print_error("rustc reported errors — compilation failed");

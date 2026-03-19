@@ -121,6 +121,47 @@ impl Terminal {
                             .map_or(false, |p| panel_rect.contains(p))
                     });
 
+                    // Boost scroll sensitivity: amplify wheel events.
+                    let scroll_delta = ui.input(|i| i.raw_scroll_delta);
+                    if pointer_in_panel && scroll_delta.y.abs() > 0.5 {
+                        let lines = ((scroll_delta.y.abs() / 8.0) * 3.0).max(1.0) as i32;
+                        if scroll_delta.y > 0.0 {
+                            // Scroll up
+                            self.backend
+                                .process_command(egui_term::BackendCommand::Scroll(lines));
+                        } else {
+                            // Scroll down — negative lines
+                            self.backend
+                                .process_command(egui_term::BackendCommand::Scroll(-lines));
+                        }
+                        ui.ctx().request_repaint();
+                    }
+
+                    // Auto-scroll when pointer drags near the top or bottom edge
+                    let (is_dragging, drag_pos) =
+                        ui.input(|i| (i.pointer.is_decidedly_dragging(), i.pointer.hover_pos()));
+                    if is_dragging {
+                        if let Some(pos) = drag_pos {
+                            let panel_rect = ui.clip_rect();
+                            let edge_zone = 40.0;
+                            if pos.y < panel_rect.min.y + edge_zone && panel_rect.contains(pos) {
+                                let t = 1.0 - (pos.y - panel_rect.min.y) / edge_zone;
+                                let speed = ((t * 4.0).max(1.0)) as i32;
+                                self.backend
+                                    .process_command(egui_term::BackendCommand::Scroll(speed));
+                                ui.ctx().request_repaint();
+                            } else if pos.y > panel_rect.max.y - edge_zone
+                                && panel_rect.contains(pos)
+                            {
+                                let t = (pos.y - (panel_rect.max.y - edge_zone)) / edge_zone;
+                                let speed = ((t * 4.0).max(1.0)) as i32;
+                                self.backend
+                                    .process_command(egui_term::BackendCommand::Scroll(-speed));
+                                ui.ctx().request_repaint();
+                            }
+                        }
+                    }
+
                     let view = TerminalView::new(ui, &mut self.backend)
                         .set_focus(pointer_in_panel)
                         .set_theme(term_theme)

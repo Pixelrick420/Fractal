@@ -27,6 +27,8 @@ const AUTOSAVE_INTERVAL_SECS: u64 = 120;
 const MAX_RECENT_FILES: usize = 10;
 const SESSION_FILE: &str = "fractal_session.json";
 
+// ─── Session persistence ──────────────────────────────────────────────────────
+
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct SessionState {
     open_files: Vec<PathBuf>,
@@ -62,6 +64,24 @@ impl SessionState {
     }
 }
 
+// ─── Compiler result ──────────────────────────────────────────────────────────
+
+enum CompileResult {
+    Success(PathBuf),
+    SuccessWithWarnings(PathBuf, String),
+    /// Debug compile succeeded; binary path + path to .jsonl debug file
+    DebugSuccess(PathBuf, PathBuf),
+    Error(String),
+    LaunchError(String),
+}
+
+thread_local! {
+    static PENDING_COMPILE: std::cell::RefCell<Option<Arc<Mutex<Option<CompileResult>>>>> =
+        std::cell::RefCell::new(None);
+}
+
+// ─── App state ────────────────────────────────────────────────────────────────
+
 struct FractalEditor {
     profile: UserProfile,
     theme: Theme,
@@ -80,6 +100,8 @@ struct FractalEditor {
 
     pending_close_after_save: Option<usize>,
     pending_run_after_save: bool,
+    /// If Some, compile in debug mode after saving
+    pending_debug_after_save: bool,
     allow_quit: bool,
 
     error_message: Option<String>,
@@ -88,8 +110,15 @@ struct FractalEditor {
 
     recent_files: Vec<PathBuf>,
 
+    // ── Debugger state ───────────────────────────────────────────────────────
     debug_session: Option<DebugSession>,
     debug_frame: Option<DebugFrame>,
+    /// Path to the .jsonl file being written by the running debug binary
+    debug_jsonl_path: Option<PathBuf>,
+    /// Running debug binary process handle (so we can wait for new snapshots)
+    debug_binary_running: bool,
+    /// Path waiting for a debug compile once we have ctx
+    pending_debug_source: Option<PathBuf>,
     tree_view_window: TreeViewWindow,
     var_view_window: VarViewWindow,
 }
@@ -121,6 +150,7 @@ impl FractalEditor {
             search_bar: SearchBar::default(),
             pending_close_after_save: None,
             pending_run_after_save: false,
+            pending_debug_after_save: false,
             allow_quit: false,
             error_message: None,
             success_message: None,
@@ -131,6 +161,9 @@ impl FractalEditor {
             recent_files,
             debug_session: None,
             debug_frame: None,
+            debug_jsonl_path: None,
+            debug_binary_running: false,
+            pending_debug_source: None,
             tree_view_window: TreeViewWindow::new(),
             var_view_window: VarViewWindow::new(),
         };
@@ -154,6 +187,8 @@ impl FractalEditor {
         editor
     }
 
+    // ── Theme ─────────────────────────────────────────────────────────────────
+
     fn apply_theme(&mut self, variant: ThemeVariant) {
         self.profile.theme = variant;
         self.theme = Theme::from_variant(variant);
@@ -165,6 +200,8 @@ impl FractalEditor {
         self.settings_panel.update_theme(self.theme);
         self.file_dialog.update_theme(self.theme);
     }
+
+    // ── File operations ───────────────────────────────────────────────────────
 
     fn open_file(&mut self, path: &PathBuf) {
         if let Some(i) = self
@@ -207,10 +244,22 @@ impl FractalEditor {
                 if let Some(idx) = self.pending_close_after_save.take() {
                     self.close_tab(idx);
                 }
+                if self.pending_debug_after_save {
+                    self.pending_debug_after_save = false;
+                    // Re-read the path from the newly saved tab
+                    if let Some(p) = self
+                        .tabs
+                        .get(self.active_tab)
+                        .and_then(|t| t.current_file.clone())
+                    {
+                        self.launch_debug_compile(p);
+                    }
+                }
             }
             Err(e) => {
                 self.error_message = Some(format!("Failed to save: {e}"));
                 self.pending_close_after_save = None;
+                self.pending_debug_after_save = false;
             }
         }
     }
@@ -246,6 +295,8 @@ impl FractalEditor {
         .save();
     }
 
+    // ── Tab management ────────────────────────────────────────────────────────
+
     fn close_tab(&mut self, index: usize) {
         if self.tabs.is_empty() {
             return;
@@ -267,6 +318,8 @@ impl FractalEditor {
             self.close_tab(index);
         }
     }
+
+    // ── Search / replace ──────────────────────────────────────────────────────
 
     fn search_navigate(&mut self, forward: bool) {
         if self.search_bar.total_matches == 0 {
@@ -362,6 +415,8 @@ impl FractalEditor {
         self.success_message = Some(format!("Replaced {count} occurrence(s)."));
     }
 
+    // ── Normal run ────────────────────────────────────────────────────────────
+
     fn run_code(&mut self, ctx: &egui::Context) {
         if self.tabs.is_empty() {
             return;
@@ -378,7 +433,10 @@ impl FractalEditor {
         tab.is_running = true;
 
         self.terminal.minimized = false;
+        self.launch_compile(source_path, false, ctx);
+    }
 
+    fn launch_compile(&mut self, source_path: PathBuf, debug: bool, ctx: &egui::Context) {
         let result_buf: Arc<Mutex<Option<CompileResult>>> = Arc::new(Mutex::new(None));
         let result_buf2 = result_buf.clone();
         let ctx2 = ctx.clone();
@@ -397,80 +455,42 @@ impl FractalEditor {
                 PathBuf::from("fractal-compiler")
             };
 
-            let result = match Command::new(&compiler_path)
-                .arg(&path_str)
+            let mut cmd = Command::new(&compiler_path);
+            if debug {
+                cmd.arg("--debug");
+            }
+            cmd.arg(&path_str)
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .output()
-            {
+                .stderr(Stdio::piped());
+
+            let result = match cmd.output() {
                 Ok(out) if out.status.success() => {
-                    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-                    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                    let mut warnings = String::new();
-                    let clean_stdout = strip_ansi(&stdout);
-                    let clean_stderr = strip_ansi(&stderr);
+                    let stdout = strip_ansi(&String::from_utf8_lossy(&out.stdout));
+                    let stderr = strip_ansi(&String::from_utf8_lossy(&out.stderr));
 
-                    let is_noise = |line: &str| -> bool {
-                        let t = line.trim();
-                        t.is_empty()
-                            || t.contains("No semantic errors.")
-                            || t.starts_with("compiled:")
-                            || t.starts_with("compiled :")
-                            || t.starts_with('\u{256c}')
-                            || t.starts_with('\u{2551}')
-                            || t.starts_with('\u{255a}')
-                    };
+                    let warnings = collect_non_noise(&stdout, &stderr);
 
-                    for line in clean_stdout.lines() {
-                        if !is_noise(line) {
-                            warnings.push_str(line.trim());
-                            warnings.push('\n');
+                    if debug {
+                        // Read the jsonl path from the sidecar .debug-meta file
+                        // written by the compiler (avoids polluting the terminal).
+                        let meta_path = PathBuf::from(&path_str).with_extension("debug-meta");
+                        if let Ok(jsonl_str) = std::fs::read_to_string(&meta_path) {
+                            let jp = PathBuf::from(jsonl_str.trim());
+                            CompileResult::DebugSuccess(bin_path, jp)
+                        } else {
+                            CompileResult::Error("Debug compile succeeded but could not read .debug-meta sidecar file".into())
                         }
-                    }
-                    for line in clean_stderr.lines() {
-                        if !is_noise(line) {
-                            warnings.push_str(line.trim());
-                            warnings.push('\n');
-                        }
-                    }
-
-                    if warnings.trim().is_empty() {
+                    } else if warnings.trim().is_empty() {
                         CompileResult::Success(bin_path)
                     } else {
                         CompileResult::SuccessWithWarnings(bin_path, warnings)
                     }
                 }
                 Ok(out) => {
-                    let mut msg = String::new();
-                    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-                    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                    let clean_stdout = strip_ansi(&stdout);
-                    let clean_stderr = strip_ansi(&stderr);
-
-                    let is_noise = |line: &str| -> bool {
-                        let t = line.trim();
-                        t.is_empty()
-                            || t.contains("No semantic errors.")
-                            || t.starts_with("compiled:")
-                            || t.starts_with("compiled :")
-                            || t.starts_with('\u{256c}')
-                            || t.starts_with('\u{2551}')
-                            || t.starts_with('\u{255a}')
-                    };
-
-                    for line in clean_stdout.lines() {
-                        if !is_noise(line) {
-                            msg.push_str(line.trim());
-                            msg.push('\n');
-                        }
-                    }
-                    for line in clean_stderr.lines() {
-                        if !is_noise(line) {
-                            msg.push_str(line.trim());
-                            msg.push('\n');
-                        }
-                    }
-                    if msg.is_empty() {
+                    let stdout = strip_ansi(&String::from_utf8_lossy(&out.stdout));
+                    let stderr = strip_ansi(&String::from_utf8_lossy(&out.stderr));
+                    let mut msg = collect_non_noise(&stdout, &stderr);
+                    if msg.trim().is_empty() {
                         msg = "Compilation failed (unknown error).".to_string();
                     }
                     CompileResult::Error(msg)
@@ -490,7 +510,7 @@ impl FractalEditor {
         });
     }
 
-    fn poll_compiler_output(&mut self) {
+    fn poll_compiler_output(&mut self, ctx: &egui::Context) {
         if self.tabs.is_empty() {
             return;
         }
@@ -524,17 +544,159 @@ impl FractalEditor {
                     }
                     self.terminal.run_binary(&bin_path);
                 }
+                CompileResult::DebugSuccess(bin_path, jsonl_path) => {
+                    // ── Start the debug session ──────────────────────────────
+                    // Delete any stale debug file from a previous run
+                    let _ = fs::remove_file(&jsonl_path);
+
+                    // Build the AST for the tree view by re-parsing the source
+                    self.start_debug_session_from_source(&jsonl_path, ctx);
+
+                    // Run the binary in the terminal so input/output flow normally
+                    self.terminal.run_binary(&bin_path);
+                    self.terminal.minimized = false;
+                    self.debug_binary_running = true;
+                    self.debug_jsonl_path = Some(jsonl_path);
+                    self.success_message =
+                        Some("Debug session started — press F5 to step through.".into());
+                }
                 CompileResult::Error(msg) => {
-                    self.terminal.append(&msg);
-                    self.error_message = Some("Compilation failed — see terminal.".to_string());
+                    let first = msg
+                        .lines()
+                        .next()
+                        .unwrap_or("Compilation failed")
+                        .trim()
+                        .to_string();
+                    self.error_message = Some(first);
                 }
                 CompileResult::LaunchError(msg) => {
-                    self.terminal.append(&msg);
-                    self.error_message = Some("Could not run compiler — see terminal.".to_string());
+                    self.error_message = Some(msg);
                 }
             }
         }
     }
+
+    // ── Debug run ─────────────────────────────────────────────────────────────
+
+    /// Compile with --debug flag.  If the file hasn't been saved yet, save first.
+    fn run_debug(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        if self.tabs[self.active_tab].current_file.is_none() {
+            self.pending_debug_after_save = true;
+            self.file_dialog.open_for_save("untitled.fr");
+            return;
+        }
+        let source_path = self.tabs[self.active_tab].current_file.clone().unwrap();
+        let tab = &mut self.tabs[self.active_tab];
+        let _ = fs::write(&source_path, &tab.code);
+        tab.is_running = true;
+        self.terminal.minimized = false;
+        self.launch_debug_compile(source_path);
+    }
+
+    fn launch_debug_compile(&mut self, source_path: PathBuf) {
+        self.pending_debug_source = Some(source_path);
+    }
+
+    fn start_debug_session_from_source(&mut self, jsonl_path: &PathBuf, _ctx: &egui::Context) {
+        use fractal::compiler::lexer::tokenize_with_source;
+        use fractal::compiler::parser::parse_with_source;
+        use fractal::compiler::preprocessor::preprocess;
+        use fractal::compiler::semanter::analyze;
+
+        let code = match self.tabs.get(self.active_tab) {
+            Some(tab) => tab.code.clone(),
+            None => return,
+        };
+        let source_name = self
+            .tabs
+            .get(self.active_tab)
+            .and_then(|t| t.current_file.as_ref())
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| "<debug>".into());
+
+        let processed = preprocess(&code, &source_name);
+        let tokens = tokenize_with_source(&processed, &source_name);
+        let root = match parse_with_source(tokens, &source_name) {
+            Ok(r) => r,
+            Err(e) => {
+                self.error_message = Some(format!("Parse error: {}", e.message));
+                return;
+            }
+        };
+        let sem = analyze(&root);
+        if sem.has_errors() {
+            self.error_message = Some(
+                sem.errors
+                    .iter()
+                    .map(|e| e.message.clone())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            );
+            return;
+        }
+
+        let session = DebugSession::new(&root, jsonl_path.clone());
+        let frame = session.current_frame();
+        self.debug_frame = Some(frame);
+        self.debug_session = Some(session);
+        self.tree_view_window.open = true;
+        self.var_view_window.open = true;
+        self.var_view_window.clear_output();
+    }
+
+    /// Advance one debug step.  If no snapshot is available yet (program still
+    /// running / writing), shows a "waiting" status and returns.
+    fn step_debug(&mut self) {
+        // Poll for new snapshots from the file first
+        if let Some(ref mut session) = self.debug_session {
+            session.poll_file();
+        }
+
+        let Some(ref mut session) = self.debug_session else {
+            return;
+        };
+
+        match session.step() {
+            None => {
+                // No snapshot available yet — program still running
+                self.success_message =
+                    Some("Waiting for program output… (is input expected?)".into());
+            }
+            Some(frame) => {
+                // Push any output produced by this step to the var view panel
+                self.var_view_window.push_output(&frame.buffered_output);
+
+                let finished = frame.finished;
+                let errored = frame.error.is_some();
+                let err_msg = frame.error.clone();
+                self.debug_frame = Some(frame);
+
+                if finished {
+                    self.success_message = Some("Debug: program finished.".into());
+                    self.debug_binary_running = false;
+                } else if errored {
+                    let msg = err_msg.unwrap_or_else(|| "Runtime error".into());
+                    self.error_message = Some(format!("Debug fault: {msg}"));
+                    self.debug_session = None;
+                    self.debug_binary_running = false;
+                }
+            }
+        }
+    }
+
+    fn stop_debug_session(&mut self) {
+        self.debug_session = None;
+        self.debug_frame = None;
+        self.debug_jsonl_path = None;
+        self.debug_binary_running = false;
+        self.var_view_window.clear_output();
+        self.success_message = Some("Debug session stopped.".into());
+    }
+
+    // ── Dialogs ───────────────────────────────────────────────────────────────
 
     fn handle_close_confirm(&mut self, ctx: &egui::Context) {
         match self.close_confirm.show(ctx) {
@@ -568,6 +730,8 @@ impl FractalEditor {
             QuitConfirmAction::Pending => {}
         }
     }
+
+    // ── Status bar ────────────────────────────────────────────────────────────
 
     fn show_status_bar(&mut self, ctx: &egui::Context) {
         let t = self.theme;
@@ -645,6 +809,16 @@ impl FractalEditor {
                                     .color(t.tab_dirty_dot),
                             );
                         }
+                        // Show debug step indicator
+                        if let Some(ref session) = self.debug_session {
+                            let cur = session.cursor();
+                            let total = session.total_steps();
+                            ui.label(
+                                egui::RichText::new(format!(" 🐛 step {cur}/{total}"))
+                                    .size(11.0)
+                                    .color(t.accent),
+                            );
+                        }
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -683,106 +857,9 @@ impl FractalEditor {
                 });
             });
     }
-
-    fn step_debug(&mut self) {
-        use fractal::compiler::lexer::tokenize_with_source;
-        use fractal::compiler::parser::parse_with_source;
-        use fractal::compiler::semanter::analyze;
-
-        if self.debug_session.is_none() {
-            let code = match self.tabs.get(self.active_tab) {
-                Some(tab) => tab.code.clone(),
-                None => return,
-            };
-            let tokens = tokenize_with_source(&code, "<debug>");
-            let root = match parse_with_source(tokens, "<debug>") {
-                Ok(r) => r,
-                Err(e) => {
-                    self.error_message = Some(format!("Parse error: {}", e.message));
-                    return;
-                }
-            };
-            let sem = analyze(&root);
-            if sem.has_errors() {
-                self.error_message = Some(
-                    sem.errors
-                        .iter()
-                        .map(|e| e.message.clone())
-                        .collect::<Vec<_>>()
-                        .join("; "),
-                );
-                return;
-            }
-            let session = DebugSession::new(&root);
-            let frame = session.current_frame();
-            self.debug_frame = Some(frame);
-            self.debug_session = Some(session);
-            self.tree_view_window.open = true;
-            self.var_view_window.open = true;
-            self.success_message = Some("Debug session started — press Step to advance.".into());
-            return;
-        }
-
-        if let Some(ref mut session) = self.debug_session {
-            let frame = session.step();
-            let finished = frame.finished;
-            let errored = frame.error.is_some();
-            self.debug_frame = Some(frame);
-            if finished {
-                self.success_message = Some("Debug: program finished.".into());
-                self.debug_session = None;
-            } else if errored {
-                let msg = self
-                    .debug_frame
-                    .as_ref()
-                    .and_then(|f| f.error.clone())
-                    .unwrap_or_else(|| "Runtime error".into());
-                self.error_message = Some(format!("Debug fault: {msg}"));
-                self.debug_session = None;
-            }
-        }
-    }
-
-    fn stop_debug_session(&mut self) {
-        self.debug_session = None;
-        self.debug_frame = None;
-        self.success_message = Some("Debug session stopped.".into());
-    }
 }
 
-enum CompileResult {
-    Success(PathBuf),
-    SuccessWithWarnings(PathBuf, String),
-    Error(String),
-    LaunchError(String),
-}
-
-thread_local! {
-    static PENDING_COMPILE: std::cell::RefCell<Option<Arc<Mutex<Option<CompileResult>>>>> =
-        std::cell::RefCell::new(None);
-}
-
-fn strip_ansi(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                for ch in chars.by_ref() {
-                    if ch.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            } else {
-                chars.next();
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
+// ─── eframe::App implementation ───────────────────────────────────────────────
 
 impl eframe::App for FractalEditor {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -791,8 +868,24 @@ impl eframe::App for FractalEditor {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.poll_compiler_output();
+        // ── Poll pending debug compile (deferred from launch_debug_compile) ──
+        if let Some(path) = self.pending_debug_source.take() {
+            self.tabs[self.active_tab].is_running = true;
+            self.launch_compile(path, true, ctx);
+        }
 
+        self.poll_compiler_output(ctx);
+
+        // ── Poll debug file for new snapshots while binary is running ────────
+        if self.debug_binary_running {
+            if let Some(ref mut session) = self.debug_session {
+                session.poll_file();
+            }
+            // Keep repainting at a fast rate while waiting for new snapshots
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+
+        // ── Quit handling ────────────────────────────────────────────────────
         let close_requested = ctx.input(|i| i.viewport().close_requested());
         if close_requested && !self.allow_quit {
             let dirty: Vec<String> = self
@@ -809,18 +902,28 @@ impl eframe::App for FractalEditor {
             }
         }
 
-        ctx.input_mut(|i| {
-            if (i.modifiers.ctrl || i.modifiers.mac_cmd) && i.key_pressed(egui::Key::Backtick) {
-                self.terminal.toggle_minimized();
-            }
-            if i.key_pressed(egui::Key::F5) {
-                self.step_debug();
-            }
-            if i.key_pressed(egui::Key::F6) {
-                self.stop_debug_session();
-            }
+        // ── Keyboard shortcuts ───────────────────────────────────────────────
+        let toggle_terminal = ctx.input(|i| {
+            (i.modifiers.ctrl || i.modifiers.mac_cmd) && i.key_pressed(egui::Key::Backtick)
         });
+        let f5 = ctx.input(|i| i.key_pressed(egui::Key::F5));
+        let f6 = ctx.input(|i| i.key_pressed(egui::Key::F6));
 
+        if toggle_terminal {
+            self.terminal.toggle_minimized();
+        }
+        if f5 {
+            if self.debug_session.is_some() {
+                self.step_debug();
+            } else {
+                self.run_debug();
+            }
+        }
+        if f6 {
+            self.stop_debug_session();
+        }
+
+        // ── Autosave ─────────────────────────────────────────────────────────
         let needs_autosave = self
             .tabs
             .get(self.active_tab)
@@ -842,12 +945,14 @@ impl eframe::App for FractalEditor {
 
         if is_running {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
-        } else {
+        } else if !self.debug_binary_running {
             ctx.request_repaint_after(std::time::Duration::from_secs(10));
         }
 
+        // ── Style ─────────────────────────────────────────────────────────────
         apply_egui_style(ctx, &self.theme);
 
+        // ── Gather flags for menu bar ─────────────────────────────────────────
         let current_file = self
             .tabs
             .get(self.active_tab)
@@ -897,7 +1002,13 @@ impl eframe::App for FractalEditor {
                 self.docs_window.open = false;
             }
             MenuAction::Run => self.run_code(ctx),
-            MenuAction::StepRun => self.step_debug(),
+            MenuAction::StepRun => {
+                if self.debug_session.is_some() {
+                    self.step_debug();
+                } else {
+                    self.run_debug();
+                }
+            }
             MenuAction::StepStop => self.stop_debug_session(),
             MenuAction::ToggleTreeView => self.tree_view_window.open = !self.tree_view_window.open,
             MenuAction::ToggleVarView => self.var_view_window.open = !self.var_view_window.open,
@@ -925,6 +1036,7 @@ impl eframe::App for FractalEditor {
             MenuAction::None => {}
         }
 
+        // ── Tab bar ───────────────────────────────────────────────────────────
         if !self.tabs.is_empty() {
             match show_tab_bar(ctx, &self.tabs, self.active_tab, &self.theme) {
                 TabBarAction::Activate(i) => {
@@ -941,6 +1053,7 @@ impl eframe::App for FractalEditor {
             }
         }
 
+        // ── Search bar ────────────────────────────────────────────────────────
         if self.search_bar.visible && self.tabs.is_empty() {
             self.search_bar.visible = false;
         }
@@ -950,7 +1063,6 @@ impl eframe::App for FractalEditor {
                 self.search_bar.update_matches(&code);
             }
         }
-
         match self.search_bar.show(ctx, &self.theme) {
             SearchBarAction::FindNext => self.search_navigate(true),
             SearchBarAction::FindPrev => self.search_navigate(false),
@@ -960,6 +1072,7 @@ impl eframe::App for FractalEditor {
             SearchBarAction::None => {}
         }
 
+        // ── Dialogs ───────────────────────────────────────────────────────────
         self.handle_close_confirm(ctx);
         self.handle_quit_confirm(ctx);
 
@@ -977,6 +1090,7 @@ impl eframe::App for FractalEditor {
                     if run_after {
                         self.run_code(ctx);
                     }
+                    // debug_after is handled inside save_file via pending_debug_source
                 }
             }
         }
@@ -986,16 +1100,19 @@ impl eframe::App for FractalEditor {
             self.apply_theme(v);
         }
 
+        // ── Panels ────────────────────────────────────────────────────────────
         self.show_status_bar(ctx);
         self.terminal.show(ctx);
 
+        // ── OS-level debug windows ────────────────────────────────────────────
+        // Tree view: pass session as &mut so it can handle collapse toggles
         let active_node_id = self
             .debug_frame
             .as_ref()
             .map(|f| f.active_node_id)
             .unwrap_or(0);
 
-        if let Some(ref session) = self.debug_session {
+        if let Some(ref mut session) = self.debug_session {
             let theme = self.theme;
             self.tree_view_window
                 .show(ctx, session, active_node_id, &theme);
@@ -1006,6 +1123,7 @@ impl eframe::App for FractalEditor {
             self.var_view_window.show(ctx, frame, &theme);
         }
 
+        // ── Central editor / docs panel ───────────────────────────────────────
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(self.theme.editor_bg))
             .show(ctx, |ui| {
@@ -1033,6 +1151,51 @@ impl eframe::App for FractalEditor {
                 }
             });
     }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+fn collect_non_noise(stdout: &str, stderr: &str) -> String {
+    let is_noise = |line: &str| -> bool {
+        let t = line.trim();
+        t.is_empty()
+            || t.contains("No semantic errors.")
+            || t.starts_with("compiled:")
+            || t.starts_with("compiled :")
+            || t.starts_with('\u{256c}')
+            || t.starts_with('\u{2551}')
+            || t.starts_with('\u{255a}')
+    };
+    let mut out = String::new();
+    for line in stdout.lines().chain(stderr.lines()) {
+        if !is_noise(line) {
+            out.push_str(line.trim());
+            out.push('\n');
+        }
+    }
+    out
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                for ch in chars.by_ref() {
+                    if ch.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                chars.next();
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 fn apply_egui_style(ctx: &egui::Context, t: &Theme) {

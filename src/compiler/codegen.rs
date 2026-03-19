@@ -10,6 +10,17 @@ pub fn generate(root: &ParseNode, sem: &SemanticResult) -> String {
     cg.buf
 }
 
+/// Generate Rust source with debug snapshot injections.
+/// `debug_out_path` is the `.jsonl` file the compiled binary will write to at runtime.
+pub fn generate_debug(root: &ParseNode, sem: &SemanticResult, debug_out_path: &str) -> String {
+    let mut cg = CodeGen::new(sem);
+    cg.debug_mode = true;
+    cg.debug_path = debug_out_path.replace('\\', "\\\\").replace('"', "\\\"");
+    cg.debug_current_func = "main".into();
+    cg.gen_root(root);
+    cg.buf
+}
+
 struct CodeGen {
     buf: String,
     indent: usize,
@@ -44,6 +55,14 @@ struct CodeGen {
     hoist_counter: usize,
 
     local_var_types: HashMap<String, SemType>,
+
+    // ── Debug-mode fields ──────────────────────────────────────────────────
+    debug_mode: bool,
+    debug_path: String,
+    debug_step: usize,
+    /// (escaped_ident, type_label) pairs visible at the current codegen point
+    debug_visible_vars: Vec<(String, String)>,
+    debug_current_func: String,
 }
 
 impl CodeGen {
@@ -91,6 +110,11 @@ impl CodeGen {
             hoist_buf: Vec::new(),
             hoist_counter: 0,
             local_var_types: HashMap::new(),
+            debug_mode: false,
+            debug_path: String::new(),
+            debug_step: 0,
+            debug_visible_vars: Vec::new(),
+            debug_current_func: String::new(),
         }
     }
 
@@ -197,6 +221,10 @@ impl CodeGen {
         self.line("#![allow(unused_variables, unused_mut, dead_code, non_snake_case, unused_imports, unreachable_patterns)]");
         self.line("use std::io::{self, BufRead, Write};");
         self.blank();
+        if self.debug_mode {
+            self.emit_debug_runtime();
+            self.blank();
+        }
 
         let (defs, stmts): (Vec<_>, Vec<_>) = items.iter().partition(|n| {
             matches!(
@@ -213,8 +241,25 @@ impl CodeGen {
         if !stmts.is_empty() {
             self.line("fn main() {");
             self.indent();
+            if self.debug_mode {
+                self.line("__fractal_debug_init();");
+            }
             for s in &stmts {
                 self.gen_stmt(s);
+                if self.debug_mode {
+                    self.emit_snapshot(s);
+                }
+            }
+            if self.debug_mode {
+                let step = self.debug_step;
+                self.debug_step += 1;
+                let func = self.debug_current_func.clone();
+                let vars_code = self.build_vars_json_code();
+                let finished_line = format!(
+                    "__fractal_debug_snapshot!({s}, \"Program finished\", \"{f}\", [{v}], true, None::<&str>);",
+                    s = step, f = func, v = vars_code,
+                );
+                self.line(&finished_line);
             }
             self.dedent();
             self.line("}");
@@ -355,9 +400,21 @@ impl CodeGen {
             ret
         ));
         self.indent();
+        let prev_dbg_func = self.debug_current_func.clone();
+        let prev_dbg_vars = self.debug_visible_vars.clone();
+        self.debug_current_func = name.to_string();
+        self.debug_visible_vars.clear();
+        if self.debug_mode {
+            self.line("__fractal_debug_init();");
+        }
         for s in body {
             self.gen_stmt(s);
+            if self.debug_mode {
+                self.emit_snapshot(s);
+            }
         }
+        self.debug_current_func = prev_dbg_func;
+        self.debug_visible_vars = prev_dbg_vars;
         self.dedent();
         self.line("}");
 
@@ -653,6 +710,10 @@ impl CodeGen {
             ty,
             rhs
         ));
+        if self.debug_mode {
+            let tl = parse_node_type_label(data_type);
+            self.debug_visible_vars.push((escape_ident(name), tl));
+        }
     }
 
     fn gen_struct_decl(&mut self, struct_name: &str, var_name: &str, init: Option<&ParseNode>) {
@@ -685,6 +746,11 @@ impl CodeGen {
             escape_struct_name(struct_name),
             rhs
         ));
+        if self.debug_mode {
+            let sn = struct_name.to_string();
+            self.debug_visible_vars
+                .push((escape_ident(var_name), format!(":struct<{}>", sn)));
+        }
     }
 
     fn emit_struct_lit_body(
@@ -1956,6 +2022,153 @@ impl CodeGen {
             _ => None,
         }
     }
+
+    // ── Debug-mode helpers ─────────────────────────────────────────────────
+
+    fn emit_snapshot(&mut self, stmt: &ParseNode) {
+        let label = stmt_debug_label(stmt);
+        let step = self.debug_step;
+        self.debug_step += 1;
+        let func = self.debug_current_func.clone();
+        let vars_code = self.build_vars_json_code();
+        // Emit: __fractal_debug_snapshot!(step, "label", "func", [vars...], false, None::<&str>);
+        let line = format!(
+            "__fractal_debug_snapshot!({s}, \"{lb}\", \"{fc}\", [{vrs}], false, None::<&str>);",
+            s = step,
+            lb = label.replace('"', "'"),
+            fc = func,
+            vrs = vars_code,
+        );
+        self.line(&line);
+    }
+
+    fn build_vars_json_code(&self) -> String {
+        self.debug_visible_vars
+            .iter()
+            .map(|(ident, type_label)| {
+                let mut s = String::new();
+                s.push_str("__fractal_debug_var(");
+                s.push('"');
+                s.push_str(ident);
+                s.push('"');
+                s.push_str(", ");
+                s.push('"');
+                s.push_str(type_label);
+                s.push('"');
+                s.push_str(", &{ let __v = &");
+                s.push_str(ident);
+                s.push_str("; format!(\"{:?}\", __v) })");
+                s
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    fn emit_debug_runtime(&mut self) {
+        let path = self.debug_path.clone();
+
+        self.line("use std::sync::{Mutex, Once};");
+        self.line("use std::fs::{OpenOptions, File as __DbgFile};");
+        self.line("use std::io::{BufWriter as __DbgBufWriter, Write as __DbgWrite};");
+        self.blank();
+        self.line("static __FRACTAL_DBG_INIT: Once = Once::new();");
+        self.line("#[allow(clippy::type_complexity)]");
+        self.line("static __FRACTAL_DBG_FILE: Mutex<Option<__DbgBufWriter<__DbgFile>>> = Mutex::new(None);");
+        self.blank();
+        self.line("fn __fractal_debug_init() {");
+        self.indent();
+        self.line("__FRACTAL_DBG_INIT.call_once(|| {");
+        self.indent();
+        self.line(&format!(
+            "let __f = OpenOptions::new().create(true).write(true).truncate(true)\
+             .open(\"{path}\").expect(\"cannot open fractal debug file\");",
+            path = path
+        ));
+        self.line("*__FRACTAL_DBG_FILE.lock().unwrap() = Some(__DbgBufWriter::new(__f));");
+        self.dedent();
+        self.line("});");
+        self.dedent();
+        self.line("}");
+        self.blank();
+
+        // JSON escape helper
+        self.line("fn __fractal_debug_json_escape(s: &str) -> String {");
+        self.indent();
+        self.line("let mut o = String::new();");
+        self.line("for c in s.chars() {");
+        self.indent();
+        self.line("match c {");
+        self.indent();
+        self.line(r#"'"'  => o.push_str("\\\""),"#);
+        self.line(r#"'\\' => o.push_str("\\\\"),"#);
+        self.line(r#"'\n' => o.push_str("\\n"),"#);
+        self.line(r#"'\t' => o.push_str("\\t"),"#);
+        self.line(r#"'\r' => o.push_str("\\r"),"#);
+        self.line("c    => o.push(c),");
+        self.dedent();
+        self.line("}");
+        self.dedent();
+        self.line("}");
+        self.line("o");
+        self.dedent();
+        self.line("}");
+        self.blank();
+
+        // Var entry builder — called at runtime with actual values
+        self.line("fn __fractal_debug_var(name: &str, type_label: &str, value: &str) -> String {");
+        self.indent();
+        self.line(r#"let mut s = String::from("{");"#);
+        self.line(r#"s.push_str("\"name\":\""); s.push_str(&__fractal_debug_json_escape(name)); s.push_str("\",");"#);
+        self.line(r#"s.push_str("\"type\":\""); s.push_str(&__fractal_debug_json_escape(type_label)); s.push_str("\",");"#);
+        self.line(r#"s.push_str("\"value\":\""); s.push_str(&__fractal_debug_json_escape(value)); s.push_str("\",");"#);
+        self.line(r#"s.push_str("\"changed\":false}");"#);
+        self.line("s");
+        self.dedent();
+        self.line("}");
+        self.blank();
+
+        // The snapshot macro — all the heavy lifting is in the helper fns above
+        self.raw("macro_rules! __fractal_debug_snapshot {\n");
+        self.raw("    ($step:expr, $label:expr, $func:expr, [$($var_str:expr),* $(,)?], $finished:expr, $error:expr) => {{\n");
+        self.raw("        let mut __dbg_g = __FRACTAL_DBG_FILE.lock().unwrap();\n");
+        self.raw("        if let Some(ref mut __dbg_w) = *__dbg_g {\n");
+        self.raw("            let __dbg_vars: Vec<String> = vec![$($var_str),*];\n");
+        self.raw("            let __dbg_scope = {\n");
+        self.raw("                let mut __sc = String::from(\"{\\\"label\\\":\\\"\");\n");
+        self.raw("                __sc.push_str(&__fractal_debug_json_escape($func));\n");
+        self.raw("                __sc.push_str(\"\\\",\\\"vars\\\":[\");\n");
+        self.raw("                __sc.push_str(&__dbg_vars.join(\",\"));\n");
+        self.raw("                __sc.push_str(\"]}\");\n");
+        self.raw("                __sc\n");
+        self.raw("            };\n");
+        self.raw("            let __dbg_err: String = match ($error as Option<&str>) {\n");
+        self.raw("                None      => \"null\".into(),\n");
+        self.raw("                Some(__e) => { let mut __es = String::from(\"\\\"\"); __es.push_str(&__fractal_debug_json_escape(__e)); __es.push('\"'); __es },\n");
+        self.raw("            };\n");
+        self.raw("            let __dbg_line = {\n");
+        self.raw("                let mut __ln = String::from(\"{\\\"step\\\":\");\n");
+        self.raw("                __ln.push_str(&$step.to_string());\n");
+        self.raw("                __ln.push_str(\",\\\"label\\\":\\\"\");\n");
+        self.raw("                __ln.push_str(&__fractal_debug_json_escape($label));\n");
+        self.raw("                __ln.push_str(\"\\\",\\\"line\\\":0,\\\"stack\\\":[\\\"\");\n");
+        self.raw("                __ln.push_str(&__fractal_debug_json_escape($func));\n");
+        self.raw("                __ln.push_str(\"\\\"],\\\"scopes\\\":[\");\n");
+        self.raw("                __ln.push_str(&__dbg_scope);\n");
+        self.raw(
+            "                __ln.push_str(\"],\\\"output\\\":\\\"\\\",\\\"finished\\\":\");\n",
+        );
+        self.raw("                __ln.push_str(if $finished { \"true\" } else { \"false\" });\n");
+        self.raw("                __ln.push_str(\",\\\"error\\\":\");\n");
+        self.raw("                __ln.push_str(&__dbg_err);\n");
+        self.raw("                __ln.push('}');\n");
+        self.raw("                __ln\n");
+        self.raw("            };\n");
+        self.raw("            let _ = writeln!(__dbg_w, \"{}\", __dbg_line);\n");
+        self.raw("            let _ = __dbg_w.flush();\n");
+        self.raw("        }\n");
+        self.raw("    }};\n");
+        self.raw("}\n");
+    }
 }
 
 fn escape_ident(name: &str) -> String {
@@ -2022,5 +2235,34 @@ fn escape_char(c: char) -> String {
         '\'' => "\\'".into(),
         '\0' => "\\0".into(),
         _ => c.to_string(),
+    }
+}
+
+fn stmt_debug_label(node: &ParseNode) -> String {
+    match node {
+        ParseNode::Decl { name, .. } => format!("Decl {}", name),
+        ParseNode::StructDecl { var_name, .. } => format!("StructDecl {}", var_name),
+        ParseNode::Assign { op, .. } => format!("Assign {:?}", op),
+        ParseNode::If { .. } => "If".into(),
+        ParseNode::For { var_name, .. } => format!("For {}", var_name),
+        ParseNode::While { .. } => "While".into(),
+        ParseNode::Return(_) => "Return".into(),
+        ParseNode::Exit(_) => "Exit".into(),
+        ParseNode::ExprStmt(_) => "ExprStmt".into(),
+        _ => "stmt".into(),
+    }
+}
+
+fn parse_node_type_label(node: &ParseNode) -> String {
+    match node {
+        ParseNode::TypeInt => ":int".into(),
+        ParseNode::TypeFloat => ":float".into(),
+        ParseNode::TypeChar => ":char".into(),
+        ParseNode::TypeBoolean => ":bool".into(),
+        ParseNode::TypeVoid => ":void".into(),
+        ParseNode::TypeArray { .. } => ":array".into(),
+        ParseNode::TypeList { .. } => ":list".into(),
+        ParseNode::TypeStruct { name } => format!(":struct<{}>", name),
+        _ => "?".into(),
     }
 }

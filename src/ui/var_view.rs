@@ -5,6 +5,8 @@ use eframe::egui;
 pub struct VarViewWindow {
     pub open: bool,
     pub title: String,
+    /// Accumulated output from all steps so far
+    output_history: String,
 }
 
 impl VarViewWindow {
@@ -12,7 +14,19 @@ impl VarViewWindow {
         Self {
             open: false,
             title: "Variable State".into(),
+            output_history: String::new(),
         }
+    }
+
+    /// Append new output produced by the latest step.
+    pub fn push_output(&mut self, s: &str) {
+        if !s.is_empty() {
+            self.output_history.push_str(s);
+        }
+    }
+
+    pub fn clear_output(&mut self) {
+        self.output_history.clear();
     }
 
     pub fn show(&mut self, ctx: &egui::Context, frame: &DebugFrame, theme: &Theme) {
@@ -20,33 +34,32 @@ impl VarViewWindow {
             return;
         }
 
-        let t = theme;
+        let t = *theme;
+        let title = self.title.clone();
+        let output = self.output_history.clone();
+        let mut should_close = false;
 
-        egui::Window::new(&self.title)
-            .id(egui::Id::new("fractal_var_view_window"))
-            .default_size([360.0, 500.0])
-            .min_size([240.0, 160.0])
-            .resizable(true)
-            .collapsible(true)
-            .frame(
-                egui::Frame::new()
-                    .fill(t.panel_bg)
-                    .stroke(egui::Stroke::new(1.0, t.border))
-                    .corner_radius(egui::CornerRadius::same(8))
-                    .shadow(egui::Shadow {
-                        offset: [0, 6],
-                        blur: 18,
-                        spread: 0,
-                        color: egui::Color32::from_black_alpha(100),
-                    })
-                    .inner_margin(egui::Margin::same(0.0 as i8 as i8)),
-            )
-            .open(&mut self.open)
-            .show(ctx, |ui| {
-                egui::Frame::new()
-                    .fill(t.tab_bar_bg)
-                    .inner_margin(egui::Margin::symmetric(12.0 as i8 as i8, 8.0 as i8 as i8))
-                    .show(ui, |ui| {
+        ctx.show_viewport_immediate(
+            egui::ViewportId::from_hash_of("fractal_var_view"),
+            egui::ViewportBuilder::default()
+                .with_title(&title)
+                .with_inner_size([380.0, 560.0])
+                .with_min_inner_size([260.0, 200.0]),
+            |ctx, _class| {
+                if ctx.input(|i| i.viewport().close_requested()) {
+                    should_close = true;
+                }
+
+                apply_theme_to_ctx(ctx, &t);
+
+                // ── Header ──────────────────────────────────────────────────
+                egui::TopBottomPanel::top("var_header")
+                    .frame(
+                        egui::Frame::new()
+                            .fill(t.tab_bar_bg)
+                            .inner_margin(egui::Margin::symmetric(12, 8)),
+                    )
+                    .show(ctx, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new("⬡  Variables")
@@ -57,150 +70,158 @@ impl VarViewWindow {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    let status = if frame.finished {
-                                        "finished"
+                                    let (status, col) = if frame.finished {
+                                        ("finished", t.tab_inactive_fg)
                                     } else if frame.error.is_some() {
-                                        "error"
+                                        ("error", t.terminal_error)
                                     } else {
-                                        "running"
+                                        ("running", t.struct_name)
                                     };
-                                    let col = if frame.finished {
-                                        t.tab_inactive_fg
-                                    } else if frame.error.is_some() {
-                                        t.terminal_error
-                                    } else {
-                                        t.struct_name
-                                    };
-                                    ui.label(egui::RichText::new(status).size(10.5).color(col));
+                                    ui.label(
+                                        egui::RichText::new(status).size(10.5).color(col),
+                                    );
                                 },
                             );
                         });
                     });
 
-                let (sep, _) = ui.allocate_exact_size(
-                    egui::vec2(ui.available_width(), 1.0),
-                    egui::Sense::hover(),
-                );
-                ui.painter()
-                    .rect_filled(sep, egui::CornerRadius::ZERO, t.border);
-
-                egui::Frame::new()
-                    .fill(egui::Color32::from_rgba_premultiplied(
-                        t.accent.r(),
-                        t.accent.g(),
-                        t.accent.b(),
-                        18,
-                    ))
-                    .inner_margin(egui::Margin::symmetric(12.0 as i8 as i8, 5.0 as i8 as i8))
-                    .show(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(&frame.step_label)
-                                .size(11.0)
-                                .color(t.accent)
-                                .monospace(),
-                        );
+                // Step label banner
+                egui::TopBottomPanel::top("var_step_label")
+                    .frame(
+                        egui::Frame::new()
+                            .fill(egui::Color32::from_rgba_premultiplied(
+                                t.accent.r(),
+                                t.accent.g(),
+                                t.accent.b(),
+                                22,
+                            ))
+                            .inner_margin(egui::Margin::symmetric(12, 5)),
+                    )
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            let line_txt = if frame.source_line > 0 {
+                                format!("  line {}", frame.source_line)
+                            } else {
+                                String::new()
+                            };
+                            ui.label(
+                                egui::RichText::new(format!("▶  {}{}", frame.step_label, line_txt))
+                                    .size(11.0)
+                                    .color(t.accent)
+                                    .monospace(),
+                            );
+                        });
                     });
 
-                let (sep2, _) = ui.allocate_exact_size(
-                    egui::vec2(ui.available_width(), 1.0),
-                    egui::Sense::hover(),
-                );
-                ui.painter()
-                    .rect_filled(sep2, egui::CornerRadius::ZERO, t.border);
+                let border_col = t.border;
+                egui::TopBottomPanel::top("var_sep")
+                    .frame(egui::Frame::new().fill(border_col).inner_margin(egui::Margin::ZERO))
+                    .exact_height(1.0)
+                    .show(ctx, |_| {});
 
-                egui::ScrollArea::vertical()
-                    .id_salt("var_view_scroll")
-                    .auto_shrink([false; 2])
-                    .show(ui, |ui| {
-                        ui.add_space(6.0);
+                // ── Main body ───────────────────────────────────────────────
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().fill(t.panel_bg))
+                    .show(ctx, |ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("var_view_scroll")
+                            .auto_shrink([false; 2])
+                            .show(ui, |ui| {
+                                ui.add_space(8.0);
 
-                        let scopes: Vec<_> = frame.scopes.iter().rev().collect();
-                        for (idx, scope) in scopes.iter().enumerate() {
-                            let is_top = idx == 0;
+                                // ── Scopes ──────────────────────────────────
+                                let scopes: Vec<_> = frame.scopes.iter().rev().collect();
+                                for (idx, scope) in scopes.iter().enumerate() {
+                                    let is_top = idx == 0;
 
-                            egui::Frame::new()
-                                .inner_margin(egui::Margin::symmetric(
-                                    10.0 as i8 as i8,
-                                    2.0 as i8 as i8,
-                                ))
-                                .show(ui, |ui| {
-                                    let hdr_text = if scope.label == "global" {
-                                        "global scope".into()
-                                    } else {
-                                        format!("fn: {}", scope.label)
-                                    };
-                                    let hdr_col = if is_top { t.accent } else { t.tab_inactive_fg };
-                                    ui.label(
-                                        egui::RichText::new(hdr_text)
-                                            .size(10.5)
-                                            .color(hdr_col)
-                                            .strong(),
-                                    );
-                                    ui.add_space(2.0);
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(10.0);
+                                        let hdr_text = if scope.label == "global" {
+                                            "global scope".into()
+                                        } else {
+                                            format!("fn: {}", scope.label)
+                                        };
+                                        let hdr_col = if is_top { t.accent } else { t.tab_inactive_fg };
+                                        ui.label(
+                                            egui::RichText::new(hdr_text)
+                                                .size(10.5)
+                                                .color(hdr_col)
+                                                .strong(),
+                                        );
+                                    });
+                                    ui.add_space(3.0);
 
                                     if scope.vars.is_empty() {
-                                        ui.label(
-                                            egui::RichText::new("  (no variables)")
-                                                .size(11.0)
-                                                .color(t.tab_inactive_fg)
-                                                .italics(),
-                                        );
+                                        ui.horizontal(|ui| {
+                                            ui.add_space(16.0);
+                                            ui.label(
+                                                egui::RichText::new("(no variables)")
+                                                    .size(11.0)
+                                                    .color(t.tab_inactive_fg)
+                                                    .italics(),
+                                            );
+                                        });
                                     } else {
-                                        draw_var_table(ui, scope.vars.as_slice(), is_top, t);
+                                        ui.horizontal(|ui| {
+                                            ui.add_space(10.0);
+                                            draw_var_table(ui, scope.vars.as_slice(), is_top, &t);
+                                        });
                                     }
-                                });
 
-                            if idx < scopes.len() - 1 {
-                                ui.add_space(3.0);
-                                let (sr, _) = ui.allocate_exact_size(
-                                    egui::vec2(ui.available_width(), 1.0),
+                                    ui.add_space(4.0);
+
+                                    if idx < scopes.len() - 1 {
+                                        let avail = ui.available_width();
+                                        ui.horizontal(|ui| {
+                                            ui.add_space(10.0);
+                                            let (sr, _) = ui.allocate_exact_size(
+                                                egui::vec2(avail - 20.0, 1.0),
+                                                egui::Sense::hover(),
+                                            );
+                                            ui.painter().rect_filled(
+                                                sr,
+                                                egui::CornerRadius::ZERO,
+                                                egui::Color32::from_rgba_premultiplied(
+                                                    t.border.r(),
+                                                    t.border.g(),
+                                                    t.border.b(),
+                                                    100,
+                                                ),
+                                            );
+                                        });
+                                        ui.add_space(4.0);
+                                    }
+                                }
+
+                                // ── Call Stack ──────────────────────────────
+                                ui.add_space(8.0);
+                                let avail = ui.available_width();
+                                let (cs_sep, _) = ui.allocate_exact_size(
+                                    egui::vec2(avail, 1.0),
                                     egui::Sense::hover(),
                                 );
-                                ui.painter().rect_filled(
-                                    sr,
-                                    egui::CornerRadius::ZERO,
-                                    egui::Color32::from_rgba_premultiplied(
-                                        t.border.r(),
-                                        t.border.g(),
-                                        t.border.b(),
-                                        100,
-                                    ),
-                                );
-                                ui.add_space(3.0);
-                            }
-                        }
+                                ui.painter().rect_filled(cs_sep, egui::CornerRadius::ZERO, t.border);
+                                ui.add_space(6.0);
 
-                        ui.add_space(8.0);
-                        let (cs_sep, _) = ui.allocate_exact_size(
-                            egui::vec2(ui.available_width(), 1.0),
-                            egui::Sense::hover(),
-                        );
-                        ui.painter()
-                            .rect_filled(cs_sep, egui::CornerRadius::ZERO, t.border);
-                        ui.add_space(4.0);
-
-                        egui::Frame::new()
-                            .inner_margin(egui::Margin::symmetric(
-                                10.0 as i8 as i8,
-                                2.0 as i8 as i8,
-                            ))
-                            .show(ui, |ui| {
-                                ui.label(
-                                    egui::RichText::new("call stack")
-                                        .size(10.5)
-                                        .color(t.tab_inactive_fg)
-                                        .strong(),
-                                );
-                                ui.add_space(3.0);
+                                ui.horizontal(|ui| {
+                                    ui.add_space(10.0);
+                                    ui.label(
+                                        egui::RichText::new("call stack")
+                                            .size(10.5)
+                                            .color(t.tab_inactive_fg)
+                                            .strong(),
+                                    );
+                                });
+                                ui.add_space(4.0);
 
                                 let stack = &frame.call_stack;
                                 for (i, name) in stack.iter().enumerate().rev() {
                                     let is_cur = i == stack.len() - 1;
-                                    let frame_col =
-                                        if is_cur { t.accent } else { t.tab_inactive_fg };
-                                    let depth_str = "  ".repeat(stack.len() - 1 - i);
+                                    let frame_col = if is_cur { t.accent } else { t.tab_inactive_fg };
+                                    let depth_indent = (stack.len() - 1 - i) as f32 * 12.0;
 
                                     ui.horizontal(|ui| {
+                                        ui.add_space(16.0 + depth_indent);
                                         if is_cur {
                                             ui.label(
                                                 egui::RichText::new("▶").size(10.0).color(t.accent),
@@ -209,50 +230,104 @@ impl VarViewWindow {
                                             ui.label(egui::RichText::new("  ").size(10.0));
                                         }
                                         ui.label(
-                                            egui::RichText::new(format!("{}{}", depth_str, name))
+                                            egui::RichText::new(name)
                                                 .size(11.5)
                                                 .color(frame_col)
                                                 .monospace(),
                                         );
                                     });
                                 }
-                            });
 
-                        if let Some(err) = &frame.error {
-                            ui.add_space(6.0);
-                            egui::Frame::new()
-                                .fill(egui::Color32::from_rgba_premultiplied(
-                                    t.terminal_error.r(),
-                                    t.terminal_error.g(),
-                                    t.terminal_error.b(),
-                                    30,
-                                ))
-                                .inner_margin(egui::Margin::symmetric(
-                                    10.0 as i8 as i8,
-                                    6.0 as i8 as i8,
-                                ))
-                                .show(ui, |ui| {
-                                    ui.label(
-                                        egui::RichText::new(format!("⚠  {}", err))
-                                            .size(11.0)
-                                            .color(t.terminal_error),
+                                // ── Error banner ────────────────────────────
+                                if let Some(err) = &frame.error {
+                                    ui.add_space(8.0);
+                                    let err_clone = err.clone();
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(10.0);
+                                        egui::Frame::new()
+                                            .fill(egui::Color32::from_rgba_premultiplied(
+                                                t.terminal_error.r(),
+                                                t.terminal_error.g(),
+                                                t.terminal_error.b(),
+                                                30,
+                                            ))
+                                            .inner_margin(egui::Margin::symmetric(8, 6))
+                                            .show(ui, |ui| {
+                                                ui.label(
+                                                    egui::RichText::new(format!("⚠  {}", err_clone))
+                                                        .size(11.0)
+                                                        .color(t.terminal_error),
+                                                );
+                                            });
+                                    });
+                                }
+
+                                // ── Output panel ────────────────────────────
+                                if !output.is_empty() {
+                                    ui.add_space(8.0);
+                                    let avail2 = ui.available_width();
+                                    let (o_sep, _) = ui.allocate_exact_size(
+                                        egui::vec2(avail2, 1.0),
+                                        egui::Sense::hover(),
                                     );
-                                });
-                        }
+                                    ui.painter()
+                                        .rect_filled(o_sep, egui::CornerRadius::ZERO, t.border);
+                                    ui.add_space(6.0);
 
-                        ui.add_space(8.0);
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(10.0);
+                                        ui.label(
+                                            egui::RichText::new("output so far")
+                                                .size(10.5)
+                                                .color(t.tab_inactive_fg)
+                                                .strong(),
+                                        );
+                                    });
+                                    ui.add_space(4.0);
+
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(10.0);
+                                        egui::Frame::new()
+                                            .fill(t.editor_bg)
+                                            .corner_radius(egui::CornerRadius::same(4))
+                                            .inner_margin(egui::Margin::same(8))
+                                            .show(ui, |ui| {
+                                                ui.set_width(avail2 - 28.0);
+                                                ui.label(
+                                                    egui::RichText::new(&output)
+                                                        .size(11.0)
+                                                        .color(t.terminal_fg)
+                                                        .monospace(),
+                                                );
+                                            });
+                                    });
+                                }
+
+                                ui.add_space(12.0);
+                            });
                     });
-            });
+            },
+        );
+
+        if should_close {
+            self.open = false;
+        }
     }
 }
 
-fn draw_var_table(ui: &mut egui::Ui, vars: &[super::debugger::VarRow], active: bool, t: &Theme) {
+fn draw_var_table(
+    ui: &mut egui::Ui,
+    vars: &[super::debugger::VarRow],
+    active: bool,
+    t: &Theme,
+) {
     let col_name_w = 100.0_f32;
     let col_type_w = 64.0_f32;
-    let row_h = 20.0_f32;
-    let available_w = ui.available_width();
+    let row_h = 22.0_f32;
+    let available_w = (ui.available_width() - 10.0).max(200.0);
 
-    let hdr_h = 18.0_f32;
+    // Header
+    let hdr_h = 18.0;
     let (hdr_rect, _) =
         ui.allocate_exact_size(egui::vec2(available_w, hdr_h), egui::Sense::hover());
     ui.painter().rect_filled(
@@ -263,36 +338,38 @@ fn draw_var_table(ui: &mut egui::Ui, vars: &[super::debugger::VarRow], active: b
 
     let hcol = t.tab_inactive_fg;
     let hfont = egui::FontId::proportional(9.5);
-    ui.painter().text(
-        egui::pos2(hdr_rect.left() + 6.0, hdr_rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        "NAME",
-        hfont.clone(),
-        hcol,
-    );
-    ui.painter().text(
-        egui::pos2(hdr_rect.left() + col_name_w + 6.0, hdr_rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        "TYPE",
-        hfont.clone(),
-        hcol,
-    );
-    ui.painter().text(
-        egui::pos2(
-            hdr_rect.left() + col_name_w + col_type_w + 6.0,
-            hdr_rect.center().y,
-        ),
-        egui::Align2::LEFT_CENTER,
-        "VALUE",
-        hfont,
-        hcol,
-    );
+    for (col_x, lbl) in [
+        (hdr_rect.left() + 6.0, "NAME"),
+        (hdr_rect.left() + col_name_w + 6.0, "TYPE"),
+        (hdr_rect.left() + col_name_w + col_type_w + 6.0, "VALUE"),
+    ] {
+        ui.painter().text(
+            egui::pos2(col_x, hdr_rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            lbl,
+            hfont.clone(),
+            hcol,
+        );
+    }
 
+    // Rows
     for (idx, row) in vars.iter().enumerate() {
         let (row_rect, _) =
             ui.allocate_exact_size(egui::vec2(available_w, row_h), egui::Sense::hover());
 
-        if idx % 2 == 0 {
+        // Changed-value highlight
+        if row.changed {
+            ui.painter().rect_filled(
+                row_rect,
+                egui::CornerRadius::same(2),
+                egui::Color32::from_rgba_premultiplied(
+                    t.tab_dirty_dot.r(),
+                    t.tab_dirty_dot.g(),
+                    t.tab_dirty_dot.b(),
+                    40,
+                ),
+            );
+        } else if idx % 2 == 0 {
             ui.painter().rect_filled(
                 row_rect,
                 egui::CornerRadius::ZERO,
@@ -305,14 +382,9 @@ fn draw_var_table(ui: &mut egui::Ui, vars: &[super::debugger::VarRow], active: b
             );
         }
 
-        let text_col = if active {
-            t.tab_active_fg
-        } else {
-            t.tab_inactive_fg
-        };
+        let text_col = if active { t.tab_active_fg } else { t.tab_inactive_fg };
+        let val_col = if row.changed { t.tab_dirty_dot } else { t.number };
         let font = egui::FontId::monospace(11.0);
-        let ty_col = t.type_name;
-        let val_col = t.number;
 
         ui.painter().text(
             egui::pos2(row_rect.left() + 6.0, row_rect.center().y),
@@ -326,14 +398,14 @@ fn draw_var_table(ui: &mut egui::Ui, vars: &[super::debugger::VarRow], active: b
             egui::Align2::LEFT_CENTER,
             &row.type_label,
             font.clone(),
-            ty_col,
+            t.type_name,
         );
 
-        let val_str: &str = &row.value;
+        let val_str = &row.value;
         let short_val = if val_str.len() > 34 {
             format!("{}…", &val_str[..33])
         } else {
-            val_str.to_string()
+            val_str.clone()
         };
 
         ui.painter().text(
@@ -346,5 +418,28 @@ fn draw_var_table(ui: &mut egui::Ui, vars: &[super::debugger::VarRow], active: b
             font,
             val_col,
         );
+
+        // Changed indicator dot
+        if row.changed {
+            ui.painter().circle_filled(
+                egui::pos2(row_rect.right() - 8.0, row_rect.center().y),
+                3.5,
+                t.tab_dirty_dot,
+            );
+        }
     }
+}
+
+fn apply_theme_to_ctx(ctx: &egui::Context, t: &Theme) {
+    let mut s = (*ctx.style()).clone();
+    s.visuals.window_fill = t.panel_bg;
+    s.visuals.panel_fill = t.panel_bg;
+    s.visuals.extreme_bg_color = t.editor_bg;
+    s.visuals.override_text_color = Some(t.tab_active_fg);
+    s.visuals.window_stroke = egui::Stroke::new(1.0, t.border);
+    s.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, t.tab_active_fg);
+    s.visuals.widgets.inactive.bg_fill = t.button_bg;
+    s.visuals.widgets.hovered.bg_fill = t.button_hover_bg;
+    s.visuals.widgets.active.bg_fill = t.accent;
+    ctx.set_style(s);
 }

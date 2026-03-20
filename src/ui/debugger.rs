@@ -67,7 +67,6 @@ pub struct TreeNode {
     pub depth: usize,
     pub children: Vec<usize>,
     pub parent: Option<usize>,
-    /// Collapsed state: if true, children are hidden in the tree view
     pub collapsed: bool,
 }
 
@@ -266,24 +265,15 @@ fn type_str(n: &ParseNode) -> String {
 
 // ─── Debug snapshot (read from file) ─────────────────────────────────────────
 
-/// One snapshot written by the compiled binary's `__fractal_debug!()` call.
 #[derive(Debug, Clone)]
 pub struct DebugSnapshot {
-    /// Step index (0-based) as written by the binary
     pub step: usize,
-    /// Human-readable label e.g. "Decl x"
     pub label: String,
-    /// Source line number
     pub source_line: usize,
-    /// All scopes at this point, innermost last
     pub scopes: Vec<ScopeSnapshot>,
-    /// Call stack, bottom first
     pub call_stack: Vec<String>,
-    /// Any output produced since the previous snapshot
     pub output_since_last: String,
-    /// Whether this is the final snapshot (program finished)
     pub finished: bool,
-    /// Runtime error if any
     pub error: Option<String>,
 }
 
@@ -298,11 +288,9 @@ pub struct VarRow {
     pub name: String,
     pub type_label: String,
     pub value: String,
-    /// true if value changed since the previous snapshot
     pub changed: bool,
 }
 
-/// The frame shown in the UI – same shape as before so existing UI code needs minimal changes.
 #[derive(Debug, Clone)]
 pub struct DebugFrame {
     pub active_node_id: usize,
@@ -312,34 +300,38 @@ pub struct DebugFrame {
     pub call_stack: Vec<String>,
     pub finished: bool,
     pub error: Option<String>,
-    /// Buffered output to show in the output panel
     pub buffered_output: String,
 }
 
-// ─── Debug session (file-reader mode) ────────────────────────────────────────
+// ─── Debug session ────────────────────────────────────────────────────────────
 
-/// Reads snapshots one at a time from the debug JSON-lines file written by the
-/// compiled binary.  The binary writes one JSON object per line, so we just
-/// tail the file as the program runs and serve snapshots to the UI on demand.
 pub struct DebugSession {
-    /// Path to the `<stem>-debug.jsonl` file being produced by the running binary.
     debug_file: PathBuf,
-    /// Snapshots already read from the file.
     snapshots: Vec<DebugSnapshot>,
-    /// Index of the snapshot *currently shown* in the UI (0 = before any step).
     cursor: usize,
-    /// How many bytes of the file we have already consumed.
     file_offset: u64,
-    /// The AST tree for the tree-view panel.
     pub tree: Vec<TreeNode>,
     pub finished: bool,
+    /// Maps snapshot label (e.g. "Decl x", "If", "For i") → tree node id.
+    /// Built once from the tree on construction, used to highlight the
+    /// correct AST node as the debugger steps through snapshots.
+    label_to_node: HashMap<String, usize>,
 }
 
 impl DebugSession {
-    /// Create a new session that will read from `debug_file`.
-    /// `root` is the AST of the program (for the tree view).
     pub fn new(root: &ParseNode, debug_file: PathBuf) -> Self {
         let tree = build_tree_table(root);
+
+        // Build label → node-id lookup.
+        // We do a *first-match* insert so that for duplicate labels (e.g. two
+        // "If" nodes) the shallowest / earliest occurrence wins initially.
+        // The real match improves incrementally as the step counter advances
+        // (see `find_node_for_label` below).
+        let mut label_to_node: HashMap<String, usize> = HashMap::new();
+        for node in &tree {
+            label_to_node.entry(node.label.clone()).or_insert(node.id);
+        }
+
         Self {
             debug_file,
             snapshots: Vec::new(),
@@ -347,16 +339,15 @@ impl DebugSession {
             file_offset: 0,
             tree,
             finished: false,
+            label_to_node,
         }
     }
 
     /// Poll the debug file for new snapshots without advancing the cursor.
-    /// Call this every frame so the UI can show "N steps available".
     pub fn poll_file(&mut self) {
         let Ok(content) = fs::read_to_string(&self.debug_file) else {
             return;
         };
-        // Only process bytes we haven't seen yet
         let new_part = if self.file_offset as usize <= content.len() {
             &content[self.file_offset as usize..]
         } else {
@@ -368,7 +359,6 @@ impl DebugSession {
                 continue;
             }
             if let Some(snap) = parse_snapshot_line(line) {
-                self.file_offset += (line.len() + 1) as u64; // +1 for newline
                 let was_finished = snap.finished;
                 self.snapshots.push(snap);
                 if was_finished {
@@ -376,12 +366,11 @@ impl DebugSession {
                 }
             }
         }
-        // Recalculate offset properly (line-by-line counting can drift)
-        // Use a simpler approach: count all consumed lines
-        let total_lines_consumed = self.snapshots.len();
+        // Recalculate file offset cleanly from consumed snapshot count.
+        let total_consumed = self.snapshots.len();
         let mut offset = 0usize;
         for (i, line) in content.lines().enumerate() {
-            if i >= total_lines_consumed {
+            if i >= total_consumed {
                 break;
             }
             offset += line.len() + 1;
@@ -397,28 +386,25 @@ impl DebugSession {
         self.cursor
     }
 
-    /// How many snapshots are available ahead of the cursor.
     pub fn steps_available(&self) -> usize {
         self.snapshots.len().saturating_sub(self.cursor)
     }
 
-    /// Return the frame for the current cursor position without advancing.
     pub fn current_frame(&self) -> DebugFrame {
         if self.snapshots.is_empty() {
             return placeholder_frame();
         }
         let idx = self.cursor.saturating_sub(1).min(self.snapshots.len() - 1);
-        snap_to_frame(&self.snapshots[idx], self.tree.len())
+        self.snap_to_frame(&self.snapshots[idx])
     }
 
     /// Advance cursor by one and return the new frame.
-    /// Returns None if no new snapshot is available yet (program still running).
+    /// Returns None if no new snapshot is available yet.
     pub fn step(&mut self) -> Option<DebugFrame> {
         if self.cursor >= self.snapshots.len() {
-            return None; // no new data yet
+            return None;
         }
-        let snap = &self.snapshots[self.cursor];
-        let frame = snap_to_frame(snap, self.tree.len());
+        let frame = self.snap_to_frame(&self.snapshots[self.cursor]);
         self.cursor += 1;
         if frame.finished {
             self.finished = true;
@@ -426,14 +412,12 @@ impl DebugSession {
         Some(frame)
     }
 
-    /// Toggle the collapsed state of an AST tree node.
     pub fn toggle_collapsed(&mut self, node_id: usize) {
         if let Some(n) = self.tree.get_mut(node_id) {
             n.collapsed = !n.collapsed;
         }
     }
 
-    /// Collapse all children of a node recursively.
     pub fn collapse_all(&mut self, node_id: usize) {
         let children: Vec<usize> = self
             .tree
@@ -448,7 +432,6 @@ impl DebugSession {
         }
     }
 
-    /// Expand a node and all its ancestors so it is visible.
     pub fn reveal_node(&mut self, node_id: usize) {
         let mut cur = Some(node_id);
         while let Some(id) = cur {
@@ -457,6 +440,56 @@ impl DebugSession {
                 cur = n.parent;
             } else {
                 break;
+            }
+        }
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    /// Convert a snapshot into a DebugFrame, resolving the active AST node.
+    fn snap_to_frame(&self, snap: &DebugSnapshot) -> DebugFrame {
+        let active_node_id = self.find_node_for_label(&snap.label, snap.step);
+        DebugFrame {
+            active_node_id,
+            step_label: snap.label.clone(),
+            source_line: snap.source_line,
+            scopes: snap.scopes.clone(),
+            call_stack: snap.call_stack.clone(),
+            finished: snap.finished,
+            error: snap.error.clone(),
+            buffered_output: snap.output_since_last.clone(),
+        }
+    }
+
+    /// Find the best-matching tree node id for a snapshot label.
+    ///
+    /// Strategy: the snapshot labels match the tree node labels exactly
+    /// (both are produced by the same `stmt_debug_label` / `node_label`
+    /// logic).  When there are multiple nodes with the same label (e.g. two
+    /// "If" statements) we pick the one whose *position* in the flat tree
+    /// array is closest to `step` — a cheap heuristic that works well for
+    /// sequential programs.
+    fn find_node_for_label(&self, label: &str, step: usize) -> usize {
+        // Collect all node ids whose label matches.
+        let candidates: Vec<usize> = self
+            .tree
+            .iter()
+            .filter(|n| n.label == label)
+            .map(|n| n.id)
+            .collect();
+
+        match candidates.len() {
+            0 => {
+                // No exact match — fall back to the first-match map.
+                self.label_to_node.get(label).copied().unwrap_or(0)
+            }
+            1 => candidates[0],
+            _ => {
+                // Multiple matches: pick the id numerically closest to `step`.
+                candidates
+                    .into_iter()
+                    .min_by_key(|&id| (id as isize - step as isize).unsigned_abs())
+                    .unwrap_or(0)
             }
         }
     }
@@ -475,27 +508,9 @@ fn placeholder_frame() -> DebugFrame {
     }
 }
 
-fn snap_to_frame(snap: &DebugSnapshot, _tree_len: usize) -> DebugFrame {
-    DebugFrame {
-        active_node_id: snap.step, // we map step index to node id as best-effort
-        step_label: snap.label.clone(),
-        source_line: snap.source_line,
-        scopes: snap.scopes.clone(),
-        call_stack: snap.call_stack.clone(),
-        finished: snap.finished,
-        error: snap.error.clone(),
-        buffered_output: snap.output_since_last.clone(),
-    }
-}
-
 // ─── JSON snapshot parser ─────────────────────────────────────────────────────
 
-/// Parse a single JSON-lines snapshot written by the compiled binary.
-/// Format (one line):
-/// {"step":0,"label":"Decl x","line":2,"stack":["main"],"scopes":[{"label":"main","vars":[{"name":"x","type":":int","value":"0","changed":false}]}],"output":"","finished":false,"error":null}
 fn parse_snapshot_line(line: &str) -> Option<DebugSnapshot> {
-    // Minimal hand-rolled JSON parser to avoid adding a dependency in codegen output.
-    // We rely on the exact format emitted by the debug macro.
     let step = extract_u64(line, "\"step\"")?;
     let label = extract_str(line, "\"label\"").unwrap_or_default();
     let source_line = extract_u64(line, "\"line\"").unwrap_or(0) as usize;
@@ -624,7 +639,6 @@ fn extract_str_array(s: &str, key: &str) -> Vec<String> {
 }
 
 fn extract_scopes(s: &str) -> Vec<ScopeSnapshot> {
-    // Find "scopes":[...] — walk the JSON array of scope objects
     let Some(pos) = s.find("\"scopes\"") else {
         return vec![];
     };
@@ -639,11 +653,10 @@ fn extract_scopes(s: &str) -> Vec<ScopeSnapshot> {
 
     let mut scopes = Vec::new();
     let bytes = rest.as_bytes();
-    let mut i = 1usize; // skip '['
+    let mut i = 1usize;
     let mut depth = 0i32;
-
-    // Find each {...} object inside the outer [ ]
     let mut obj_start = None;
+
     while i < bytes.len() {
         match bytes[i] as char {
             '{' => {

@@ -3,18 +3,18 @@
     :struct<Node> {
         :int a;
         :int b;
-        :array<:int, 10> arr;
+        :array<:int, 3> arr;
         :struct<Node> next;
     };
 
     :int a = 100;
     :float b = 5.0;
-    :boolean checkBool = true;
+    #:boolean checkBool = true;
     :array<:int, 5> arr = [1, 2, 3, 4, 5];
-    :array<:char, 10> string = "hello 1234";
+    #:array<:char, 10> string = "hello 1234";
     :list<:int> nums = [1, 2, 3];
 
-    print("{}", arr[0]);
+    print("{}", :int(arr[0]));
 
     !if (:float(a) > b) {
         a = (a + 1);
@@ -23,17 +23,17 @@
         b = (b + :float(1));
     }
 
-    :char c = string[0];
+    #:char c = string[0];
     a = :int(math::pi);
     append(nums, a);
     #:int popped = pop(arr);
 
     !for (:int i, 0, 10, 1) {
         !if (i % 3 == 0) {
-            print("{} is a multiple of 3", i);
+            print("{} is a multiple of 3", :int(i));
             !continue;
         }
-        print("{} {}\n", i, arr[i]);
+   
     }
 
     !while (:float(a) > b) {
@@ -42,7 +42,7 @@
             !break;
         }
         !elif (a % 25 == 0) {
-            print("Hello: a = {}\n", a);
+            print("Hello: a = {}\n", :int(a));
         }
     }
 
@@ -55,22 +55,27 @@
 
     :list<:float> top = [5.6, 25.1];
     :boolean res = hello(a, b, top);
-    print("{}\n", top[0]);
+    print("{}\n", :float(top[0]));
 
     :struct<Node> root = {
         a = 67,
         b = 69,
         arr = [1, 2, 3],
+        next=!null
     };
     :struct<Node> cur = root;
 
     !for (:int i, 0, 5, 1) {
+  
         :struct<Node> node = {
             a = i,
-            b = i * 5
+            b = i * 5,
+            arr = [0,0,0],
+            next=!null
+            
         };
         :int z = 0;
-        !for (:int j, a, node::b, 1) {
+        !for (:int j, node::a, node::b, 1) {
             node::arr[z] = j;
             z += 1;
         }

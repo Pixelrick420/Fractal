@@ -5,6 +5,8 @@ use eframe::egui;
 pub struct TreeViewWindow {
     pub open: bool,
     pub title: String,
+    /// Node id we scrolled to last frame — avoid re-scrolling every frame
+    last_scrolled_node: Option<usize>,
 }
 
 impl TreeViewWindow {
@@ -12,6 +14,7 @@ impl TreeViewWindow {
         Self {
             open: false,
             title: "AST Tree".into(),
+            last_scrolled_node: None,
         }
     }
 
@@ -23,38 +26,41 @@ impl TreeViewWindow {
         theme: &Theme,
     ) {
         if !self.open {
+            self.last_scrolled_node = None;
             return;
         }
 
+        // Only reveal/scroll when the active node actually changes.
+        if self.last_scrolled_node != Some(active_node_id) {
+            session.reveal_node(active_node_id);
+            self.last_scrolled_node = Some(active_node_id);
+        }
+
         let t = *theme;
-        let title = self.title.clone();
-        let mut should_close = false;
 
-        session.reveal_node(active_node_id);
+        let mut open = self.open;
 
-        ctx.show_viewport_immediate(
-            egui::ViewportId::from_hash_of("fractal_tree_view"),
-            egui::ViewportBuilder::default()
-                .with_title(&title)
-                .with_inner_size([440.0, 580.0])
-                .with_min_inner_size([300.0, 200.0]),
-            |ctx, _class| {
-                if ctx.input(|i| i.viewport().close_requested()) {
-                    should_close = true;
-                }
-
-                apply_theme_to_ctx(ctx, &t);
-
-                egui::TopBottomPanel::top("tree_header")
-                    .frame(
-                        egui::Frame::new()
-                            .fill(t.tab_bar_bg)
-                            .inner_margin(egui::Margin::symmetric(12, 8)),
-                    )
-                    .show(ctx, |ui| {
+        egui::Window::new("⬡  AST Tree")
+            .id(egui::Id::new("fractal_tree_view"))
+            .open(&mut open)
+            .default_size([440.0, 580.0])
+            .min_size([300.0, 200.0])
+            .resizable(true)
+            .frame(
+                egui::Frame::window(&ctx.style())
+                    .fill(t.panel_bg)
+                    .stroke(egui::Stroke::new(1.0, t.border)),
+            )
+            .show(ctx, |ui| {
+                // ── Header bar ────────────────────────────────────────────
+                egui::Frame::new()
+                    .fill(t.tab_bar_bg)
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
                         ui.horizontal(|ui| {
                             ui.label(
-                                egui::RichText::new("⬡  AST Tree")
+                                egui::RichText::new("AST Tree")
                                     .size(12.5)
                                     .color(t.tab_active_fg)
                                     .strong(),
@@ -70,7 +76,6 @@ impl TreeViewWindow {
                                             .color(t.tab_inactive_fg),
                                     );
                                     ui.add_space(8.0);
-
                                     if ui
                                         .add(
                                             egui::Button::new(
@@ -84,7 +89,6 @@ impl TreeViewWindow {
                                         .clicked()
                                     {
                                         session.collapse_all(0);
-
                                         if let Some(root) = session.tree.get_mut(0) {
                                             root.collapsed = false;
                                         }
@@ -94,60 +98,55 @@ impl TreeViewWindow {
                         });
                     });
 
-                let border_col = t.border;
-                egui::TopBottomPanel::top("tree_header_sep")
-                    .frame(
-                        egui::Frame::new()
-                            .fill(border_col)
-                            .inner_margin(egui::Margin::ZERO),
-                    )
-                    .exact_height(1.0)
-                    .show(ctx, |_| {});
+                // Separator
+                let avail_w = ui.available_width();
+                let (sep, _) = ui.allocate_exact_size(
+                    egui::vec2(avail_w, 1.0),
+                    egui::Sense::hover(),
+                );
+                ui.painter().rect_filled(sep, egui::CornerRadius::ZERO, t.border);
 
-                egui::CentralPanel::default()
-                    .frame(egui::Frame::new().fill(t.panel_bg))
-                    .show(ctx, |ui| {
-                        let scroll = egui::ScrollArea::both()
-                            .id_salt("tree_view_scroll")
-                            .auto_shrink([false; 2]);
+                // ── Scrollable tree body ──────────────────────────────────
+                egui::ScrollArea::both()
+                    .id_salt("tree_view_scroll")
+                    .auto_shrink([false; 2])
+                    .show(ui, |ui| {
+                        ui.add_space(6.0);
 
-                        scroll.show(ui, |ui| {
-                            ui.add_space(6.0);
+                        let mut toggle_id: Option<usize> = None;
+                        let mut active_rect: Option<egui::Rect> = None;
 
-                            let mut toggle_id: Option<usize> = None;
+                        draw_tree(
+                            ui,
+                            &session.tree,
+                            0,
+                            active_node_id,
+                            &t,
+                            &mut toggle_id,
+                            &mut active_rect,
+                        );
 
-                            let mut active_rect: Option<egui::Rect> = None;
+                        ui.add_space(12.0);
 
-                            draw_tree(
-                                ui,
-                                &session.tree,
-                                0,
-                                active_node_id,
-                                &t,
-                                &mut toggle_id,
-                                &mut active_rect,
-                            );
+                        if let Some(id) = toggle_id {
+                            session.toggle_collapsed(id);
+                        }
 
-                            ui.add_space(12.0);
-
-                            if let Some(id) = toggle_id {
-                                session.toggle_collapsed(id);
-                            }
-
+                        // Only scroll when the active node changed this frame.
+                        if self.last_scrolled_node == Some(active_node_id) {
                             if let Some(rect) = active_rect {
-                                let padded = rect.expand2(egui::vec2(0.0, 40.0));
-                                ui.scroll_to_rect(padded, None);
+                                let padded = rect.expand2(egui::vec2(0.0, 60.0));
+                                ui.scroll_to_rect(padded, Some(egui::Align::Center));
                             }
-                        });
+                        }
                     });
-            },
-        );
+            });
 
-        if should_close {
-            self.open = false;
-        }
+        self.open = open;
     }
 }
+
+// ── Drawing helpers ───────────────────────────────────────────────────────────
 
 fn draw_tree(
     ui: &mut egui::Ui,
@@ -158,16 +157,7 @@ fn draw_tree(
     toggle_out: &mut Option<usize>,
     active_rect: &mut Option<egui::Rect>,
 ) {
-    draw_node(
-        ui,
-        table,
-        root_id,
-        active_node_id,
-        t,
-        true,
-        toggle_out,
-        active_rect,
-    );
+    draw_node(ui, table, root_id, active_node_id, t, true, toggle_out, active_rect);
 }
 
 fn draw_node(
@@ -191,11 +181,14 @@ fn draw_node(
     let avail_w = ui.available_width();
     let (row_rect, _) = ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::hover());
 
+    // Row background
     if is_active {
         ui.painter().rect_filled(
             row_rect,
             egui::CornerRadius::same(4),
-            egui::Color32::from_rgba_premultiplied(t.accent.r(), t.accent.g(), t.accent.b(), 40),
+            egui::Color32::from_rgba_premultiplied(
+                t.accent.r(), t.accent.g(), t.accent.b(), 40,
+            ),
         );
         ui.painter().rect_filled(
             egui::Rect::from_min_size(row_rect.min, egui::vec2(3.0, row_h)),
@@ -208,39 +201,27 @@ fn draw_node(
             row_rect,
             egui::CornerRadius::same(3),
             egui::Color32::from_rgba_premultiplied(
-                t.button_hover_bg.r(),
-                t.button_hover_bg.g(),
-                t.button_hover_bg.b(),
-                120,
+                t.button_hover_bg.r(), t.button_hover_bg.g(), t.button_hover_bg.b(), 120,
             ),
         );
     }
 
     let mid_y = row_rect.center().y;
 
+    // Tree connector lines
     if node.depth > 0 {
         let connector_x = row_rect.left() + indent - 2.0;
         ui.painter().line_segment(
-            [
-                egui::pos2(connector_x, mid_y),
-                egui::pos2(connector_x + 12.0, mid_y),
-            ],
+            [egui::pos2(connector_x, mid_y), egui::pos2(connector_x + 12.0, mid_y)],
             egui::Stroke::new(1.0, t.border),
         );
-        let top_y = row_rect.top();
         ui.painter().line_segment(
-            [
-                egui::pos2(connector_x, top_y),
-                egui::pos2(connector_x, mid_y),
-            ],
+            [egui::pos2(connector_x, row_rect.top()), egui::pos2(connector_x, mid_y)],
             egui::Stroke::new(1.0, t.border),
         );
         if !is_last {
             ui.painter().line_segment(
-                [
-                    egui::pos2(connector_x, mid_y),
-                    egui::pos2(connector_x, row_rect.bottom()),
-                ],
+                [egui::pos2(connector_x, mid_y), egui::pos2(connector_x, row_rect.bottom())],
                 egui::Stroke::new(1.0, t.border),
             );
         }
@@ -248,6 +229,7 @@ fn draw_node(
 
     let label_start_x = row_rect.left() + indent + 14.0;
 
+    // Expand/collapse toggle
     if has_children {
         let toggle_size = 16.0;
         let toggle_x = row_rect.left() + indent + 2.0;
@@ -265,19 +247,12 @@ fn draw_node(
                 toggle_rect,
                 egui::CornerRadius::same(3),
                 egui::Color32::from_rgba_premultiplied(
-                    t.accent.r(),
-                    t.accent.g(),
-                    t.accent.b(),
-                    50,
+                    t.accent.r(), t.accent.g(), t.accent.b(), 50,
                 ),
             );
         }
         let arrow = if is_collapsed { "▶" } else { "▼" };
-        let arrow_col = if is_active {
-            t.accent
-        } else {
-            t.tab_inactive_fg
-        };
+        let arrow_col = if is_active { t.accent } else { t.tab_inactive_fg };
         ui.painter().text(
             toggle_rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -297,16 +272,18 @@ fn draw_node(
         );
     }
 
+    // Badge
     let badge = node_kind_badge(&node.label);
     let badge_bg = node_badge_color(&node.label, t);
     let mut text_x = label_start_x + 2.0;
 
     if !badge.is_empty() {
         let badge_w = (badge.len() as f32 * 6.5 + 8.0).max(36.0);
-        let badge_rect =
-            egui::Rect::from_min_size(egui::pos2(text_x, mid_y - 8.0), egui::vec2(badge_w, 16.0));
-        ui.painter()
-            .rect_filled(badge_rect, egui::CornerRadius::same(3), badge_bg);
+        let badge_rect = egui::Rect::from_min_size(
+            egui::pos2(text_x, mid_y - 8.0),
+            egui::vec2(badge_w, 16.0),
+        );
+        ui.painter().rect_filled(badge_rect, egui::CornerRadius::same(3), badge_bg);
         ui.painter().text(
             badge_rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -317,6 +294,7 @@ fn draw_node(
         text_x += badge_w + 6.0;
     }
 
+    // Label text
     let (text_col, _) = node_text_color(is_active, t, node.depth, has_children);
     let label_font = if is_active {
         egui::FontId::monospace(11.5)
@@ -324,7 +302,6 @@ fn draw_node(
         egui::FontId::monospace(11.0)
     };
 
-    let max_text_w = (row_rect.right() - text_x - 8.0).max(20.0);
     let full_label = &node.label;
     let display_label = if full_label.len() > 60 {
         format!("{}…", &full_label[..58])
@@ -341,17 +318,18 @@ fn draw_node(
     );
 
     if is_collapsed && has_children {
-        let count_str = format!("  +{} hidden", node.children.len());
-        let main_w = ui.fonts_mut(|f| f.glyph_width(&label_font, 'x')) * display_label.len() as f32;
+        let main_w = ui.fonts_mut(|f| f.glyph_width(&label_font, 'x'))
+            * display_label.len() as f32;
         ui.painter().text(
             egui::pos2(text_x + main_w + 4.0, mid_y),
             egui::Align2::LEFT_CENTER,
-            &count_str,
+            &format!("  +{} hidden", node.children.len()),
             egui::FontId::proportional(9.5),
             t.tab_inactive_fg,
         );
     }
 
+    // Click on row body to toggle
     let body_rect =
         egui::Rect::from_min_max(egui::pos2(label_start_x, row_rect.top()), row_rect.max);
     let body_resp = ui.interact(
@@ -363,26 +341,20 @@ fn draw_node(
         *toggle_out = Some(id);
     }
 
+    // Recurse into children
     if !is_collapsed {
         let n = node.children.len();
-
         let children: Vec<usize> = node.children.clone();
         for (i, &child_id) in children.iter().enumerate() {
             draw_node(
-                ui,
-                table,
-                child_id,
-                active_node_id,
-                t,
-                i == n - 1,
-                toggle_out,
-                active_rect,
+                ui, table, child_id, active_node_id, t,
+                i == n - 1, toggle_out, active_rect,
             );
         }
     }
-
-    let _ = max_text_w;
 }
+
+// ── Colour / badge helpers ────────────────────────────────────────────────────
 
 fn node_text_color(
     is_active: bool,
@@ -405,37 +377,29 @@ fn node_text_color(
 
 fn node_badge_color(label: &str, t: &Theme) -> egui::Color32 {
     match node_kind(label) {
-        NodeKind::Decl => t.type_name,
-        NodeKind::Control => t.keyword,
-        NodeKind::Expr => t.fn_name,
-        NodeKind::Literal => t.number,
-        NodeKind::Type => t.type_name,
+        NodeKind::Decl     => t.type_name,
+        NodeKind::Control  => t.keyword,
+        NodeKind::Expr     => t.fn_name,
+        NodeKind::Literal  => t.number,
+        NodeKind::Type     => t.type_name,
         NodeKind::Structural => t.struct_name,
-        NodeKind::Other => t.tab_inactive_fg,
+        NodeKind::Other    => t.tab_inactive_fg,
     }
 }
 
 fn node_kind_badge(label: &str) -> &'static str {
     match node_kind(label) {
-        NodeKind::Decl => "DECL",
-        NodeKind::Control => "CTRL",
-        NodeKind::Expr => "EXPR",
-        NodeKind::Literal => "LIT",
-        NodeKind::Type => "TYPE",
+        NodeKind::Decl       => "DECL",
+        NodeKind::Control    => "CTRL",
+        NodeKind::Expr       => "EXPR",
+        NodeKind::Literal    => "LIT",
+        NodeKind::Type       => "TYPE",
         NodeKind::Structural => "STRUCT",
-        NodeKind::Other => "",
+        NodeKind::Other      => "",
     }
 }
 
-enum NodeKind {
-    Decl,
-    Control,
-    Expr,
-    Literal,
-    Type,
-    Structural,
-    Other,
-}
+enum NodeKind { Decl, Control, Expr, Literal, Type, Structural, Other }
 
 fn node_kind(label: &str) -> NodeKind {
     if label.starts_with("Decl") || label.starts_with("StructDecl") {
@@ -484,18 +448,4 @@ fn node_kind(label: &str) -> NodeKind {
     } else {
         NodeKind::Other
     }
-}
-
-fn apply_theme_to_ctx(ctx: &egui::Context, t: &Theme) {
-    let mut s = (*ctx.style()).clone();
-    s.visuals.window_fill = t.panel_bg;
-    s.visuals.panel_fill = t.panel_bg;
-    s.visuals.extreme_bg_color = t.editor_bg;
-    s.visuals.override_text_color = Some(t.tab_active_fg);
-    s.visuals.window_stroke = egui::Stroke::new(1.0, t.border);
-    s.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, t.tab_active_fg);
-    s.visuals.widgets.inactive.bg_fill = t.button_bg;
-    s.visuals.widgets.hovered.bg_fill = t.button_hover_bg;
-    s.visuals.widgets.active.bg_fill = t.accent;
-    ctx.set_style(s);
 }

@@ -100,7 +100,6 @@ struct FractalEditor {
 
     pending_close_after_save: Option<usize>,
     pending_run_after_save: bool,
-    /// If Some, compile in debug mode after saving
     pending_debug_after_save: bool,
     allow_quit: bool,
 
@@ -113,11 +112,8 @@ struct FractalEditor {
     // ── Debugger state ───────────────────────────────────────────────────────
     debug_session: Option<DebugSession>,
     debug_frame: Option<DebugFrame>,
-    /// Path to the .jsonl file being written by the running debug binary
     debug_jsonl_path: Option<PathBuf>,
-    /// Running debug binary process handle (so we can wait for new snapshots)
     debug_binary_running: bool,
-    /// Path waiting for a debug compile once we have ctx
     pending_debug_source: Option<PathBuf>,
     tree_view_window: TreeViewWindow,
     var_view_window: VarViewWindow,
@@ -246,7 +242,6 @@ impl FractalEditor {
                 }
                 if self.pending_debug_after_save {
                     self.pending_debug_after_save = false;
-                    // Re-read the path from the newly saved tab
                     if let Some(p) = self
                         .tabs
                         .get(self.active_tab)
@@ -467,18 +462,17 @@ impl FractalEditor {
                 Ok(out) if out.status.success() => {
                     let stdout = strip_ansi(&String::from_utf8_lossy(&out.stdout));
                     let stderr = strip_ansi(&String::from_utf8_lossy(&out.stderr));
-
                     let warnings = collect_non_noise(&stdout, &stderr);
 
                     if debug {
-                        // Read the jsonl path from the sidecar .debug-meta file
-                        // written by the compiler (avoids polluting the terminal).
                         let meta_path = PathBuf::from(&path_str).with_extension("debug-meta");
                         if let Ok(jsonl_str) = std::fs::read_to_string(&meta_path) {
                             let jp = PathBuf::from(jsonl_str.trim());
                             CompileResult::DebugSuccess(bin_path, jp)
                         } else {
-                            CompileResult::Error("Debug compile succeeded but could not read .debug-meta sidecar file".into())
+                            CompileResult::Error(
+                                "Debug compile succeeded but could not read .debug-meta sidecar file".into(),
+                            )
                         }
                     } else if warnings.trim().is_empty() {
                         CompileResult::Success(bin_path)
@@ -545,14 +539,8 @@ impl FractalEditor {
                     self.terminal.run_binary(&bin_path);
                 }
                 CompileResult::DebugSuccess(bin_path, jsonl_path) => {
-                    // ── Start the debug session ──────────────────────────────
-                    // Delete any stale debug file from a previous run
                     let _ = fs::remove_file(&jsonl_path);
-
-                    // Build the AST for the tree view by re-parsing the source
                     self.start_debug_session_from_source(&jsonl_path, ctx);
-
-                    // Run the binary in the terminal so input/output flow normally
                     self.terminal.run_binary(&bin_path);
                     self.terminal.minimized = false;
                     self.debug_binary_running = true;
@@ -578,7 +566,6 @@ impl FractalEditor {
 
     // ── Debug run ─────────────────────────────────────────────────────────────
 
-    /// Compile with --debug flag.  If the file hasn't been saved yet, save first.
     fn run_debug(&mut self) {
         if self.tabs.is_empty() {
             return;
@@ -647,10 +634,7 @@ impl FractalEditor {
         self.var_view_window.clear_output();
     }
 
-    /// Advance one debug step.  If no snapshot is available yet (program still
-    /// running / writing), shows a "waiting" status and returns.
     fn step_debug(&mut self) {
-        // Poll for new snapshots from the file first
         if let Some(ref mut session) = self.debug_session {
             session.poll_file();
         }
@@ -661,12 +645,10 @@ impl FractalEditor {
 
         match session.step() {
             None => {
-                // No snapshot available yet — program still running
                 self.success_message =
                     Some("Waiting for program output… (is input expected?)".into());
             }
             Some(frame) => {
-                // Push any output produced by this step to the var view panel
                 self.var_view_window.push_output(&frame.buffered_output);
 
                 let finished = frame.finished;
@@ -809,7 +791,6 @@ impl FractalEditor {
                                     .color(t.tab_dirty_dot),
                             );
                         }
-                        // Show debug step indicator
                         if let Some(ref session) = self.debug_session {
                             let cur = session.cursor();
                             let total = session.total_steps();
@@ -881,7 +862,6 @@ impl eframe::App for FractalEditor {
             if let Some(ref mut session) = self.debug_session {
                 session.poll_file();
             }
-            // Keep repainting at a fast rate while waiting for new snapshots
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 
@@ -1090,7 +1070,6 @@ impl eframe::App for FractalEditor {
                     if run_after {
                         self.run_code(ctx);
                     }
-                    // debug_after is handled inside save_file via pending_debug_source
                 }
             }
         }
@@ -1104,26 +1083,66 @@ impl eframe::App for FractalEditor {
         self.show_status_bar(ctx);
         self.terminal.show(ctx);
 
-        // ── OS-level debug windows ────────────────────────────────────────────
-        // Tree view: pass session as &mut so it can handle collapse toggles
+        // ── Debug windows ─────────────────────────────────────────────────────
+        // Both windows are now egui::Windows (not separate viewports) so they
+        // render inside the main window and never block the event loop.
+        // They are shown whenever open == true, regardless of debug session
+        // state — this is what makes the menu-bar toggle work at any time.
+
         let active_node_id = self
             .debug_frame
             .as_ref()
             .map(|f| f.active_node_id)
             .unwrap_or(0);
 
-        if let Some(ref mut session) = self.debug_session {
-            let theme = self.theme;
-            self.tree_view_window
-                .show(ctx, session, active_node_id, &theme);
+        // Tree view
+        if self.tree_view_window.open {
+            if let Some(ref mut session) = self.debug_session {
+                let theme = self.theme;
+                self.tree_view_window
+                    .show(ctx, session, active_node_id, &theme);
+            } else {
+                // No session yet — build a one-shot empty session so the
+                // window renders (shows "waiting" state) instead of silently
+                // doing nothing when toggled from the menu.
+                use fractal::compiler::parser::ParseNode;
+                use fractal::ui::debugger::DebugSession;
+                let dummy_root = ParseNode::Program(vec![]);
+                let mut dummy_session =
+                    DebugSession::new(&dummy_root, std::path::PathBuf::from(""));
+                let theme = self.theme;
+                self.tree_view_window
+                    .show(ctx, &mut dummy_session, 0, &theme);
+            }
         }
 
-        if let Some(ref frame) = self.debug_frame {
+        // Var view — show current frame or a placeholder when no session yet
+        if self.var_view_window.open {
+            use fractal::ui::debugger::DebugFrame;
+            let placeholder = DebugFrame {
+                active_node_id: 0,
+                step_label: "No debug session active".into(),
+                source_line: 0,
+                scopes: vec![],
+                call_stack: vec![],
+                finished: false,
+                error: None,
+                buffered_output: String::new(),
+            };
+            let frame_ref: &DebugFrame = self
+                .debug_frame
+                .as_ref()
+                .unwrap_or(&placeholder);
             let theme = self.theme;
-            self.var_view_window.show(ctx, frame, &theme);
+            self.var_view_window.show(ctx, frame_ref, &theme);
         }
 
         // ── Central editor / docs panel ───────────────────────────────────────
+
+        // Compute the active debug line (1-based source line, 0 = none).
+        // This must be computed before the CentralPanel borrows `self` mutably.
+        let debug_line: Option<usize> = self.debug_frame.as_ref().map(|f| f.source_line);
+
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(self.theme.editor_bg))
             .show(ctx, |ui| {
@@ -1146,8 +1165,9 @@ impl eframe::App for FractalEditor {
                     } else {
                         None
                     };
+                    // Pass debug_line so the editor highlights the active source line.
                     tab.editor
-                        .show_with_id(ui, &mut tab.code, tab.id, fs, ln, sel);
+                        .show_with_id(ui, &mut tab.code, tab.id, fs, ln, sel, debug_line);
                 }
             });
     }

@@ -26,34 +26,20 @@ struct CodeGen {
     indent: usize,
 
     var_types: HashMap<String, SemType>,
-
     struct_fields: HashMap<String, Vec<(String, SemType)>>,
-
     module_names: std::collections::HashSet<String>,
-
     current_return_struct: Option<String>,
-
     current_return_void: bool,
-
     struct_params: std::collections::HashSet<String>,
-
     struct_param_types: HashMap<String, String>,
-
     bool_params: std::collections::HashSet<String>,
-
     array_params: std::collections::HashSet<String>,
-
     array_param_elem_types: HashMap<String, SemType>,
-
     list_params: std::collections::HashSet<String>,
-
     list_param_elem_types: HashMap<String, SemType>,
-
     func_return_types: HashMap<String, SemType>,
-
     hoist_buf: Vec<String>,
     hoist_counter: usize,
-
     local_var_types: HashMap<String, SemType>,
 
     // ── Debug-mode fields ──────────────────────────────────────────────────
@@ -77,7 +63,6 @@ impl CodeGen {
                     if sym.origin.starts_with("param:") {
                         continue;
                     }
-
                     if sym.scope_depth == 0 {
                         var_types.insert(sym.name.clone(), sym.sem_type.clone());
                     }
@@ -256,8 +241,10 @@ impl CodeGen {
                 let func = self.debug_current_func.clone();
                 let vars_code = self.build_vars_json_code();
                 let finished_line = format!(
-                    "__fractal_debug_snapshot!({s}, \"Program finished\", \"{f}\", [{v}], true, None::<&str>);",
-                    s = step, f = func, v = vars_code,
+                    "__fractal_debug_snapshot!({s}, \"Program finished\", \"{f}\", 0, [{v}], true, None::<&str>);",
+                    s = step,
+                    f = func,
+                    v = vars_code,
                 );
                 self.line(&finished_line);
             }
@@ -325,6 +312,7 @@ impl CodeGen {
         let prev_array_param_elem_types = std::mem::take(&mut self.array_param_elem_types);
         let prev_list_param_elem_types = std::mem::take(&mut self.list_param_elem_types);
         let prev_local_vars = std::mem::take(&mut self.local_var_types);
+
         for p in params {
             if let ParseNode::Param {
                 data_type,
@@ -400,10 +388,12 @@ impl CodeGen {
             ret
         ));
         self.indent();
+
         let prev_dbg_func = self.debug_current_func.clone();
         let prev_dbg_vars = self.debug_visible_vars.clone();
         self.debug_current_func = name.to_string();
         self.debug_visible_vars.clear();
+
         if self.debug_mode {
             self.line("__fractal_debug_init();");
         }
@@ -413,6 +403,7 @@ impl CodeGen {
                 self.emit_snapshot(s);
             }
         }
+
         self.debug_current_func = prev_dbg_func;
         self.debug_visible_vars = prev_dbg_vars;
         self.dedent();
@@ -432,7 +423,6 @@ impl CodeGen {
 
     fn gen_module(&mut self, name: &str, items: &[ParseNode]) {
         self.module_names.insert(name.to_string());
-
         self.line(&format!("pub mod {} {{", name));
         self.indent();
         self.line("use super::*;");
@@ -453,10 +443,8 @@ impl CodeGen {
         let (static_decls, runtime_stmts): (Vec<_>, Vec<_>) = stmts.into_iter().partition(|n| {
             matches!(
                 n,
-                ParseNode::Decl {
-                    data_type,
-                    ..
-                } if matches!(
+                ParseNode::Decl { data_type, .. }
+                if matches!(
                     data_type.as_ref(),
                     ParseNode::TypeInt
                         | ParseNode::TypeFloat
@@ -691,7 +679,6 @@ impl CodeGen {
                     s.chars().map(|c| format!("'{}'", escape_char(c))).collect();
                 format!("[{}]", chars.join(", "))
             }
-
             (ParseNode::TypeList { .. }, Some(ParseNode::ArrayLit(elems))) => {
                 if elems.is_empty() {
                     "Vec::new()".to_string()
@@ -785,7 +772,6 @@ impl CodeGen {
                             )
                         } else {
                             let val = self.gen_expr(fexpr);
-
                             let rhs_is_call = matches!(fexpr,
                                 ParseNode::AccessChain { steps, .. }
                                     if matches!(steps.last(), Some(AccessStep::Call(_)))
@@ -845,7 +831,6 @@ impl CodeGen {
                             self.resolve_field_type(base, steps, &fname),
                             Some(SemType::Struct(_))
                         );
-
                         let rhs_is_already_option_box = field_is_struct && {
                             if let ParseNode::AccessChain {
                                 base: _rhs_base,
@@ -912,7 +897,6 @@ impl CodeGen {
                 AccessStep::Index(e) => {
                     let idx = self.gen_expr(e);
                     out = format!("{}[{} as usize]", out, idx);
-
                     let next_is_field = prefix_steps
                         .get(i + 1)
                         .map_or(true, |s| matches!(s, AccessStep::Field(_)));
@@ -971,7 +955,6 @@ impl CodeGen {
         match node {
             ParseNode::AccessChain { base, steps } => {
                 let lv = self.emit_access_chain_mut(base, steps);
-
                 let is_field_end = steps
                     .last()
                     .map_or(false, |s| matches!(s, AccessStep::Field(_)));
@@ -1049,7 +1032,6 @@ impl CodeGen {
 
                 AccessStep::Index(idx_expr) => {
                     let idx = self.gen_expr(idx_expr);
-
                     let tmp = format!("__idx_{}", self.hoist_counter);
                     self.hoist_counter += 1;
                     self.hoist_buf
@@ -1227,7 +1209,6 @@ impl CodeGen {
             if entries.len() >= 2 {
                 let mut sorted = entries.clone();
                 sorted.sort_by_key(|(i, _)| *i);
-
                 let arr_escaped = escape_ident(arr_base);
 
                 if sorted.len() == 2 {
@@ -1235,43 +1216,25 @@ impl CodeGen {
                     let (i1, idx1) = &sorted[1];
                     let tmp0 = format!("__spl_{}_{}", arr_base, i0);
                     let tmp1 = format!("__spl_{}_{}", arr_base, i1);
-
                     let lo_tmp = format!("__split_lo_{}", arr_base);
                     let hi_tmp = format!("__split_hi_{}", arr_base);
                     let mid_tmp = format!("__split_mid_{}", arr_base);
 
                     self.line(&format!(
                         "let {mid} = if ({a} as usize) < ({b} as usize) {{ {a} as usize + 1 }} else {{ {b} as usize + 1 }};",
-                        mid = mid_tmp,
-                        a = idx0,
-                        b = idx1,
+                        mid = mid_tmp, a = idx0, b = idx1,
                     ));
                     self.line(&format!(
                         "let ({lo}, {hi}) = {arr}.split_at_mut({mid});",
-                        lo = lo_tmp,
-                        hi = hi_tmp,
-                        arr = arr_escaped,
-                        mid = mid_tmp,
+                        lo = lo_tmp, hi = hi_tmp, arr = arr_escaped, mid = mid_tmp,
                     ));
-
                     self.line(&format!(
                         "let {t0} = if ({a} as usize) < ({b} as usize) {{ &mut {lo}[{a} as usize] }} else {{ &mut {hi}[{a} as usize - {mid}] }};",
-                        t0 = tmp0,
-                        a = idx0,
-                        b = idx1,
-                        lo = lo_tmp,
-                        hi = hi_tmp,
-                        mid = mid_tmp,
+                        t0 = tmp0, a = idx0, b = idx1, lo = lo_tmp, hi = hi_tmp, mid = mid_tmp,
                     ));
-
                     self.line(&format!(
                         "let {t1} = if ({b} as usize) < ({a} as usize) {{ &mut {lo}[{b} as usize] }} else {{ &mut {hi}[{b} as usize - {mid}] }};",
-                        t1 = tmp1,
-                        a = idx0,
-                        b = idx1,
-                        lo = lo_tmp,
-                        hi = hi_tmp,
-                        mid = mid_tmp,
+                        t1 = tmp1, a = idx0, b = idx1, lo = lo_tmp, hi = hi_tmp, mid = mid_tmp,
                     ));
                     split_hoisted.insert(*i0, tmp0);
                     split_hoisted.insert(*i1, tmp1);
@@ -1280,9 +1243,7 @@ impl CodeGen {
                         let tmp = format!("__spl_{}_{}", arr_base, i);
                         self.line(&format!(
                             "let {tmp} = unsafe {{ &mut *({arr}.as_mut_ptr().add({idx} as usize)) }};",
-                            tmp = tmp,
-                            arr = arr_escaped,
-                            idx = idx,
+                            tmp = tmp, arr = arr_escaped, idx = idx,
                         ));
                         split_hoisted.insert(*i, tmp);
                     }
@@ -1329,7 +1290,6 @@ impl CodeGen {
         match node {
             ParseNode::AccessChain { base, steps } => {
                 let is_struct_result = self.access_chain_is_struct(base, steps);
-
                 let call_returns_struct =
                     if !is_struct_result && matches!(steps.last(), Some(AccessStep::Call(_))) {
                         let func_name = steps.iter().rev().skip(1).find_map(|s| {
@@ -1339,7 +1299,6 @@ impl CodeGen {
                                 None
                             }
                         });
-
                         func_name.map_or(false, |fname| {
                             let qualified = format!("{}::{}", base, fname);
                             matches!(
@@ -1367,7 +1326,6 @@ impl CodeGen {
                     let is_list_param = self.list_params.contains(base.as_str());
                     if is_array_or_list || is_array_param || is_list_param {
                         let esc = escape_ident(base);
-
                         if is_array_param || is_list_param {
                             return esc;
                         } else {
@@ -1501,25 +1459,17 @@ impl CodeGen {
     fn gen_expr(&mut self, node: &ParseNode) -> String {
         match node {
             ParseNode::IntLit(v) => format!("{}_i64", v),
-            ParseNode::FloatLit(v) => {
-                format!("{:?}_f64", v)
-            }
+            ParseNode::FloatLit(v) => format!("{:?}_f64", v),
             ParseNode::CharLit(c) => format!("'{}'", escape_char(*c)),
             ParseNode::StringLit(s) => {
                 let escaped: String = s.chars().map(|c| escape_char(c)).collect();
                 format!("\"{}\".to_string()", escaped)
             }
             ParseNode::BoolLit(b) => {
-                if *b {
-                    "true".into()
-                } else {
-                    "false".into()
-                }
+                if *b { "true".into() } else { "false".into() }
             }
             ParseNode::Null => "None".into(),
-
             ParseNode::AccessChain { base, steps } => self.emit_access_chain(base, steps),
-
             ParseNode::ArrayLit(elems) => {
                 if elems.is_empty() {
                     "Vec::new()".into()
@@ -1528,7 +1478,6 @@ impl CodeGen {
                     format!("[{}]", parts.join(", "))
                 }
             }
-
             ParseNode::StructLit(fields) => {
                 let parts: Vec<_> = fields
                     .iter()
@@ -1543,7 +1492,6 @@ impl CodeGen {
                     .collect();
                 format!("/* StructName */ {{ {} }}", parts.join(", "))
             }
-
             ParseNode::LogOr { left, right } => {
                 format!("({} || {})", self.gen_expr(left), self.gen_expr(right))
             }
@@ -1551,7 +1499,6 @@ impl CodeGen {
                 format!("({} && {})", self.gen_expr(left), self.gen_expr(right))
             }
             ParseNode::LogNot { operand } => format!("(!{})", self.gen_expr(operand)),
-
             ParseNode::Cmp { left, op, right } => {
                 let op_s = match op {
                     CmpOp::Gt => ">",
@@ -1561,14 +1508,8 @@ impl CodeGen {
                     CmpOp::EqEq => "==",
                     CmpOp::Ne => "!=",
                 };
-                format!(
-                    "({} {} {})",
-                    self.gen_expr(left),
-                    op_s,
-                    self.gen_expr(right)
-                )
+                format!("({} {} {})", self.gen_expr(left), op_s, self.gen_expr(right))
             }
-
             ParseNode::BitOr { left, right } => {
                 format!("({} | {})", self.gen_expr(left), self.gen_expr(right))
             }
@@ -1583,25 +1524,14 @@ impl CodeGen {
                     ShiftOp::Left => "<<",
                     ShiftOp::Right => ">>",
                 };
-                format!(
-                    "({} {} {})",
-                    self.gen_expr(left),
-                    op_s,
-                    self.gen_expr(right)
-                )
+                format!("({} {} {})", self.gen_expr(left), op_s, self.gen_expr(right))
             }
-
             ParseNode::Add { left, op, right } => {
                 let op_s = match op {
                     AddOp::Add => "+",
                     AddOp::Sub => "-",
                 };
-                format!(
-                    "({} {} {})",
-                    self.gen_expr(left),
-                    op_s,
-                    self.gen_expr(right)
-                )
+                format!("({} {} {})", self.gen_expr(left), op_s, self.gen_expr(right))
             }
             ParseNode::Mul { left, op, right } => {
                 let op_s = match op {
@@ -1609,14 +1539,8 @@ impl CodeGen {
                     MulOp::Div => "/",
                     MulOp::Mod => "%",
                 };
-                format!(
-                    "({} {} {})",
-                    self.gen_expr(left),
-                    op_s,
-                    self.gen_expr(right)
-                )
+                format!("({} {} {})", self.gen_expr(left), op_s, self.gen_expr(right))
             }
-
             ParseNode::Unary { op, operand } => {
                 let op_s = match op {
                     UnOp::Neg => "-",
@@ -1624,14 +1548,12 @@ impl CodeGen {
                 };
                 format!("({}{})", op_s, self.gen_expr(operand))
             }
-
             ParseNode::Cast { target_type, expr } => {
                 let e = self.gen_expr(expr);
                 match target_type.as_ref() {
                     ParseNode::TypeChar => {
                         format!("(char::from_u32({} as u32).unwrap())", e)
                     }
-
                     ParseNode::TypeBoolean => match expr.as_ref() {
                         ParseNode::FloatLit(_) => format!("({} != 0.0_f64)", e),
                         ParseNode::Cast {
@@ -1642,10 +1564,8 @@ impl CodeGen {
                         }
                         _ => format!("({} != 0_i64)", e),
                     },
-
                     ParseNode::TypeFloat => match expr.as_ref() {
                         ParseNode::BoolLit(_) => format!("(({} as i64) as f64)", e),
-
                         ParseNode::AccessChain { base: n, steps }
                             if steps.is_empty()
                                 && (matches!(
@@ -1665,7 +1585,6 @@ impl CodeGen {
                         }
                         _ => format!("({} as f64)", e),
                     },
-
                     ParseNode::TypeInt => format!("({} as i64)", e),
                     _ => {
                         let ty = self.type_str(target_type);
@@ -1673,7 +1592,6 @@ impl CodeGen {
                     }
                 }
             }
-
             _ => "/* unsupported expr */".into(),
         }
     }
@@ -1742,7 +1660,6 @@ impl CodeGen {
                             AccessStep::Call(args) => {
                                 let av: Vec<_> =
                                     args.iter().map(|a| self.gen_call_arg(a)).collect();
-
                                 if let Some(s) = self.try_builtin(qualified_name, args) {
                                     return format!("{}::{}", base, s);
                                 }
@@ -1808,17 +1725,13 @@ impl CodeGen {
 
                     out = match (&field_t, is_last) {
                         (Some(SemType::Struct(_)), true) => format!("{}.{}.clone()", out, fname),
-
                         (Some(SemType::Struct(_)), false) => {
                             format!("{}.{}.as_ref().unwrap()", out, fname)
                         }
-
                         (Some(SemType::List { .. }) | Some(SemType::Array { .. }), true) => {
                             format!("{}.{}.as_ref().unwrap()", out, fname)
                         }
-
                         (_, true) => format!("{}.{}.unwrap()", out, fname),
-
                         (_, false) => format!("{}.{}.as_ref().unwrap()", out, fname),
                     };
                     cur_type = field_t;
@@ -1879,12 +1792,10 @@ impl CodeGen {
 
     fn try_builtin(&mut self, name: &str, args: &[ParseNode]) -> Option<String> {
         let n = args.len();
-
         let a: Vec<String> = args.iter().map(|x| self.gen_expr(x)).collect();
 
         match (name, n) {
             ("print", 0) => Some("{ print!(); io::stdout().flush().unwrap(); }".into()),
-
             ("print", 1) => {
                 if let ParseNode::StringLit(s) = &args[0] {
                     let escaped: String = s.chars().map(|c| escape_char(c)).collect();
@@ -1898,7 +1809,6 @@ impl CodeGen {
                     ))
                 }
             }
-
             ("print", _) => {
                 let fmt_lit = if let ParseNode::StringLit(s) = &args[0] {
                     let escaped: String = s.chars().map(|c| escape_char(c)).collect();
@@ -1912,7 +1822,6 @@ impl CodeGen {
                     fmt_lit, rest
                 ))
             }
-
             ("input", _) => {
                 let vars = &args[1..];
                 if vars.is_empty() {
@@ -1922,13 +1831,11 @@ impl CodeGen {
                             .into(),
                     );
                 }
-
                 let mut stmts = String::from(
                     "{ let mut __ln = String::new(); \
                      io::stdin().lock().read_line(&mut __ln).unwrap(); \
                      let mut __toks = __ln.trim().split_whitespace(); ",
                 );
-
                 for var_node in vars {
                     let (var_name, var_type) =
                         if let ParseNode::AccessChain { base, steps } = var_node {
@@ -1942,7 +1849,6 @@ impl CodeGen {
                                 (escape_ident(base), ty)
                             } else {
                                 let lv = self.emit_access_chain_mut(base, steps);
-
                                 (lv, SemType::Int)
                             }
                         } else {
@@ -1964,17 +1870,14 @@ impl CodeGen {
                         }
                         _ => "__toks.next().unwrap_or(\"\").parse::<i64>().unwrap_or(0_i64)",
                     };
-
                     stmts.push_str(&format!("{} = {}; ", var_name, parse_expr));
                 }
                 stmts.push('}');
                 Some(stmts)
             }
-
             ("append", 2) => {
                 let container = self.gen_list_container(&args[0]);
                 let val = self.gen_expr(&args[1]);
-
                 Some(format!("{}.push({}.clone())", container, val))
             }
             ("pop", 1) => {
@@ -2002,7 +1905,6 @@ impl CodeGen {
                 a[0], a[1]
             )),
             ("len", 1) => Some(format!("({}.len() as i64)", a[0])),
-
             ("pow", 2) => Some(format!("({} as f64).powf({} as f64)", a[0], a[1])),
             ("abs", 1) => Some(format!("{}.abs()", a[0])),
             ("sqrt", 1) => Some(format!("({} as f64).sqrt()", a[0])),
@@ -2010,15 +1912,12 @@ impl CodeGen {
             ("ceil", 1) => Some(format!("({} as f64).ceil() as i64", a[0])),
             ("min", 2) => Some(format!("{}.min({})", a[0], a[1])),
             ("max", 2) => Some(format!("{}.max({})", a[0], a[1])),
-
             ("to_int", 1) => Some(format!("({} as i64)", a[0])),
             ("to_float", 1) => Some(format!("({} as f64)", a[0])),
-
             ("to_str", 1) => Some(format!(
                 "{}.to_string().chars().collect::<Vec<char>>()",
                 a[0]
             )),
-
             _ => None,
         }
     }
@@ -2027,16 +1926,17 @@ impl CodeGen {
 
     fn emit_snapshot(&mut self, stmt: &ParseNode) {
         let label = stmt_debug_label(stmt);
+        let source_line = stmt_source_line(stmt);
         let step = self.debug_step;
         self.debug_step += 1;
         let func = self.debug_current_func.clone();
         let vars_code = self.build_vars_json_code();
-        // Emit: __fractal_debug_snapshot!(step, "label", "func", [vars...], false, None::<&str>);
         let line = format!(
-            "__fractal_debug_snapshot!({s}, \"{lb}\", \"{fc}\", [{vrs}], false, None::<&str>);",
+            "__fractal_debug_snapshot!({s}, \"{lb}\", \"{fc}\", {ln}, [{vrs}], false, None::<&str>);",
             s = step,
             lb = label.replace('"', "'"),
             fc = func,
+            ln = source_line,
             vrs = vars_code,
         );
         self.line(&line);
@@ -2046,19 +1946,12 @@ impl CodeGen {
         self.debug_visible_vars
             .iter()
             .map(|(ident, type_label)| {
-                let mut s = String::new();
-                s.push_str("__fractal_debug_var(");
-                s.push('"');
-                s.push_str(ident);
-                s.push('"');
-                s.push_str(", ");
-                s.push('"');
-                s.push_str(type_label);
-                s.push('"');
-                s.push_str(", &{ let __v = &");
-                s.push_str(ident);
-                s.push_str("; format!(\"{:?}\", __v) })");
-                s
+                format!(
+                    "__fractal_debug_var(\"{name}\", \"{tl}\", &{{ let __v = &{ident}; format!(\"{{:?}}\", __v) }})",
+                    name = ident,
+                    tl = type_label,
+                    ident = ident,
+                )
             })
             .collect::<Vec<_>>()
             .join(", ")
@@ -2071,10 +1964,15 @@ impl CodeGen {
         self.line("use std::fs::{OpenOptions, File as __DbgFile};");
         self.line("use std::io::{BufWriter as __DbgBufWriter, Write as __DbgWrite};");
         self.blank();
+
         self.line("static __FRACTAL_DBG_INIT: Once = Once::new();");
         self.line("#[allow(clippy::type_complexity)]");
         self.line("static __FRACTAL_DBG_FILE: Mutex<Option<__DbgBufWriter<__DbgFile>>> = Mutex::new(None);");
+        // OnceLock is used here because HashMap::new() is not const and cannot
+        // appear in a static initializer directly.
+        self.line("static __FRACTAL_DBG_PREV: std::sync::OnceLock<Mutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();");
         self.blank();
+
         self.line("fn __fractal_debug_init() {");
         self.indent();
         self.line("__FRACTAL_DBG_INIT.call_once(|| {");
@@ -2091,7 +1989,7 @@ impl CodeGen {
         self.line("}");
         self.blank();
 
-        // JSON escape helper
+        // JSON escape helper (unchanged)
         self.line("fn __fractal_debug_json_escape(s: &str) -> String {");
         self.indent();
         self.line("let mut o = String::new();");
@@ -2114,22 +2012,33 @@ impl CodeGen {
         self.line("}");
         self.blank();
 
-        // Var entry builder — called at runtime with actual values
+        // ── UPDATED: __fractal_debug_var now computes `changed` at runtime ──
         self.line("fn __fractal_debug_var(name: &str, type_label: &str, value: &str) -> String {");
         self.indent();
+        self.line("let changed = {");
+        self.indent();
+        // OnceLock::get_or_init lazily creates the HashMap the first time this is called.
+        self.line("let mutex = __FRACTAL_DBG_PREV.get_or_init(|| Mutex::new(std::collections::HashMap::new()));");
+        self.line("let mut prev_map = mutex.lock().unwrap();");
+        self.line("let prev = prev_map.get(name).cloned().unwrap_or_default();");
+        self.line("let did_change = value != prev.as_str();");
+        self.line("prev_map.insert(name.to_string(), value.to_string());");
+        self.line("did_change");
+        self.dedent();
+        self.line("};");
         self.line(r#"let mut s = String::from("{");"#);
         self.line(r#"s.push_str("\"name\":\""); s.push_str(&__fractal_debug_json_escape(name)); s.push_str("\",");"#);
         self.line(r#"s.push_str("\"type\":\""); s.push_str(&__fractal_debug_json_escape(type_label)); s.push_str("\",");"#);
         self.line(r#"s.push_str("\"value\":\""); s.push_str(&__fractal_debug_json_escape(value)); s.push_str("\",");"#);
-        self.line(r#"s.push_str("\"changed\":false}");"#);
+        self.line(r#"s.push_str("\"changed\":"); s.push_str(if changed { "true" } else { "false" }); s.push('}');"#);
         self.line("s");
         self.dedent();
         self.line("}");
         self.blank();
 
-        // The snapshot macro — all the heavy lifting is in the helper fns above
+        // ── UPDATED macro: accepts $line:expr, writes real line number ──────
         self.raw("macro_rules! __fractal_debug_snapshot {\n");
-        self.raw("    ($step:expr, $label:expr, $func:expr, [$($var_str:expr),* $(,)?], $finished:expr, $error:expr) => {{\n");
+        self.raw("    ($step:expr, $label:expr, $func:expr, $line:expr, [$($var_str:expr),* $(,)?], $finished:expr, $error:expr) => {{\n");
         self.raw("        let mut __dbg_g = __FRACTAL_DBG_FILE.lock().unwrap();\n");
         self.raw("        if let Some(ref mut __dbg_w) = *__dbg_g {\n");
         self.raw("            let __dbg_vars: Vec<String> = vec![$($var_str),*];\n");
@@ -2150,13 +2059,14 @@ impl CodeGen {
         self.raw("                __ln.push_str(&$step.to_string());\n");
         self.raw("                __ln.push_str(\",\\\"label\\\":\\\"\");\n");
         self.raw("                __ln.push_str(&__fractal_debug_json_escape($label));\n");
-        self.raw("                __ln.push_str(\"\\\",\\\"line\\\":0,\\\"stack\\\":[\\\"\");\n");
+        // ── Write the real source line number ────────────────────────────────
+        self.raw("                __ln.push_str(\"\\\",\\\"line\\\":\");\n");
+        self.raw("                __ln.push_str(&($line as usize).to_string());\n");
+        self.raw("                __ln.push_str(\",\\\"stack\\\":[\\\"\");\n");
         self.raw("                __ln.push_str(&__fractal_debug_json_escape($func));\n");
         self.raw("                __ln.push_str(\"\\\"],\\\"scopes\\\":[\");\n");
         self.raw("                __ln.push_str(&__dbg_scope);\n");
-        self.raw(
-            "                __ln.push_str(\"],\\\"output\\\":\\\"\\\",\\\"finished\\\":\");\n",
-        );
+        self.raw("                __ln.push_str(\"],\\\"output\\\":\\\"\\\",\\\"finished\\\":\");\n");
         self.raw("                __ln.push_str(if $finished { \"true\" } else { \"false\" });\n");
         self.raw("                __ln.push_str(\",\\\"error\\\":\");\n");
         self.raw("                __ln.push_str(&__dbg_err);\n");
@@ -2170,6 +2080,8 @@ impl CodeGen {
         self.raw("}\n");
     }
 }
+
+// ─── Standalone helpers ───────────────────────────────────────────────────────
 
 fn escape_ident(name: &str) -> String {
     const RUST_KEYWORDS: &[&str] = &[
@@ -2188,36 +2100,9 @@ fn escape_ident(name: &str) -> String {
 
 fn escape_struct_name(name: &str) -> String {
     const RUST_BUILTIN_TYPES: &[&str] = &[
-        "Box",
-        "Vec",
-        "Option",
-        "Result",
-        "String",
-        "Ok",
-        "Err",
-        "Some",
-        "None",
-        "Drop",
-        "Copy",
-        "Clone",
-        "Send",
-        "Sync",
-        "Sized",
-        "Fn",
-        "FnMut",
-        "FnOnce",
-        "Iterator",
-        "Default",
-        "From",
-        "Into",
-        "ToString",
-        "AsRef",
-        "AsMut",
-        "PartialEq",
-        "Eq",
-        "PartialOrd",
-        "Ord",
-        "Hash",
+        "Box", "Vec", "Option", "Result", "String", "Ok", "Err", "Some", "None", "Drop", "Copy",
+        "Clone", "Send", "Sync", "Sized", "Fn", "FnMut", "FnOnce", "Iterator", "Default", "From",
+        "Into", "ToString", "AsRef", "AsMut", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash",
     ];
     if RUST_BUILTIN_TYPES.contains(&name) {
         format!("Fr{}", name)
@@ -2238,10 +2123,20 @@ fn escape_char(c: char) -> String {
     }
 }
 
+/// Returns a short human-readable label for a statement node — must match
+/// the labels produced by `node_label` in `debugger.rs` so the tree-view
+/// can highlight the correct node.
 fn stmt_debug_label(node: &ParseNode) -> String {
     match node {
-        ParseNode::Decl { name, .. } => format!("Decl {}", name),
-        ParseNode::StructDecl { var_name, .. } => format!("StructDecl {}", var_name),
+        ParseNode::Decl { name, data_type, init } => format!(
+            "Decl {} : {}{}",
+            name,
+            parse_node_type_label(data_type),
+            if init.is_some() { " =" } else { "" }
+        ),
+        ParseNode::StructDecl { var_name, struct_name, .. } => {
+            format!("StructDecl {} : {}", var_name, struct_name)
+        }
         ParseNode::Assign { op, .. } => format!("Assign {:?}", op),
         ParseNode::If { .. } => "If".into(),
         ParseNode::For { var_name, .. } => format!("For {}", var_name),
@@ -2250,6 +2145,21 @@ fn stmt_debug_label(node: &ParseNode) -> String {
         ParseNode::Exit(_) => "Exit".into(),
         ParseNode::ExprStmt(_) => "ExprStmt".into(),
         _ => "stmt".into(),
+    }
+}
+
+/// Extract the source line number from a statement ParseNode.
+/// Returns 0 if the node type doesn't carry line info yet.
+///
+/// To enable full line highlighting, add a `line: usize` field to your
+/// statement ParseNode variants in the parser and populate it during
+/// tokenisation. Then extend the match arms below to read `*line`.
+fn stmt_source_line(node: &ParseNode) -> usize {
+    // If your ParseNode variants carry line numbers, read them here, e.g.:
+    //   ParseNode::Decl { line, .. } => *line,
+    // Until then we return 0, which means "no highlight" in the editor.
+    match node {
+        _ => 0,
     }
 }
 

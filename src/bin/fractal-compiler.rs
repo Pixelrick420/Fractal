@@ -9,7 +9,7 @@ use fractal::compiler::semanter::analyze;
 use fractal::compiler::{lexer, parser, preprocessor};
 
 const DEBUG: bool = false;
-const DELETE: bool = true;
+const DELETE: bool = false;
 
 fn print_error(msg: &str) {
     eprintln!("\x1b[1;31mError:\x1b[0m {}", msg);

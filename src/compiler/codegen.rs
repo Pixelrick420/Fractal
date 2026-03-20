@@ -10,8 +10,6 @@ pub fn generate(root: &ParseNode, sem: &SemanticResult) -> String {
     cg.buf
 }
 
-/// Generate Rust source with debug snapshot injections.
-/// `debug_out_path` is the `.jsonl` file the compiled binary will write to at runtime.
 pub fn generate_debug(root: &ParseNode, sem: &SemanticResult, debug_out_path: &str) -> String {
     let mut cg = CodeGen::new(sem);
     cg.debug_mode = true;
@@ -42,11 +40,10 @@ struct CodeGen {
     hoist_counter: usize,
     local_var_types: HashMap<String, SemType>,
 
-    // ── Debug-mode fields ──────────────────────────────────────────────────
     debug_mode: bool,
     debug_path: String,
     debug_step: usize,
-    /// (escaped_ident, type_label) pairs visible at the current codegen point
+
     debug_visible_vars: Vec<(String, String)>,
     debug_current_func: String,
 }
@@ -1128,21 +1125,125 @@ impl CodeGen {
         let s_s = self.gen_expr(start);
         let st_s = self.gen_expr(stop);
         let sp_s = self.gen_expr(step);
-
         let vn = escape_ident(var_name);
+
         self.line("{");
         self.indent();
         self.line(&format!("let mut {}: {} = {};", vn, ty, s_s));
         self.line(&format!("while {} < {} {{", vn, st_s));
         self.indent();
         for stmt in body {
-            self.gen_stmt(stmt);
+            self.gen_stmt_for_body(stmt, &vn, &sp_s);
         }
         self.line(&format!("{} += {};", vn, sp_s));
         self.dedent();
         self.line("}");
         self.dedent();
         self.line("}");
+    }
+
+    fn gen_stmt_for_body(&mut self, node: &ParseNode, var_name: &str, step_expr: &str) {
+        match node {
+            ParseNode::Continue => {
+                self.line(&format!("{} += {};", var_name, step_expr));
+                self.line("continue;");
+            }
+            ParseNode::Break => {
+                self.line("break;");
+            }
+            ParseNode::If {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                self.gen_if_for_body(
+                    condition,
+                    then_block,
+                    else_block.as_deref(),
+                    var_name,
+                    step_expr,
+                );
+            }
+            ParseNode::For {
+                var_type,
+                var_name: inner_vn,
+                start,
+                stop,
+                step,
+                body,
+            } => {
+                self.gen_for(var_type, inner_vn, start, stop, step, body);
+            }
+            ParseNode::While { condition, body } => {
+                let c = self.gen_expr(condition);
+                self.line(&format!("while {} {{", c));
+                self.indent();
+                for s in body {
+                    self.gen_stmt(s);
+                }
+                self.dedent();
+                self.line("}");
+            }
+            other => {
+                self.gen_stmt(other);
+            }
+        }
+    }
+
+    fn gen_if_for_body(
+        &mut self,
+        cond: &ParseNode,
+        then_blk: &[ParseNode],
+        else_blk: Option<&[ParseNode]>,
+        var_name: &str,
+        step_expr: &str,
+    ) {
+        let c = self.gen_expr(cond);
+        self.line(&format!("if {} {{", c));
+        self.indent();
+        for s in then_blk {
+            self.gen_stmt_for_body(s, var_name, step_expr);
+        }
+        self.dedent();
+        self.close_if_chain_for_body(else_blk, var_name, step_expr);
+    }
+
+    fn close_if_chain_for_body(
+        &mut self,
+        else_blk: Option<&[ParseNode]>,
+        var_name: &str,
+        step_expr: &str,
+    ) {
+        match else_blk {
+            None => self.line("}"),
+            Some(eb) => {
+                if let [ParseNode::If {
+                    condition: ec,
+                    then_block: et,
+                    else_block: ee,
+                }] = eb
+                {
+                    let ec_s = self.gen_expr(ec);
+                    let pad = "    ".repeat(self.indent);
+                    self.raw(&format!("{}}} else if {} {{\n", pad, ec_s));
+                    self.indent();
+                    for s in et {
+                        self.gen_stmt_for_body(s, var_name, step_expr);
+                    }
+                    self.dedent();
+                    self.close_if_chain_for_body(ee.as_deref(), var_name, step_expr);
+                } else {
+                    let pad = "    ".repeat(self.indent);
+                    self.raw(&format!("{}}} else {{\n", pad));
+                    self.indent();
+                    for s in eb {
+                        self.gen_stmt_for_body(s, var_name, step_expr);
+                    }
+                    self.dedent();
+                    self.line("}");
+                }
+            }
+        }
     }
 
     fn gen_call_stmt(&mut self, node: &ParseNode) {
@@ -1226,7 +1327,10 @@ impl CodeGen {
                     ));
                     self.line(&format!(
                         "let ({lo}, {hi}) = {arr}.split_at_mut({mid});",
-                        lo = lo_tmp, hi = hi_tmp, arr = arr_escaped, mid = mid_tmp,
+                        lo = lo_tmp,
+                        hi = hi_tmp,
+                        arr = arr_escaped,
+                        mid = mid_tmp,
                     ));
                     self.line(&format!(
                         "let {t0} = if ({a} as usize) < ({b} as usize) {{ &mut {lo}[{a} as usize] }} else {{ &mut {hi}[{a} as usize - {mid}] }};",
@@ -1466,7 +1570,11 @@ impl CodeGen {
                 format!("\"{}\".to_string()", escaped)
             }
             ParseNode::BoolLit(b) => {
-                if *b { "true".into() } else { "false".into() }
+                if *b {
+                    "true".into()
+                } else {
+                    "false".into()
+                }
             }
             ParseNode::Null => "None".into(),
             ParseNode::AccessChain { base, steps } => self.emit_access_chain(base, steps),
@@ -1508,7 +1616,12 @@ impl CodeGen {
                     CmpOp::EqEq => "==",
                     CmpOp::Ne => "!=",
                 };
-                format!("({} {} {})", self.gen_expr(left), op_s, self.gen_expr(right))
+                format!(
+                    "({} {} {})",
+                    self.gen_expr(left),
+                    op_s,
+                    self.gen_expr(right)
+                )
             }
             ParseNode::BitOr { left, right } => {
                 format!("({} | {})", self.gen_expr(left), self.gen_expr(right))
@@ -1524,14 +1637,24 @@ impl CodeGen {
                     ShiftOp::Left => "<<",
                     ShiftOp::Right => ">>",
                 };
-                format!("({} {} {})", self.gen_expr(left), op_s, self.gen_expr(right))
+                format!(
+                    "({} {} {})",
+                    self.gen_expr(left),
+                    op_s,
+                    self.gen_expr(right)
+                )
             }
             ParseNode::Add { left, op, right } => {
                 let op_s = match op {
                     AddOp::Add => "+",
                     AddOp::Sub => "-",
                 };
-                format!("({} {} {})", self.gen_expr(left), op_s, self.gen_expr(right))
+                format!(
+                    "({} {} {})",
+                    self.gen_expr(left),
+                    op_s,
+                    self.gen_expr(right)
+                )
             }
             ParseNode::Mul { left, op, right } => {
                 let op_s = match op {
@@ -1539,7 +1662,12 @@ impl CodeGen {
                     MulOp::Div => "/",
                     MulOp::Mod => "%",
                 };
-                format!("({} {} {})", self.gen_expr(left), op_s, self.gen_expr(right))
+                format!(
+                    "({} {} {})",
+                    self.gen_expr(left),
+                    op_s,
+                    self.gen_expr(right)
+                )
             }
             ParseNode::Unary { op, operand } => {
                 let op_s = match op {
@@ -1922,8 +2050,6 @@ impl CodeGen {
         }
     }
 
-    // ── Debug-mode helpers ─────────────────────────────────────────────────
-
     fn emit_snapshot(&mut self, stmt: &ParseNode) {
         let label = stmt_debug_label(stmt);
         let source_line = stmt_source_line(stmt);
@@ -1968,8 +2094,7 @@ impl CodeGen {
         self.line("static __FRACTAL_DBG_INIT: Once = Once::new();");
         self.line("#[allow(clippy::type_complexity)]");
         self.line("static __FRACTAL_DBG_FILE: Mutex<Option<__DbgBufWriter<__DbgFile>>> = Mutex::new(None);");
-        // OnceLock is used here because HashMap::new() is not const and cannot
-        // appear in a static initializer directly.
+
         self.line("static __FRACTAL_DBG_PREV: std::sync::OnceLock<Mutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();");
         self.blank();
 
@@ -1989,7 +2114,6 @@ impl CodeGen {
         self.line("}");
         self.blank();
 
-        // JSON escape helper (unchanged)
         self.line("fn __fractal_debug_json_escape(s: &str) -> String {");
         self.indent();
         self.line("let mut o = String::new();");
@@ -2012,12 +2136,11 @@ impl CodeGen {
         self.line("}");
         self.blank();
 
-        // ── UPDATED: __fractal_debug_var now computes `changed` at runtime ──
         self.line("fn __fractal_debug_var(name: &str, type_label: &str, value: &str) -> String {");
         self.indent();
         self.line("let changed = {");
         self.indent();
-        // OnceLock::get_or_init lazily creates the HashMap the first time this is called.
+
         self.line("let mutex = __FRACTAL_DBG_PREV.get_or_init(|| Mutex::new(std::collections::HashMap::new()));");
         self.line("let mut prev_map = mutex.lock().unwrap();");
         self.line("let prev = prev_map.get(name).cloned().unwrap_or_default();");
@@ -2036,7 +2159,6 @@ impl CodeGen {
         self.line("}");
         self.blank();
 
-        // ── UPDATED macro: accepts $line:expr, writes real line number ──────
         self.raw("macro_rules! __fractal_debug_snapshot {\n");
         self.raw("    ($step:expr, $label:expr, $func:expr, $line:expr, [$($var_str:expr),* $(,)?], $finished:expr, $error:expr) => {{\n");
         self.raw("        let mut __dbg_g = __FRACTAL_DBG_FILE.lock().unwrap();\n");
@@ -2059,14 +2181,16 @@ impl CodeGen {
         self.raw("                __ln.push_str(&$step.to_string());\n");
         self.raw("                __ln.push_str(\",\\\"label\\\":\\\"\");\n");
         self.raw("                __ln.push_str(&__fractal_debug_json_escape($label));\n");
-        // ── Write the real source line number ────────────────────────────────
+
         self.raw("                __ln.push_str(\"\\\",\\\"line\\\":\");\n");
         self.raw("                __ln.push_str(&($line as usize).to_string());\n");
         self.raw("                __ln.push_str(\",\\\"stack\\\":[\\\"\");\n");
         self.raw("                __ln.push_str(&__fractal_debug_json_escape($func));\n");
         self.raw("                __ln.push_str(\"\\\"],\\\"scopes\\\":[\");\n");
         self.raw("                __ln.push_str(&__dbg_scope);\n");
-        self.raw("                __ln.push_str(\"],\\\"output\\\":\\\"\\\",\\\"finished\\\":\");\n");
+        self.raw(
+            "                __ln.push_str(\"],\\\"output\\\":\\\"\\\",\\\"finished\\\":\");\n",
+        );
         self.raw("                __ln.push_str(if $finished { \"true\" } else { \"false\" });\n");
         self.raw("                __ln.push_str(\",\\\"error\\\":\");\n");
         self.raw("                __ln.push_str(&__dbg_err);\n");
@@ -2080,8 +2204,6 @@ impl CodeGen {
         self.raw("}\n");
     }
 }
-
-// ─── Standalone helpers ───────────────────────────────────────────────────────
 
 fn escape_ident(name: &str) -> String {
     const RUST_KEYWORDS: &[&str] = &[
@@ -2100,9 +2222,36 @@ fn escape_ident(name: &str) -> String {
 
 fn escape_struct_name(name: &str) -> String {
     const RUST_BUILTIN_TYPES: &[&str] = &[
-        "Box", "Vec", "Option", "Result", "String", "Ok", "Err", "Some", "None", "Drop", "Copy",
-        "Clone", "Send", "Sync", "Sized", "Fn", "FnMut", "FnOnce", "Iterator", "Default", "From",
-        "Into", "ToString", "AsRef", "AsMut", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash",
+        "Box",
+        "Vec",
+        "Option",
+        "Result",
+        "String",
+        "Ok",
+        "Err",
+        "Some",
+        "None",
+        "Drop",
+        "Copy",
+        "Clone",
+        "Send",
+        "Sync",
+        "Sized",
+        "Fn",
+        "FnMut",
+        "FnOnce",
+        "Iterator",
+        "Default",
+        "From",
+        "Into",
+        "ToString",
+        "AsRef",
+        "AsMut",
+        "PartialEq",
+        "Eq",
+        "PartialOrd",
+        "Ord",
+        "Hash",
     ];
     if RUST_BUILTIN_TYPES.contains(&name) {
         format!("Fr{}", name)
@@ -2123,18 +2272,23 @@ fn escape_char(c: char) -> String {
     }
 }
 
-/// Returns a short human-readable label for a statement node — must match
-/// the labels produced by `node_label` in `debugger.rs` so the tree-view
-/// can highlight the correct node.
 fn stmt_debug_label(node: &ParseNode) -> String {
     match node {
-        ParseNode::Decl { name, data_type, init } => format!(
+        ParseNode::Decl {
+            name,
+            data_type,
+            init,
+        } => format!(
             "Decl {} : {}{}",
             name,
             parse_node_type_label(data_type),
             if init.is_some() { " =" } else { "" }
         ),
-        ParseNode::StructDecl { var_name, struct_name, .. } => {
+        ParseNode::StructDecl {
+            var_name,
+            struct_name,
+            ..
+        } => {
             format!("StructDecl {} : {}", var_name, struct_name)
         }
         ParseNode::Assign { op, .. } => format!("Assign {:?}", op),
@@ -2148,16 +2302,7 @@ fn stmt_debug_label(node: &ParseNode) -> String {
     }
 }
 
-/// Extract the source line number from a statement ParseNode.
-/// Returns 0 if the node type doesn't carry line info yet.
-///
-/// To enable full line highlighting, add a `line: usize` field to your
-/// statement ParseNode variants in the parser and populate it during
-/// tokenisation. Then extend the match arms below to read `*line`.
 fn stmt_source_line(node: &ParseNode) -> usize {
-    // If your ParseNode variants carry line numbers, read them here, e.g.:
-    //   ParseNode::Decl { line, .. } => *line,
-    // Until then we return 0, which means "no highlight" in the editor.
     match node {
         _ => 0,
     }

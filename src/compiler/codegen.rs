@@ -171,20 +171,80 @@ impl CodeGen {
             ParseNode::TypeFloat => "0.0_f64".into(),
             ParseNode::TypeChar => "'\\0'".into(),
             ParseNode::TypeBoolean => "false".into(),
-            ParseNode::TypeArray { elem, size } => match elem.as_ref() {
-                ParseNode::TypeStruct { name } => {
-                    format!(
-                        "std::array::from_fn(|_| Some(Box::new({}::default())))",
-                        escape_struct_name(name)
-                    )
-                }
-                _ => format!("[{}; {}]", self.zero_val(elem), size),
-            },
-            ParseNode::TypeList { .. } => "Vec::new()".into(),
-            ParseNode::TypeStruct { name } => {
-                format!("Some(Box::new({}::default()))", escape_struct_name(name))
+            ParseNode::TypeVoid => "()".into(),
+
+            ParseNode::TypeArray { elem, size } => {
+                let elem_zero = self.zero_val_array_elem(elem);
+                let elems: Vec<String> = (0..*size).map(|_| elem_zero.clone()).collect();
+                format!("[{}]", elems.join(", "))
             }
-            _ => "Default::default()".into(),
+
+            ParseNode::TypeList { .. } => "Vec::new()".into(),
+
+            ParseNode::TypeStruct { name } => self.zero_val_struct(name),
+
+            _ => "0_i64".into(),
+        }
+    }
+
+    fn zero_val_array_elem(&self, node: &ParseNode) -> String {
+        match node {
+            ParseNode::TypeStruct { name } => self.zero_val_struct(name),
+            _ => self.zero_val(node),
+        }
+    }
+
+    fn zero_val_struct(&self, name: &str) -> String {
+        let sname = escape_struct_name(name);
+        match self.struct_fields.get(name) {
+            None => format!("Some(Box::new({}::default()))", sname),
+            Some(fields) => {
+                let field_inits: Vec<String> = fields
+                    .iter()
+                    .map(|(fname, ftype)| {
+                        let val = self.zero_val_for_sem(ftype);
+                        format!("{}: {}", fname, val)
+                    })
+                    .collect();
+                format!("Some(Box::new({} {{ {} }}))", sname, field_inits.join(", "))
+            }
+        }
+    }
+
+    fn zero_val_for_sem(&self, sem: &SemType) -> String {
+        match sem {
+            SemType::Int => "Some(0_i64)".into(),
+            SemType::Float => "Some(0.0_f64)".into(),
+            SemType::Char => "Some('\\0')".into(),
+            SemType::Boolean => "Some(false)".into(),
+
+            SemType::Array { elem, size } => {
+                let elem_zero = self.zero_val_for_sem_inner(elem);
+                let elems: Vec<String> = (0..*size).map(|_| elem_zero.clone()).collect();
+                format!("Some([{}])", elems.join(", "))
+            }
+
+            SemType::List { .. } => "Some(Vec::new())".into(),
+
+            SemType::Struct(sname) => self.zero_val_struct(sname),
+
+            _ => "Some(0_i64)".into(),
+        }
+    }
+
+    fn zero_val_for_sem_inner(&self, sem: &SemType) -> String {
+        match sem {
+            SemType::Int => "0_i64".into(),
+            SemType::Float => "0.0_f64".into(),
+            SemType::Char => "'\\0'".into(),
+            SemType::Boolean => "false".into(),
+            SemType::Struct(sname) => self.zero_val_struct(sname),
+            SemType::Array { elem, size } => {
+                let inner = self.zero_val_for_sem_inner(elem);
+                let elems: Vec<String> = (0..*size).map(|_| inner.clone()).collect();
+                format!("[{}]", elems.join(", "))
+            }
+            _ => "0_i64".into(),
         }
     }
 
@@ -546,7 +606,9 @@ impl CodeGen {
                 self.dedent();
                 self.line("}");
 
-                if matches!(condition.as_ref(), ParseNode::BoolLit(true)) {
+                if matches!(condition.as_ref(), ParseNode::BoolLit(true))
+                    && !block_contains_break(body)
+                {
                     self.line("unreachable!();");
                 }
             }
@@ -707,10 +769,7 @@ impl CodeGen {
         );
 
         let rhs = match init {
-            None => format!(
-                "Some(Box::new({}::default()))",
-                escape_struct_name(struct_name)
-            ),
+            None => self.zero_val_struct(struct_name),
             Some(ParseNode::Null) => "None".to_string(),
             Some(ParseNode::StructLit(fields)) => {
                 let sn = struct_name.to_string();
@@ -2202,6 +2261,28 @@ impl CodeGen {
         self.raw("        }\n");
         self.raw("    }};\n");
         self.raw("}\n");
+    }
+}
+
+fn block_contains_break(stmts: &[ParseNode]) -> bool {
+    stmts.iter().any(node_contains_break)
+}
+
+fn node_contains_break(node: &ParseNode) -> bool {
+    match node {
+        ParseNode::Break => true,
+
+        ParseNode::If {
+            then_block,
+            else_block,
+            ..
+        } => {
+            block_contains_break(then_block)
+                || else_block.as_deref().map_or(false, block_contains_break)
+        }
+
+        ParseNode::For { .. } | ParseNode::While { .. } => false,
+        _ => false,
     }
 }
 

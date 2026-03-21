@@ -63,9 +63,21 @@ impl FileDialog {
     }
 
     pub fn open_for_save(&mut self, suggested_name: &str) {
+        self.open_for_save_in(suggested_name, None);
+    }
+
+    /// Open the save dialog with an optional directory to navigate to first.
+    /// Used by Save As so the dialog starts in the file's current directory
+    /// with the filename pre-filled and editable.
+    pub fn open_for_save_in(&mut self, suggested_name: &str, dir: Option<&std::path::Path>) {
         self.mode = FileDialogMode::Save;
         self.selected = None;
         self.filename_input = suggested_name.to_string();
+        if let Some(d) = dir {
+            if d.is_dir() {
+                self.current_dir = d.to_path_buf();
+            }
+        }
         self.refresh_entries();
         self.visible = true;
         self.result = None;
@@ -267,11 +279,7 @@ impl FileDialog {
                                 egui::Align2::CENTER_CENTER,
                                 egui_phosphor::regular::ARROW_UP,
                                 egui::FontId::proportional(15.0),
-                                if up_hovered {
-                                    t.menu_fg
-                                } else {
-                                    t.tab_inactive_fg
-                                },
+                                if up_hovered { t.menu_fg } else { t.tab_inactive_fg },
                             );
                             if ui.interact(up_rect, up_id, egui::Sense::click()).clicked() {
                                 if let Some(parent) =
@@ -292,9 +300,7 @@ impl FileDialog {
                                 let mut p = self.current_dir.clone();
                                 loop {
                                     v.push(p.clone());
-                                    if !p.pop() {
-                                        break;
-                                    }
+                                    if !p.pop() { break; }
                                 }
                                 v.reverse();
                                 v
@@ -309,11 +315,7 @@ impl FileDialog {
                                     .add(
                                         egui::Button::new(
                                             egui::RichText::new(&name).size(12.0).color(
-                                                if is_last {
-                                                    t.menu_fg
-                                                } else {
-                                                    t.tab_inactive_fg
-                                                },
+                                                if is_last { t.menu_fg } else { t.tab_inactive_fg },
                                             ),
                                         )
                                         .fill(egui::Color32::TRANSPARENT)
@@ -373,10 +375,7 @@ impl FileDialog {
                                             }
 
                                             ui.painter().text(
-                                                egui::pos2(
-                                                    row_rect.left() + 6.0,
-                                                    row_rect.center().y,
-                                                ),
+                                                egui::pos2(row_rect.left() + 6.0, row_rect.center().y),
                                                 egui::Align2::LEFT_CENTER,
                                                 &label,
                                                 egui::FontId::proportional(13.0),
@@ -411,12 +410,17 @@ impl FileDialog {
                                     .size(12.5)
                                     .color(t.tab_inactive_fg),
                             );
-                            ui.add(
+                            let te = ui.add(
                                 egui::TextEdit::singleline(&mut self.filename_input)
                                     .font(egui::FontId::proportional(13.0))
                                     .text_color(t.menu_fg)
                                     .desired_width(f32::INFINITY),
                             );
+                            // Auto-focus and select all in Save mode so the user
+                            // can immediately type a new name without clicking first.
+                            if self.mode == FileDialogMode::Save {
+                                te.request_focus();
+                            }
                         });
 
                         ui.add_space(12.0);
@@ -448,10 +452,7 @@ impl FileDialog {
                                 FileDialogMode::Open => {
                                     self.selected.as_ref().map(|p| p.is_file()).unwrap_or(false)
                                         || (!self.filename_input.is_empty()
-                                            && self
-                                                .current_dir
-                                                .join(&self.filename_input)
-                                                .is_file())
+                                            && self.current_dir.join(&self.filename_input).is_file())
                                 }
                                 FileDialogMode::Save => !self.filename_input.is_empty(),
                             };

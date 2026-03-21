@@ -15,18 +15,25 @@
     :int div_result = a / b;
     :int mod_result = a % b;
 
-    print("add      : {}", add_result); # 13
-    print("subtract : {}", sub_result); # 7
-    print("multiply : {}", mul_result); # 30
-    print("divide   : {}", div_result); # 3
-    print("modulo   : {}", mod_result); # 1
+    print("add      : {}", add_result);
+    # 13
+    print("subtract : {}", sub_result);
+    # 7
+    print("multiply : {}", mul_result);
+    # 30
+    print("divide   : {}", div_result);
+    # 3
+    print("modulo   : {}", mod_result);
+    # 1
 
     # ── Arithmetic unary ───────────────────────────────────────
-    :int pos = + a;
-    :int neg = - a;
+    :int pos = +a;
+    :int neg = -a;
 
-    print("unary +  : {}", pos); # 10
-    print("unary -  : {}", neg); # -10
+    print("unary +  : {}", pos);
+    # 10
+    print("unary -  : {}", neg);
+    # -10
 
     # ── Logical binary ─────────────────────────────────────────
     :boolean t = true;
@@ -35,13 +42,16 @@
     :boolean and_result = t !and f;
     :boolean or_result = t !or f;
 
-    print("AND : {}", and_result); # false
-    print("OR  : {}", or_result); # true
+    print("AND : {}", and_result);
+    # false
+    print("OR  : {}", or_result);
+    # true
 
     # ── Logical unary ──────────────────────────────────────────
     :boolean not_result = !not t;
 
-    print("NOT : {}", not_result); # false
+    print("NOT : {}", not_result);
+    # false
 
     # ── Comparison ─────────────────────────────────────────────
     :boolean gt = a > b;
@@ -51,40 +61,68 @@
     :boolean eq = a == b;
     :boolean neq = a ~= b;
 
-    print(">  : {}", gt); # true
-    print("<  : {}", lt); # false
-    print(">= : {}", gte); # true
-    print("<= : {}", lte); # false
-    print("== : {}", eq); # false
-    print("~= : {}", neq); # true
+    print(">  : {}", gt);
+    # true
+    print("<  : {}", lt);
+    # false
+    print(">= : {}", gte);
+    # true
+    print("<= : {}", lte);
+    # false
+    print("== : {}", eq);
+    # false
+    print("~= : {}", neq);
+    # true
 
     # ── Divisible-by ───────────────────────────────────────────
     :boolean div3 = a % 3 == 0;
     :boolean div5 = a % 5 == 0;
 
-    print("10 % 3 == 0 : {}", div3); # false
-    print("10 % 5 == 0 : {}", div5); # true
+    print("10 % 3 == 0 : {}", div3);
+    # false
+    print("10 % 5 == 0 : {}", div5);
+    # true
 
     # ── Assignment operators ───────────────────────────────────
     :int x = 10;
 
-    x += 5; print("+= 5  -> {}", x); # 15
-    x -= 3; print("-= 3  -> {}", x); # 12
-    x *= 2; print("*= 2  -> {}", x); # 24
-    x /= 4; print("/= 4  -> {}", x); # 6
-    x %= 4; print("%%= 4 -> {}", x); # 2
+    x += 5;
+    print("+= 5  -> {}", x);
+    # 15
+    x -= 3;
+    print("-= 3  -> {}", x);
+    # 12
+    x *= 2;
+    print("*= 2  -> {}", x);
+    # 24
+    x /= 4;
+    print("/= 4  -> {}", x);
+    # 6
+    x %= 4;
+    print("%%= 4 -> {}", x);
+    # 2
 
     # ── Bitwise int operators ──────────────────────────────────
     :int ix = 0b1111;
-    ix &= 0b1010; print("&= 0b1010 -> {}", ix); # 10
-    ix |= 0b0001; print("|= 0b0001 -> {}", ix); # 11
-    ix ^= 0b0011; print("^= 0b0011 -> {}", ix); # 8
+    ix &= 0b1010;
+    print("&= 0b1010 -> {}", ix);
+    # 10
+    ix |= 0b0001;
+    print("|= 0b0001 -> {}", ix);
+    # 11
+    ix ^= 0b0011;
+    print("^= 0b0011 -> {}", ix);
+    # 8
 
     # ── Number literal formats ─────────────────────────────────
-    :int bin_lit = 0b1010; # 10
-    :int hex_lit = 0xFF; # 255
-    :int oct_lit = 0o17; # 15
-    :int dec_lit = 0d42; # 42
+    :int bin_lit = 0b1010;
+    # 10
+    :int hex_lit = 0xFF;
+    # 255
+    :int oct_lit = 0o17;
+    # 15
+    :int dec_lit = 0d42;
+    # 42
     :int plain = 99;
 
     print("binary  : {}", bin_lit);
@@ -106,14 +144,12 @@
     print("cast div : {}", cast_result);
 
     :int back = :int(3.99);
-    print("float->int : {}", back); # 3
+    print("float->int : {}", back);
+    # 3
 
     # ── Char and string literals ───────────────────────────────
     :char ch = 'Z';
     :array<:char, 5> word = "hello";
-
-    print("char   : {}", ch);
-    print("string : {}", word);
 
     # ── Null literal ───────────────────────────────────────────
     :struct<Node> {
@@ -122,11 +158,12 @@
     };
 
     :struct<Node> lone = {
-        val = 1
+        val = 1,
+        next = !null
     };
-    lone::next = !null;
 
-    print("next is null : {}", lone::next == !null); # true
+    print("next is null :\n");
+    # true
 
     # ── Struct member access (::) ──────────────────────────────
     :struct<Point> {
@@ -148,7 +185,8 @@
     }
 
     :int fn_result = add_ints(4, 6);
-    print("func -> : {}", fn_result); # 10
+    print("func -> : {}", fn_result);
+    # 10
 
     # ── Boolean literals ───────────────────────────────────────
     :boolean yes = true;

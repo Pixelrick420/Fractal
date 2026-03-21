@@ -2,10 +2,11 @@ use super::debugger::DebugSession;
 use super::theme::Theme;
 use eframe::egui;
 
+#[allow(unused_imports)]
 pub struct TreeViewWindow {
     pub open: bool,
     pub title: String,
-    /// Node id we scrolled to last frame — avoid re-scrolling every frame
+    /// Only scroll/reveal when the active node actually changes
     last_scrolled_node: Option<usize>,
 }
 
@@ -30,29 +31,30 @@ impl TreeViewWindow {
             return;
         }
 
-        // Only reveal/scroll when the active node actually changes.
-        if self.last_scrolled_node != Some(active_node_id) {
+        // reveal_node only when active node changes — never every frame
+        let node_changed = self.last_scrolled_node != Some(active_node_id);
+        if node_changed {
             session.reveal_node(active_node_id);
             self.last_scrolled_node = Some(active_node_id);
         }
 
         let t = *theme;
-
         let mut open = self.open;
 
-        egui::Window::new("⬡  AST Tree")
+        egui::Window::new("AST Tree")
             .id(egui::Id::new("fractal_tree_view"))
             .open(&mut open)
-            .default_size([440.0, 580.0])
+            .default_size([460.0, 580.0])
             .min_size([300.0, 200.0])
             .resizable(true)
             .frame(
                 egui::Frame::window(&ctx.style())
                     .fill(t.panel_bg)
-                    .stroke(egui::Stroke::new(1.0, t.border)),
+                    .stroke(egui::Stroke::new(1.0, t.border))
+                    .inner_margin(egui::Margin::ZERO),
             )
             .show(ctx, |ui| {
-                // ── Header bar ────────────────────────────────────────────
+                // ── Header ────────────────────────────────────────────────
                 egui::Frame::new()
                     .fill(t.tab_bar_bg)
                     .inner_margin(egui::Margin::symmetric(12, 8))
@@ -60,7 +62,7 @@ impl TreeViewWindow {
                         ui.set_min_width(ui.available_width());
                         ui.horizontal(|ui| {
                             ui.label(
-                                egui::RichText::new("AST Tree")
+                                egui::RichText::new("⬡  AST Tree")
                                     .size(12.5)
                                     .color(t.tab_active_fg)
                                     .strong(),
@@ -98,32 +100,38 @@ impl TreeViewWindow {
                         });
                     });
 
-                // Separator
-                let avail_w = ui.available_width();
+                // Header separator
                 let (sep, _) = ui.allocate_exact_size(
-                    egui::vec2(avail_w, 1.0),
+                    egui::vec2(ui.available_width(), 1.0),
                     egui::Sense::hover(),
                 );
                 ui.painter().rect_filled(sep, egui::CornerRadius::ZERO, t.border);
 
-                // ── Scrollable tree body ──────────────────────────────────
+                // ── Tree body ─────────────────────────────────────────────
+                let mut toggle_id: Option<usize> = None;
+                let mut scroll_to: Option<egui::Rect> = None;
+
                 egui::ScrollArea::both()
                     .id_salt("tree_view_scroll")
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
                         ui.add_space(6.0);
 
-                        let mut toggle_id: Option<usize> = None;
-                        let mut active_rect: Option<egui::Rect> = None;
+                        // We need the full tree width so connector lines span correctly.
+                        // Reserve a minimum content width so the scroll area doesn't
+                        // collapse to zero.
+                        ui.set_min_width(380.0);
 
-                        draw_tree(
+                        draw_subtree(
                             ui,
                             &session.tree,
                             0,
                             active_node_id,
                             &t,
+                            // is_last_child = true for root
+                            true,
                             &mut toggle_id,
-                            &mut active_rect,
+                            &mut scroll_to,
                         );
 
                         ui.add_space(12.0);
@@ -132,11 +140,13 @@ impl TreeViewWindow {
                             session.toggle_collapsed(id);
                         }
 
-                        // Only scroll when the active node changed this frame.
-                        if self.last_scrolled_node == Some(active_node_id) {
-                            if let Some(rect) = active_rect {
-                                let padded = rect.expand2(egui::vec2(0.0, 60.0));
-                                ui.scroll_to_rect(padded, Some(egui::Align::Center));
+                        // Scroll only when the active node changed this frame
+                        if node_changed {
+                            if let Some(rect) = scroll_to {
+                                ui.scroll_to_rect(
+                                    rect.expand2(egui::vec2(0.0, 60.0)),
+                                    Some(egui::Align::Center),
+                                );
                             }
                         }
                     });
@@ -146,21 +156,30 @@ impl TreeViewWindow {
     }
 }
 
-// ── Drawing helpers ───────────────────────────────────────────────────────────
+// ─── Tree rendering ───────────────────────────────────────────────────────────
+//
+// Each node is drawn as a row.  The connector system uses absolute painter
+// calls anchored to the row's rect so lines always align regardless of scroll.
+//
+// Visual layout per node (depth = 2 example):
+//
+//   │  │  ├─ DECL  x : :int =
+//   │  │  │
+//   │  │  └─ If
+//   │  │     ├─ ...
+//
+// Rules:
+//  • For every ancestor depth d, if that ancestor was NOT the last child, draw
+//    a vertical "trunk" line at x = d * INDENT_W + TRUNK_X.
+//  • At the node's own depth, draw a horizontal "branch" from the trunk to the
+//    toggle/dot.
+//  • If the node is the last child, use "└─"; otherwise use "├─".
 
-fn draw_tree(
-    ui: &mut egui::Ui,
-    table: &[super::debugger::TreeNode],
-    root_id: usize,
-    active_node_id: usize,
-    t: &Theme,
-    toggle_out: &mut Option<usize>,
-    active_rect: &mut Option<egui::Rect>,
-) {
-    draw_node(ui, table, root_id, active_node_id, t, true, toggle_out, active_rect);
-}
+const INDENT_W: f32 = 20.0; // pixels per depth level
+const ROW_H: f32 = 24.0;
+const TRUNK_X: f32 = 8.0; // x offset of the vertical line within each indent slot
 
-fn draw_node(
+fn draw_subtree(
     ui: &mut egui::Ui,
     table: &[super::debugger::TreeNode],
     id: usize,
@@ -168,73 +187,121 @@ fn draw_node(
     t: &Theme,
     is_last: bool,
     toggle_out: &mut Option<usize>,
-    active_rect: &mut Option<egui::Rect>,
+    scroll_to: &mut Option<egui::Rect>,
 ) {
     let Some(node) = table.get(id) else { return };
 
-    let indent = node.depth as f32 * 18.0;
-    let row_h = 24.0_f32;
+    let depth = node.depth;
     let is_active = id == active_node_id;
     let has_children = !node.children.is_empty();
     let is_collapsed = node.collapsed;
 
-    let avail_w = ui.available_width();
-    let (row_rect, _) = ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::hover());
+    // ── Allocate row ─────────────────────────────────────────────────────────
+    let avail_w = ui.available_width().max(380.0);
+    let (row_rect, _) =
+        ui.allocate_exact_size(egui::vec2(avail_w, ROW_H), egui::Sense::hover());
 
-    // Row background
+    let origin = row_rect.left(); // absolute left edge of content area
+
+    // ── Row background ────────────────────────────────────────────────────────
     if is_active {
+        // Solid accent background so white/dark text is always readable
         ui.painter().rect_filled(
             row_rect,
-            egui::CornerRadius::same(4),
-            egui::Color32::from_rgba_premultiplied(
-                t.accent.r(), t.accent.g(), t.accent.b(), 40,
-            ),
-        );
-        ui.painter().rect_filled(
-            egui::Rect::from_min_size(row_rect.min, egui::vec2(3.0, row_h)),
-            egui::CornerRadius::same(2),
+            egui::CornerRadius::same(3),
             t.accent,
         );
-        *active_rect = Some(row_rect);
+        // Slightly darker left edge bar for depth cue
+        ui.painter().rect_filled(
+            egui::Rect::from_min_size(row_rect.min, egui::vec2(3.0, ROW_H)),
+            egui::CornerRadius::same(1),
+            egui::Color32::from_rgba_premultiplied(0, 0, 0, 60),
+        );
+        *scroll_to = Some(row_rect);
     } else if ui.rect_contains_pointer(row_rect) {
         ui.painter().rect_filled(
             row_rect,
             egui::CornerRadius::same(3),
             egui::Color32::from_rgba_premultiplied(
-                t.button_hover_bg.r(), t.button_hover_bg.g(), t.button_hover_bg.b(), 120,
+                t.button_hover_bg.r(),
+                t.button_hover_bg.g(),
+                t.button_hover_bg.b(),
+                100,
             ),
         );
     }
 
     let mid_y = row_rect.center().y;
+    let line_col = egui::Color32::from_rgba_premultiplied(
+        t.border.r(), t.border.g(), t.border.b(), 160,
+    );
 
-    // Tree connector lines
-    if node.depth > 0 {
-        let connector_x = row_rect.left() + indent - 2.0;
+    // ── Connector lines ───────────────────────────────────────────────────────
+    if depth > 0 {
+        // Horizontal branch at this node's depth
+        let branch_x = origin + (depth as f32 - 1.0) * INDENT_W + TRUNK_X;
+        let branch_end = branch_x + INDENT_W - 4.0;
+
+        // Vertical part of the branch (top of row down to mid)
         ui.painter().line_segment(
-            [egui::pos2(connector_x, mid_y), egui::pos2(connector_x + 12.0, mid_y)],
-            egui::Stroke::new(1.0, t.border),
+            [egui::pos2(branch_x, row_rect.top()), egui::pos2(branch_x, mid_y)],
+            egui::Stroke::new(1.0, line_col),
         );
-        ui.painter().line_segment(
-            [egui::pos2(connector_x, row_rect.top()), egui::pos2(connector_x, mid_y)],
-            egui::Stroke::new(1.0, t.border),
-        );
+        // If not last child, continue the trunk downward through the full row
         if !is_last {
             ui.painter().line_segment(
-                [egui::pos2(connector_x, mid_y), egui::pos2(connector_x, row_rect.bottom())],
-                egui::Stroke::new(1.0, t.border),
+                [egui::pos2(branch_x, mid_y), egui::pos2(branch_x, row_rect.bottom())],
+                egui::Stroke::new(1.0, line_col),
             );
+        }
+        // Horizontal branch to the toggle/dot
+        ui.painter().line_segment(
+            [egui::pos2(branch_x, mid_y), egui::pos2(branch_end, mid_y)],
+            egui::Stroke::new(1.0, line_col),
+        );
+    }
+
+    // Vertical trunk lines for all ancestor levels where the ancestor was NOT
+    // the last child.  We walk up the tree to collect which depths need a line.
+    if depth > 1 {
+        let mut cur_id = id;
+        loop {
+            let cur = match table.get(cur_id) { Some(n) => n, None => break };
+            let parent_id = match cur.parent { Some(p) => p, None => break };
+            let parent = match table.get(parent_id) { Some(n) => n, None => break };
+
+            // Is cur_id the last child of parent?
+            let is_last_of_parent = parent.children.last() == Some(&cur_id);
+
+            if !is_last_of_parent && parent.depth < depth.saturating_sub(1) {
+                let trunk_x = origin + parent.depth as f32 * INDENT_W + TRUNK_X;
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(trunk_x, row_rect.top()),
+                        egui::pos2(trunk_x, row_rect.bottom()),
+                    ],
+                    egui::Stroke::new(1.0, line_col),
+                );
+            }
+
+            if parent.depth == 0 {
+                break;
+            }
+            cur_id = parent_id;
         }
     }
 
-    let label_start_x = row_rect.left() + indent + 14.0;
+    // ── Toggle / dot ──────────────────────────────────────────────────────────
+    let toggle_center_x = if depth == 0 {
+        origin + TRUNK_X
+    } else {
+        origin + depth as f32 * INDENT_W
+    };
 
-    // Expand/collapse toggle
     if has_children {
         let toggle_size = 16.0;
-        let toggle_x = row_rect.left() + indent + 2.0;
         let toggle_rect = egui::Rect::from_center_size(
-            egui::pos2(toggle_x, mid_y),
+            egui::pos2(toggle_center_x, mid_y),
             egui::vec2(toggle_size, toggle_size),
         );
         let toggle_resp = ui.interact(
@@ -247,12 +314,20 @@ fn draw_node(
                 toggle_rect,
                 egui::CornerRadius::same(3),
                 egui::Color32::from_rgba_premultiplied(
-                    t.accent.r(), t.accent.g(), t.accent.b(), 50,
+                    t.accent.r(), t.accent.g(), t.accent.b(), 45,
                 ),
             );
         }
         let arrow = if is_collapsed { "▶" } else { "▼" };
-        let arrow_col = if is_active { t.accent } else { t.tab_inactive_fg };
+        // On active row: use contrasting colour (same as label text)
+        let arrow_col = if is_active {
+            match t.variant {
+                crate::ui::theme::ThemeVariant::Dark  => egui::Color32::WHITE,
+                crate::ui::theme::ThemeVariant::Light => egui::Color32::from_rgb(20, 20, 40),
+            }
+        } else {
+            t.tab_inactive_fg
+        };
         ui.painter().text(
             toggle_rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -264,26 +339,38 @@ fn draw_node(
             *toggle_out = Some(id);
         }
     } else {
-        let dot_x = row_rect.left() + indent + 8.0;
+        // Leaf node dot — white on active row, border colour otherwise
+        let dot_col = if is_active {
+            match t.variant {
+                crate::ui::theme::ThemeVariant::Dark  => egui::Color32::WHITE,
+                crate::ui::theme::ThemeVariant::Light => egui::Color32::from_rgb(20, 20, 40),
+            }
+        } else {
+            line_col
+        };
         ui.painter().circle_filled(
-            egui::pos2(dot_x, mid_y),
+            egui::pos2(toggle_center_x, mid_y),
             2.5,
-            if is_active { t.accent } else { t.border },
+            dot_col,
         );
     }
 
-    // Badge
-    let badge = node_kind_badge(&node.label);
-    let badge_bg = node_badge_color(&node.label, t);
-    let mut text_x = label_start_x + 2.0;
+    // ── Badge + label ─────────────────────────────────────────────────────────
+    let label_x = toggle_center_x + 12.0;
+    let mut text_x = label_x;
+
+    let badge     = node_kind_badge(&node.label);
+    let badge_bg  = node_badge_color(&node.label, t);
 
     if !badge.is_empty() {
-        let badge_w = (badge.len() as f32 * 6.5 + 8.0).max(36.0);
+        let badge_w = (badge.len() as f32 * 6.5 + 8.0).max(34.0);
         let badge_rect = egui::Rect::from_min_size(
             egui::pos2(text_x, mid_y - 8.0),
             egui::vec2(badge_w, 16.0),
         );
         ui.painter().rect_filled(badge_rect, egui::CornerRadius::same(3), badge_bg);
+        // Badge text: editor_bg works for non-active; on active row use
+        // a colour that contrasts with the badge background (not accent)
         ui.painter().text(
             badge_rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -294,17 +381,12 @@ fn draw_node(
         text_x += badge_w + 6.0;
     }
 
-    // Label text
-    let (text_col, _) = node_text_color(is_active, t, node.depth, has_children);
-    let label_font = if is_active {
-        egui::FontId::monospace(11.5)
-    } else {
-        egui::FontId::monospace(11.0)
-    };
+    let label_font = egui::FontId::monospace(if is_active { 11.5 } else { 11.0 });
+    let text_col = node_text_color(is_active, t, depth, has_children);
 
     let full_label = &node.label;
-    let display_label = if full_label.len() > 60 {
-        format!("{}…", &full_label[..58])
+    let display_label = if full_label.len() > 56 {
+        format!("{}…", &full_label[..54])
     } else {
         full_label.clone()
     };
@@ -318,22 +400,20 @@ fn draw_node(
     );
 
     if is_collapsed && has_children {
-        let main_w = ui.fonts_mut(|f| f.glyph_width(&label_font, 'x'))
-            * display_label.len() as f32;
+        let char_w = ui.fonts_mut(|f| f.glyph_width(&label_font, 'x')).max(1.0);
+        let label_w = char_w * display_label.len() as f32;
         ui.painter().text(
-            egui::pos2(text_x + main_w + 4.0, mid_y),
+            egui::pos2(text_x + label_w + 4.0, mid_y),
             egui::Align2::LEFT_CENTER,
-            &format!("  +{} hidden", node.children.len()),
+            format!("+{} hidden", node.children.len()),
             egui::FontId::proportional(9.5),
             t.tab_inactive_fg,
         );
     }
 
-    // Click on row body to toggle
-    let body_rect =
-        egui::Rect::from_min_max(egui::pos2(label_start_x, row_rect.top()), row_rect.max);
+    // Click body to toggle
     let body_resp = ui.interact(
-        body_rect,
+        egui::Rect::from_min_max(egui::pos2(label_x, row_rect.top()), row_rect.max),
         egui::Id::new(("tree_body", id)),
         egui::Sense::click(),
     );
@@ -341,14 +421,20 @@ fn draw_node(
         *toggle_out = Some(id);
     }
 
-    // Recurse into children
+    // ── Recurse into children ─────────────────────────────────────────────────
     if !is_collapsed {
-        let n = node.children.len();
         let children: Vec<usize> = node.children.clone();
+        let n = children.len();
         for (i, &child_id) in children.iter().enumerate() {
-            draw_node(
-                ui, table, child_id, active_node_id, t,
-                i == n - 1, toggle_out, active_rect,
+            draw_subtree(
+                ui,
+                table,
+                child_id,
+                active_node_id,
+                t,
+                i == n - 1,
+                toggle_out,
+                scroll_to,
             );
         }
     }
@@ -356,34 +442,32 @@ fn draw_node(
 
 // ── Colour / badge helpers ────────────────────────────────────────────────────
 
-fn node_text_color(
-    is_active: bool,
-    t: &Theme,
-    depth: usize,
-    has_children: bool,
-) -> (egui::Color32, egui::Color32) {
+fn node_text_color(is_active: bool, t: &Theme, depth: usize, has_children: bool) -> egui::Color32 {
     if is_active {
-        return (t.accent, t.accent);
+        // Use white on dark theme, dark on light theme — always readable on accent bg
+                return match t.variant {
+            crate::ui::theme::ThemeVariant::Dark  => egui::Color32::WHITE,
+            crate::ui::theme::ThemeVariant::Light => egui::Color32::from_rgb(20, 20, 40),
+        };
     }
-    let text = if depth == 0 {
+    if depth == 0 {
         t.tab_active_fg
     } else if !has_children {
         t.tab_inactive_fg
     } else {
         t.text_default
-    };
-    (text, t.border)
+    }
 }
 
 fn node_badge_color(label: &str, t: &Theme) -> egui::Color32 {
     match node_kind(label) {
-        NodeKind::Decl     => t.type_name,
-        NodeKind::Control  => t.keyword,
-        NodeKind::Expr     => t.fn_name,
-        NodeKind::Literal  => t.number,
-        NodeKind::Type     => t.type_name,
+        NodeKind::Decl       => t.type_name,
+        NodeKind::Control    => t.keyword,
+        NodeKind::Expr       => t.fn_name,
+        NodeKind::Literal    => t.number,
+        NodeKind::Type       => t.type_name,
         NodeKind::Structural => t.struct_name,
-        NodeKind::Other    => t.tab_inactive_fg,
+        NodeKind::Other      => t.tab_inactive_fg,
     }
 }
 

@@ -883,24 +883,14 @@ impl eframe::App for FractalEditor {
         }
 
         // ── Keyboard shortcuts ───────────────────────────────────────────────
+        // NOTE: F5 and F6 are handled by show_menu_bar() via ctx.input_mut
+        // and returned as MenuAction::StepRun / StepStop below.
+        // Do NOT handle them here again — that would call step_debug() twice.
         let toggle_terminal = ctx.input(|i| {
             (i.modifiers.ctrl || i.modifiers.mac_cmd) && i.key_pressed(egui::Key::Backtick)
         });
-        let f5 = ctx.input(|i| i.key_pressed(egui::Key::F5));
-        let f6 = ctx.input(|i| i.key_pressed(egui::Key::F6));
-
         if toggle_terminal {
             self.terminal.toggle_minimized();
-        }
-        if f5 {
-            if self.debug_session.is_some() {
-                self.step_debug();
-            } else {
-                self.run_debug();
-            }
-        }
-        if f6 {
-            self.stop_debug_session();
         }
 
         // ── Autosave ─────────────────────────────────────────────────────────
@@ -960,12 +950,26 @@ impl eframe::App for FractalEditor {
         match action {
             MenuAction::OpenDialog => self.file_dialog.open_for_open(),
             MenuAction::SaveDialog => {
-                let name = self
+                // Use the filename from the current file path if it exists,
+                // and navigate the dialog to the file's directory so the
+                // user can rename in-place or navigate elsewhere.
+                let (name, dir) = self
                     .tabs
                     .get(self.active_tab)
-                    .map(|t| t.display_name())
-                    .unwrap_or_else(|| "untitled.fr".to_string());
-                self.file_dialog.open_for_save(&name);
+                    .map(|t| {
+                        if let Some(ref path) = t.current_file {
+                            let fname = path
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_else(|| "untitled.fr".to_string());
+                            let dir = path.parent().map(|p| p.to_path_buf());
+                            (fname, dir)
+                        } else {
+                            (t.display_name(), None)
+                        }
+                    })
+                    .unwrap_or_else(|| ("untitled.fr".to_string(), None));
+                self.file_dialog.open_for_save_in(&name, dir.as_deref());
             }
             MenuAction::SaveCurrent => {
                 if let Some(path) = self
@@ -1141,8 +1145,48 @@ impl eframe::App for FractalEditor {
 
         // Compute the active debug line (1-based source line, 0 = none).
         // This must be computed before the CentralPanel borrows `self` mutably.
-        let debug_line: Option<usize> = self.debug_frame.as_ref().map(|f| f.source_line);
-
+        // Compute active debug line (1-based).
+        // Strategy: if source_line > 0 use it; otherwise search by label term;
+        // if no term (ExprStmt, Assign Eq, etc.) fall back to step-proportional
+        // line estimation so something is always highlighted.
+        let debug_line: Option<usize> = {
+            if let Some(ref frame) = self.debug_frame {
+                if frame.source_line > 0 {
+                    Some(frame.source_line)
+                } else {
+                    let term = debug_search_term(&frame.step_label);
+                    let code = self.tabs.get(self.active_tab).map(|t| t.code.as_str());
+                    if !term.is_empty() {
+                        let hint = frame.active_node_id;
+                        code.and_then(|c| find_code_line_at(c, &term, hint))
+                    } else if let Some(c) = code {
+                        // No search term — use step as a fractional line estimate.
+                        // Count non-empty, non-comment lines and map step into them.
+                        let step = frame.active_node_id;
+                        let _total_steps = step.max(1);
+                        let code_lines: Vec<usize> = c.lines().enumerate()
+                            .filter(|(_, l)| {
+                                let t = l.trim();
+                                !t.is_empty() && !t.starts_with('#')
+                                    && t != "!start" && t != "!end"
+                            })
+                            .map(|(i, _)| i + 1)
+                            .collect();
+                        if code_lines.is_empty() {
+                            None
+                        } else {
+                            // Map step index into the code line list
+                            let idx = step.min(code_lines.len().saturating_sub(1));
+                            Some(code_lines[idx])
+                        }
+                    } else {
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        };
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(self.theme.editor_bg))
             .show(ctx, |ui| {
@@ -1271,6 +1315,86 @@ fn apply_egui_style(ctx: &egui::Context, t: &Theme) {
     s.visuals.override_text_color = Some(t.tab_active_fg);
     ctx.set_style(s);
 }
+
+// ─── Debug line-search helpers ────────────────────────────────────────────────
+
+/// Extract a searchable identifier from a debug step label.
+/// "Decl x : :int =" → "x"
+/// "For i"            → "i"
+/// "StructDecl p : P" → "p"
+/// "If" / "While" / "ExprStmt" / "Assign Eq" → "" (no useful name)
+fn debug_search_term(label: &str) -> String {
+    let parts: Vec<&str> = label.splitn(4, ' ').collect();
+    match parts.as_slice() {
+        [kw, name, ..] if *kw == "Decl" || *kw == "StructDecl" || *kw == "FuncDef" => {
+            name.to_string()
+        }
+        ["For", name, ..] => name.to_string(),
+        ["If", ..] => "!if".to_string(),
+        ["While", ..] => "!while".to_string(),
+        ["Return", ..] => "!return".to_string(),
+        ["Break", ..] => "!break".to_string(),
+        ["Continue", ..] => "!continue".to_string(),
+        ["Assign", op, ..] => match *op {
+            "MinusEq"   => "-=".to_string(),
+            "PlusEq"    => "+=".to_string(),
+            "StarEq"    => "*=".to_string(),
+            "SlashEq"   => "/=".to_string(),
+            "PercentEq" => "%=".to_string(),
+            "AmpEq"     => "&=".to_string(),
+            "PipeEq"    => "|=".to_string(),
+            "CaretEq"   => "^=".to_string(),
+            "Eq"        => " = ".to_string(),
+            _           => String::new(),
+        },
+        _ => String::new(),
+    }
+}
+/// Find the 1-based line number in `code` that best matches `term` at
+/// the given step position. Uses word-boundary matching; when the same
+/// name appears on multiple lines it picks the occurrence whose line
+/// index is closest to `step_hint` (so repeated vars advance correctly).
+#[allow(dead_code)]
+fn find_code_line(code: &str, term: &str) -> Option<usize> {
+    find_code_line_at(code, term, 0)
+}
+
+fn find_code_line_at(code: &str, term: &str, step_hint: usize) -> Option<usize> {
+    if term.is_empty() {
+        return None;
+    }
+    let matches: Vec<usize> = code
+        .lines()
+        .enumerate()
+        .filter_map(|(i, line)| {
+            // word-boundary check
+            if let Some(idx) = line.find(term) {
+                let b = idx;
+                let before_ok = b == 0 || !line.as_bytes()[b - 1].is_ascii_alphanumeric()
+                    && line.as_bytes()[b - 1] != b'_';
+                let after = b + term.len();
+                let after_ok = after >= line.len()
+                    || !line.as_bytes()[after].is_ascii_alphanumeric()
+                    && line.as_bytes()[after] != b'_';
+                if before_ok && after_ok {
+                    return Some(i + 1);
+                }
+            }
+            None
+        })
+        .collect();
+
+    if matches.is_empty() {
+        return None;
+    }
+    // Pick the line closest to step_hint (0-based step → 1-based line)
+    let target = step_hint + 1;
+    matches
+        .iter()
+        .min_by_key(|&&ln| (ln as isize - target as isize).unsigned_abs())
+        .copied()
+}
+
 
 fn main() -> Result<(), eframe::Error> {
     eframe::run_native(

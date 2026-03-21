@@ -148,20 +148,24 @@ impl CodeEditor {
                     let mut output = text_edit.show(ui);
 
                     // ── Debug line highlight ──────────────────────────────────
-                    // Drawn first (under text) so text remains readable.
+                    // galley_pos is the screen-space origin of the text.
+                    // row.rect() is relative to that origin.
+                    // Stretch the highlight across the full clip rect width.
                     if let Some(line_num) = debug_line {
                         if line_num > 0 {
-                            let origin = output.galley_pos;
+                            let gpos = output.galley_pos;
                             let rows = &output.galley.rows;
-                            // rows are 0-indexed; line_num is 1-indexed
                             if let Some(row) = rows.get(line_num.saturating_sub(1)) {
-                                let row_rect = row.rect();
+                                let rr = row.rect();
+                                let row_top    = gpos.y + rr.min.y;
+                                let row_bottom = gpos.y + rr.max.y;
+                                let clip = ui.clip_rect();
                                 let highlight_rect = egui::Rect::from_min_max(
-                                    origin + row_rect.min.to_vec2(),
-                                    origin + egui::vec2(ui.available_width() + origin.x, row_rect.max.y + origin.y),
+                                    egui::pos2(clip.left(),  row_top),
+                                    egui::pos2(clip.right(), row_bottom),
                                 );
 
-                                // Background fill — accent colour at low opacity
+                                // Background fill
                                 ui.painter().rect_filled(
                                     highlight_rect,
                                     egui::CornerRadius::same(2),
@@ -169,7 +173,7 @@ impl CodeEditor {
                                         theme.accent.r(),
                                         theme.accent.g(),
                                         theme.accent.b(),
-                                        40,
+                                        45,
                                     ),
                                 );
                                 // Left border stripe
@@ -182,10 +186,11 @@ impl CodeEditor {
                                     theme.accent,
                                 );
 
-                                // Auto-scroll so the highlighted line stays visible
-                                let padded = highlight_rect
-                                    .expand2(egui::vec2(0.0, font_size * 3.0));
-                                ui.scroll_to_rect(padded, None);
+                                // Auto-scroll to keep highlighted line visible
+                                ui.scroll_to_rect(
+                                    highlight_rect.expand2(egui::vec2(0.0, font_size * 3.0)),
+                                    None,
+                                );
                             }
                         }
                     }

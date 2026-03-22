@@ -1417,9 +1417,8 @@ impl CodeGen {
             }
         };
 
-        if let Some(builtin_code) = self.try_builtin(func_base, call_args) {
-            self.flush_hoists();
-            self.line(&format!("{};", builtin_code));
+        if let Some(s) = self.try_builtin(func_base, call_args) {
+            self.line(&format!("{};", s));
             return;
         }
 
@@ -1849,16 +1848,14 @@ impl CodeGen {
                     ParseNode::TypeChar => {
                         format!("(char::from_u32({} as u32).unwrap())", e)
                     }
-                    ParseNode::TypeBoolean => match expr.as_ref() {
-                        ParseNode::FloatLit(_) => format!("({} != 0.0_f64)", e),
-                        ParseNode::Cast {
-                            target_type: inner_ty,
-                            ..
-                        } if matches!(inner_ty.as_ref(), ParseNode::TypeFloat) => {
+                    ParseNode::TypeBoolean => {
+                        let e = self.gen_expr(expr);
+                        if self.expr_is_float(expr) {
                             format!("({} != 0.0_f64)", e)
+                        } else {
+                            format!("({} != 0_i64)", e)
                         }
-                        _ => format!("({} != 0_i64)", e),
-                    },
+                    }
                     ParseNode::TypeFloat => match expr.as_ref() {
                         ParseNode::BoolLit(_) => format!("(({} as i64) as f64)", e),
                         ParseNode::AccessChain { base: n, steps }

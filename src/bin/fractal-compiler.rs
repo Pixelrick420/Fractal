@@ -25,11 +25,23 @@ fn section(title: &str) {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
+    // Accept any of:
+    //   fractal-compiler file.fr
+    //   fractal-compiler --debug file.fr
+    //   fractal-compiler debug file.fr      ← new subcommand form
     let (debug_mode, source_file_str) = match args.as_slice() {
         [_, f] => (false, f.clone()),
         [_, flag, f] if flag == "--debug" => (true, f.clone()),
+        [_, sub, f] if sub == "debug" => (true, f.clone()),
         _ => {
-            print_error(&format!("Usage: {} [--debug] <path/to/file.fr>", &args[0]));
+            print_error(&format!(
+                "Usage: {} [--debug | debug] <path/to/file.fr>",
+                &args[0]
+            ));
+            eprintln!();
+            eprintln!("  {}  file.fr          compile normally", &args[0]);
+            eprintln!("  {}  debug file.fr    compile with debugger instrumentation", &args[0]);
+            eprintln!("  {}  --debug file.fr  same as above (flag form)", &args[0]);
             process::exit(1);
         }
     };
@@ -151,8 +163,16 @@ fn main() {
                         .unwrap_or("<binary>");
                     eprintln!("\x1b[1;32m compiled:\x1b[0m `{}`", display);
                     if debug_mode {
+                        // Write the sidecar file so the editor knows where
+                        // to find the .debug.jsonl that the binary will write
+                        // at runtime. The file must NOT be deleted here —
+                        // the running binary will create and grow it.
                         let meta_path = Path::new(source_file).with_extension("debug-meta");
                         let _ = fs::write(&meta_path, &debug_jsonl_path);
+                        eprintln!(
+                            "\x1b[1;34m   debug:\x1b[0m snapshots → `{}`",
+                            debug_jsonl_path
+                        );
                     }
                 }
                 Ok(_) => {

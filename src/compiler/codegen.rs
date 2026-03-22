@@ -42,9 +42,15 @@ struct CodeGen {
 
     debug_mode: bool,
     debug_path: String,
-
+    /// (escaped_ident, type_label) pairs visible at the current codegen point
     debug_visible_vars: Vec<(String, String)>,
     debug_current_func: String,
+
+    // ── FIX 3a: track whether we are inside a gen_for body ────────────────
+    // Used by gen_stmt(Continue) to emit `continue 'fractal_for;` instead of
+    // `continue;`, so that !continue inside a !for loop does not skip the
+    // loop-variable increment that gen_for emits after the body.
+    in_for_loop: bool,
 }
 
 impl CodeGen {
@@ -93,9 +99,9 @@ impl CodeGen {
             local_var_types: HashMap::new(),
             debug_mode: false,
             debug_path: String::new(),
-
             debug_visible_vars: Vec::new(),
             debug_current_func: String::new(),
+            in_for_loop: false,
         }
     }
 
@@ -199,7 +205,11 @@ impl CodeGen {
             }
         }
 
-        self.line("#![allow(unused_variables, unused_mut, dead_code, non_snake_case, unused_imports, unreachable_patterns)]");
+        // FIX 1: added unreachable_code to suppress the warning that arises
+        // when !while (true) { !break; } is followed by any statement — the
+        // code after the while is unreachable per rustc, causing a panic in
+        // debug builds if unreachable!() was emitted there.
+        self.line("#![allow(unused_variables, unused_mut, dead_code, non_snake_case, unused_imports, unreachable_patterns, unreachable_code)]");
         self.line("use std::io::{self, BufRead, Write};");
         self.blank();
         self.line("fn __fractal_fmt_float(v: f64) -> String {");
@@ -411,14 +421,9 @@ impl CodeGen {
         for s in body {
             self.gen_stmt(s);
             if self.debug_mode {
-                if !matches!(
-                    s,
-                    ParseNode::Return(_)
-                        | ParseNode::Break
-                        | ParseNode::Continue
-                        | ParseNode::Exit(_)
-                        | ParseNode::If { .. }
-                        | ParseNode::While { .. }
+                if !matches!(s,
+                    ParseNode::Return(_) | ParseNode::Break | ParseNode::Continue | ParseNode::Exit(_)
+                    | ParseNode::If { .. } | ParseNode::While { .. }
                 ) {
                     self.emit_snapshot(s);
                 }
@@ -530,7 +535,6 @@ impl CodeGen {
 
     fn gen_stmt(&mut self, node: &ParseNode) {
         self.flush_hoists();
-
         if self.debug_mode {
             match node {
                 ParseNode::Return(_)
@@ -596,10 +600,13 @@ impl CodeGen {
                 }
                 self.dedent();
                 self.line("}");
-
-                if matches!(condition.as_ref(), ParseNode::BoolLit(true)) {
-                    self.line("unreachable!();");
-                }
+                // FIX 2: removed the `unreachable!()` emission that was here.
+                // Previously: if matches!(condition, BoolLit(true)) { self.line("unreachable!();"); }
+                // That caused a runtime panic when !while (true) { !break; } was used, because
+                // the break exits the loop and the unreachable!() fires. The allow list now
+                // includes unreachable_code so rustc does not complain about dead code after
+                // a !while (true) loop that has no break — and for loops that DO have a break
+                // the panic no longer occurs.
             }
 
             ParseNode::Return(expr) => match expr.as_ref() {
@@ -671,7 +678,18 @@ impl CodeGen {
             }
 
             ParseNode::Break => self.line("break;"),
-            ParseNode::Continue => self.line("continue;"),
+
+            // FIX 4: emit `continue 'fractal_for;` when inside a !for loop body
+            // so that !continue does not skip the loop-variable increment.
+            // Outside a !for body (i.e. inside a plain !while), emit `continue;`
+            // as before — the while loop has no increment to protect.
+            ParseNode::Continue => {
+                if self.in_for_loop {
+                    self.line("continue 'fractal_for;");
+                } else {
+                    self.line("continue;");
+                }
+            }
 
             ParseNode::ExprStmt(e) => {
                 self.gen_call_stmt(e);
@@ -1144,14 +1162,9 @@ impl CodeGen {
         for s in then_blk {
             self.gen_stmt(s);
             if self.debug_mode {
-                if !matches!(
-                    s,
-                    ParseNode::Return(_)
-                        | ParseNode::Break
-                        | ParseNode::Continue
-                        | ParseNode::Exit(_)
-                        | ParseNode::If { .. }
-                        | ParseNode::While { .. }
+                if !matches!(s,
+                    ParseNode::Return(_) | ParseNode::Break | ParseNode::Continue | ParseNode::Exit(_)
+                    | ParseNode::If { .. } | ParseNode::While { .. }
                 ) {
                     self.emit_snapshot(s);
                 }
@@ -1350,13 +1363,22 @@ impl CodeGen {
 
         self.line("{");
         self.indent();
-        if is_predeclared {
-            self.line(&format!("{} = {};", vn, s_s));
-        } else {
-            self.line(&format!("let mut {}: {} = {};", vn, ty, s_s));
+        self.line(&format!("let mut {}: {} = {};", vn, ty, s_s));
+
+        // FIX 3b: push the loop variable into debug_visible_vars so it appears
+        // in every snapshot taken while the loop body executes.
+        if self.debug_mode {
+            let tl = parse_node_type_label(var_type);
+            self.debug_visible_vars.push((vn.clone(), tl));
         }
-        self.line(&format!("while {} {} {} {{", vn, cmp_op, st_s));
+
+        // FIX 4 (part 1): label the while loop as 'fractal_for so that
+        // `continue 'fractal_for;` (emitted by gen_stmt for !continue when
+        // in_for_loop is true) jumps past the body but NOT past the increment,
+        // giving correct loop semantics for !continue inside !for.
+        self.line(&format!("'fractal_for: while {} < {} {{", vn, st_s));
         self.indent();
+
 
         if self.debug_mode {
             let for_label = format!("For {}", var_name);
@@ -1370,6 +1392,12 @@ impl CodeGen {
             );
             self.line(&snap);
         }
+
+        // FIX 4 (part 2): set in_for_loop so gen_stmt(Continue) emits the
+        // labeled continue instead of a bare `continue;`.
+        let prev_in_for = self.in_for_loop;
+        self.in_for_loop = true;
+
         for stmt in body {
             self.gen_stmt_for_body(stmt, &vn, &sp_s);
             if self.debug_mode {
@@ -1386,9 +1414,19 @@ impl CodeGen {
                 }
             }
         }
+
+        self.in_for_loop = prev_in_for;
+
         self.line(&format!("{} += {};", vn, sp_s));
         self.dedent();
         self.line("}");
+
+        // FIX 3c: pop the loop variable after the while closes so it doesn't
+        // appear in snapshots taken after the !for loop exits.
+        if self.debug_mode {
+            self.debug_visible_vars.pop();
+        }
+
         self.dedent();
         self.line("}");
     }
@@ -2236,7 +2274,6 @@ impl CodeGen {
     fn emit_snapshot(&mut self, stmt: &ParseNode) {
         let label = stmt_debug_label(stmt);
         let source_line = stmt_source_line(stmt);
-
         let func = self.debug_current_func.clone();
         let vars_code = self.build_vars_json_code();
         let line = format!(
@@ -2275,7 +2312,6 @@ impl CodeGen {
         self.line("static __FRACTAL_DBG_INIT: Once = Once::new();");
         self.line("#[allow(clippy::type_complexity)]");
         self.line("static __FRACTAL_DBG_FILE: Mutex<Option<__DbgBufWriter<__DbgFile>>> = Mutex::new(None);");
-
         self.line("static __FRACTAL_DBG_PREV: std::sync::OnceLock<Mutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();");
         self.line("static __FRACTAL_DBG_STEP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);");
         self.blank();
@@ -2322,7 +2358,6 @@ impl CodeGen {
         self.indent();
         self.line("let changed = {");
         self.indent();
-
         self.line("let mutex = __FRACTAL_DBG_PREV.get_or_init(|| Mutex::new(std::collections::HashMap::new()));");
         self.line("let mut prev_map = mutex.lock().unwrap();");
         self.line("let prev = prev_map.get(name).cloned().unwrap_or_default();");
@@ -2364,7 +2399,6 @@ impl CodeGen {
         self.raw("                __ln.push_str(&__dbg_step.to_string());\n");
         self.raw("                __ln.push_str(\",\\\"label\\\":\\\"\");\n");
         self.raw("                __ln.push_str(&__fractal_debug_json_escape($label));\n");
-
         self.raw("                __ln.push_str(\"\\\",\\\"line\\\":\");\n");
         self.raw("                __ln.push_str(&($line as usize).to_string());\n");
         self.raw("                __ln.push_str(\",\\\"stack\\\":[\\\"\");\n");

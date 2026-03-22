@@ -21,3 +21,7 @@ web/.env.*
 web/npm-debug.log*
 web/yarn-debug.log*
 web/yarn-error.log*
+test_files
+testcases.fr
+run_debug_tests.sh
+debug_output.txt

@@ -1,8 +1,6 @@
 !start
     # code here
-
     :array<:char, 11> s = "abcdefedcba";
-
     :int j = 10;
     !for (:int i, 0, 11, 1) {
         !if (s[i] ~= s[j]) {
@@ -10,7 +8,6 @@
             !break;
         }
         j -= 1;
-
     }
     !if (j == -1) {
         print("palindrome");

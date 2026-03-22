@@ -69,7 +69,9 @@ impl SessionState {
 enum CompileResult {
     Success(PathBuf),
     SuccessWithWarnings(PathBuf, String),
-    /// Debug compile succeeded; binary path + path to .jsonl debug file
+    /// Debug compile succeeded; binary path + path to .debug.jsonl file.
+    /// The .jsonl file does NOT exist yet at this point — the binary creates
+    /// and grows it as it runs. Do NOT delete it here.
     DebugSuccess(PathBuf, PathBuf),
     Error(String),
     LaunchError(String),
@@ -452,7 +454,8 @@ impl FractalEditor {
 
             let mut cmd = Command::new(&compiler_path);
             if debug {
-                cmd.arg("--debug");
+                // Use the subcommand form so it works from terminal too
+                cmd.arg("debug");
             }
             cmd.arg(&path_str)
                 .stdout(Stdio::piped())
@@ -539,14 +542,23 @@ impl FractalEditor {
                     self.terminal.run_binary(&bin_path);
                 }
                 CompileResult::DebugSuccess(bin_path, jsonl_path) => {
-                    let _ = fs::remove_file(&jsonl_path);
+                    // ── FIX: do NOT delete jsonl_path here. ──────────────────
+                    // The .debug.jsonl file doesn't exist yet at this point —
+                    // it is created and written by the compiled binary as it
+                    // runs. Deleting it here (as before) meant poll_file()
+                    // could never find any snapshots.
+                    //
+                    // Instead: start the session (which sets up the file path
+                    // and tree), then launch the binary. The binary will create
+                    // the file and poll_file() will pick up snapshots on each
+                    // frame tick (every 100 ms while debug_binary_running).
                     self.start_debug_session_from_source(&jsonl_path, ctx);
                     self.terminal.run_binary(&bin_path);
                     self.terminal.minimized = false;
                     self.debug_binary_running = true;
                     self.debug_jsonl_path = Some(jsonl_path);
                     self.success_message =
-                        Some("Debug session started — press F5 to step through.".into());
+                        Some("Debug session started — F5 to step, Shift+F5 to stop.".into());
                 }
                 CompileResult::Error(msg) => {
                     let first = msg
@@ -670,6 +682,10 @@ impl FractalEditor {
     }
 
     fn stop_debug_session(&mut self) {
+        // Clean up the .debug.jsonl file now that the session is over
+        if let Some(ref path) = self.debug_jsonl_path {
+            let _ = fs::remove_file(path);
+        }
         self.debug_session = None;
         self.debug_frame = None;
         self.debug_jsonl_path = None;
@@ -950,9 +966,6 @@ impl eframe::App for FractalEditor {
         match action {
             MenuAction::OpenDialog => self.file_dialog.open_for_open(),
             MenuAction::SaveDialog => {
-                // Use the filename from the current file path if it exists,
-                // and navigate the dialog to the file's directory so the
-                // user can rename in-place or navigate elsewhere.
                 let (name, dir) = self
                     .tabs
                     .get(self.active_tab)
@@ -1088,27 +1101,18 @@ impl eframe::App for FractalEditor {
         self.terminal.show(ctx);
 
         // ── Debug windows ─────────────────────────────────────────────────────
-        // Both windows are now egui::Windows (not separate viewports) so they
-        // render inside the main window and never block the event loop.
-        // They are shown whenever open == true, regardless of debug session
-        // state — this is what makes the menu-bar toggle work at any time.
-
         let active_node_id = self
             .debug_frame
             .as_ref()
             .map(|f| f.active_node_id)
             .unwrap_or(0);
 
-        // Tree view
         if self.tree_view_window.open {
             if let Some(ref mut session) = self.debug_session {
                 let theme = self.theme;
                 self.tree_view_window
                     .show(ctx, session, active_node_id, &theme);
             } else {
-                // No session yet — build a one-shot empty session so the
-                // window renders (shows "waiting" state) instead of silently
-                // doing nothing when toggled from the menu.
                 use fractal::compiler::parser::ParseNode;
                 use fractal::ui::debugger::DebugSession;
                 let dummy_root = ParseNode::Program(vec![]);
@@ -1120,7 +1124,6 @@ impl eframe::App for FractalEditor {
             }
         }
 
-        // Var view — show current frame or a placeholder when no session yet
         if self.var_view_window.open {
             use fractal::ui::debugger::DebugFrame;
             let placeholder = DebugFrame {
@@ -1142,13 +1145,6 @@ impl eframe::App for FractalEditor {
         }
 
         // ── Central editor / docs panel ───────────────────────────────────────
-
-        // Compute the active debug line (1-based source line, 0 = none).
-        // This must be computed before the CentralPanel borrows `self` mutably.
-        // Compute active debug line (1-based).
-        // Strategy: if source_line > 0 use it; otherwise search by label term;
-        // if no term (ExprStmt, Assign Eq, etc.) fall back to step-proportional
-        // line estimation so something is always highlighted.
         let debug_line: Option<usize> = {
             if let Some(ref frame) = self.debug_frame {
                 if frame.source_line > 0 {
@@ -1160,8 +1156,6 @@ impl eframe::App for FractalEditor {
                         let hint = frame.active_node_id;
                         code.and_then(|c| find_code_line_at(c, &term, hint))
                     } else if let Some(c) = code {
-                        // No search term — use step as a fractional line estimate.
-                        // Count non-empty, non-comment lines and map step into them.
                         let step = frame.active_node_id;
                         let _total_steps = step.max(1);
                         let code_lines: Vec<usize> = c.lines().enumerate()
@@ -1175,7 +1169,6 @@ impl eframe::App for FractalEditor {
                         if code_lines.is_empty() {
                             None
                         } else {
-                            // Map step index into the code line list
                             let idx = step.min(code_lines.len().saturating_sub(1));
                             Some(code_lines[idx])
                         }
@@ -1187,6 +1180,7 @@ impl eframe::App for FractalEditor {
                 None
             }
         };
+
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(self.theme.editor_bg))
             .show(ctx, |ui| {
@@ -1209,7 +1203,6 @@ impl eframe::App for FractalEditor {
                     } else {
                         None
                     };
-                    // Pass debug_line so the editor highlights the active source line.
                     tab.editor
                         .show_with_id(ui, &mut tab.code, tab.id, fs, ln, sel, debug_line);
                 }
@@ -1226,6 +1219,7 @@ fn collect_non_noise(stdout: &str, stderr: &str) -> String {
             || t.contains("No semantic errors.")
             || t.starts_with("compiled:")
             || t.starts_with("compiled :")
+            || t.starts_with("   debug:")
             || t.starts_with('\u{256c}')
             || t.starts_with('\u{2551}')
             || t.starts_with('\u{255a}')
@@ -1318,11 +1312,6 @@ fn apply_egui_style(ctx: &egui::Context, t: &Theme) {
 
 // ─── Debug line-search helpers ────────────────────────────────────────────────
 
-/// Extract a searchable identifier from a debug step label.
-/// "Decl x : :int =" → "x"
-/// "For i"            → "i"
-/// "StructDecl p : P" → "p"
-/// "If" / "While" / "ExprStmt" / "Assign Eq" → "" (no useful name)
 fn debug_search_term(label: &str) -> String {
     let parts: Vec<&str> = label.splitn(4, ' ').collect();
     match parts.as_slice() {
@@ -1350,10 +1339,7 @@ fn debug_search_term(label: &str) -> String {
         _ => String::new(),
     }
 }
-/// Find the 1-based line number in `code` that best matches `term` at
-/// the given step position. Uses word-boundary matching; when the same
-/// name appears on multiple lines it picks the occurrence whose line
-/// index is closest to `step_hint` (so repeated vars advance correctly).
+
 #[allow(dead_code)]
 fn find_code_line(code: &str, term: &str) -> Option<usize> {
     find_code_line_at(code, term, 0)
@@ -1367,7 +1353,6 @@ fn find_code_line_at(code: &str, term: &str, step_hint: usize) -> Option<usize> 
         .lines()
         .enumerate()
         .filter_map(|(i, line)| {
-            // word-boundary check
             if let Some(idx) = line.find(term) {
                 let b = idx;
                 let before_ok = b == 0 || !line.as_bytes()[b - 1].is_ascii_alphanumeric()
@@ -1387,14 +1372,12 @@ fn find_code_line_at(code: &str, term: &str, step_hint: usize) -> Option<usize> 
     if matches.is_empty() {
         return None;
     }
-    // Pick the line closest to step_hint (0-based step → 1-based line)
     let target = step_hint + 1;
     matches
         .iter()
         .min_by_key(|&&ln| (ln as isize - target as isize).unsigned_abs())
         .copied()
 }
-
 
 fn main() -> Result<(), eframe::Error> {
     eframe::run_native(

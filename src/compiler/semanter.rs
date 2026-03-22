@@ -414,6 +414,7 @@ impl Analyzer {
             },
 
             ParseNode::AccessChain { base, steps } => {
+                let mut base_undefined = false;
                 let qualified_key: Option<String> =
                     if let Some(AccessStep::Field(first_field)) = steps.first() {
                         let key = format!("{}::{}", base, first_field);
@@ -431,23 +432,28 @@ impl Analyzer {
                         let t = self.scopes.lookup(qkey).unwrap().sem_type.clone();
                         (t, &steps[1..])
                     } else {
-                        let t = match self.scopes.lookup(base) {
-                            Some(sym) => sym.sem_type.clone(),
+                        let (t, base_was_undefined) = match self.scopes.lookup(base) {
+                            Some(sym) => (sym.sem_type.clone(), false),
                             None => {
-                                let qualified = steps
-                                    .iter()
-                                    .take_while(|s| matches!(s, AccessStep::Field(_)))
-                                    .fold(base.clone(), |acc, s| {
-                                        if let AccessStep::Field(f) = s {
-                                            format!("{}::{}", acc, f)
-                                        } else {
-                                            acc
-                                        }
-                                    });
-                                self.error(format!("undefined identifier `{}`", qualified));
-                                SemType::Unknown
+                                let is_bare_call =
+                                    steps.len() == 1 && matches!(steps[0], AccessStep::Call(_));
+                                if !is_bare_call {
+                                    let qualified = steps
+                                        .iter()
+                                        .take_while(|s| matches!(s, AccessStep::Field(_)))
+                                        .fold(base.clone(), |acc, s| {
+                                            if let AccessStep::Field(f) = s {
+                                                format!("{}::{}", acc, f)
+                                            } else {
+                                                acc
+                                            }
+                                        });
+                                    self.error(format!("undefined identifier `{}`", qualified));
+                                }
+                                (SemType::Unknown, true)
                             }
                         };
+                        base_undefined = base_was_undefined;
                         (t, steps.as_slice())
                     };
 
@@ -505,10 +511,22 @@ impl Analyzer {
                                 ));
                             }
 
-                            if let (SemType::Array { size, .. }, ParseNode::IntLit(idx)) =
-                                (&ty, idx_expr.as_ref())
-                            {
-                                if *idx < 0 || *idx >= *size {
+                            let literal_idx: Option<i64> = match idx_expr.as_ref() {
+                                ParseNode::IntLit(n) => Some(*n),
+                                ParseNode::Unary {
+                                    op: UnOp::Neg,
+                                    operand,
+                                } => {
+                                    if let ParseNode::IntLit(n) = operand.as_ref() {
+                                        Some(-n)
+                                    } else {
+                                        None
+                                    }
+                                }
+                                _ => None,
+                            };
+                            if let (SemType::Array { size, .. }, Some(idx)) = (&ty, literal_idx) {
+                                if idx < 0 || idx >= *size {
                                     self.error(format!(
                                         "index {} is out of bounds for array of size {} \
                                          (valid indices: 0..{})",
@@ -822,7 +840,7 @@ impl Analyzer {
                                         "`{}` is not a function and cannot be called",
                                         func_name
                                     ));
-                                } else {
+                                } else if !base_undefined {
                                     self.error(format!("undefined function `{}`", func_name));
                                 }
                                 SemType::Unknown
@@ -1172,6 +1190,18 @@ impl Analyzer {
                 ..
             }) => {
                 let def_fields = def_fields.clone();
+
+                let mut seen_fields: Vec<&str> = Vec::new();
+                for (fname, _) in fields {
+                    if seen_fields.contains(&fname.as_str()) {
+                        self.error(format!(
+                            "struct `{}` initializer has duplicate field `{}`",
+                            struct_name, fname
+                        ));
+                    } else {
+                        seen_fields.push(fname.as_str());
+                    }
+                }
 
                 for (fname, fval) in fields {
                     match def_fields.iter().find(|(n, _)| n == fname) {
@@ -1835,31 +1865,26 @@ impl Analyzer {
                 }
 
                 if let ParseNode::IntLit(s) = step.as_ref() {
-                    if *s <= 0 {
-                        self.error(format!(
-                            "`!for` step must be a positive integer, got `{}`; \
-                             a step of 0 produces an infinite loop and a negative step \
-                             means the loop will never execute for increasing ranges",
-                            s
-                        ));
+                    if *s == 0 {
+                        self.error(
+                            "`!for` step must be non-zero; a step of 0 produces an infinite loop",
+                        );
                     }
                 }
                 self.scopes.push();
 
-                if self.scopes.lookup(var_name).is_some() {
-                    self.error(format!(
-                        "loop variable `{}` shadows an existing variable in the enclosing scope; \
-                         rename the loop variable or the outer variable",
-                        var_name
-                    ));
+                let is_predeclared = matches!(var_type.as_ref(), ParseNode::TypeVoid)
+                    && self.scopes.lookup(var_name).is_some();
+
+                if !is_predeclared {
+                    self.declare_sym(Symbol {
+                        name: var_name.clone(),
+                        kind: SymbolKind::Variable,
+                        sem_type: vt,
+                        scope_depth: self.scope_depth(),
+                        origin: "loop".to_string(),
+                    });
                 }
-                self.declare_sym(Symbol {
-                    name: var_name.clone(),
-                    kind: SymbolKind::Variable,
-                    sem_type: vt,
-                    scope_depth: self.scope_depth(),
-                    origin: "loop".to_string(),
-                });
                 self.loop_depth += 1;
                 for stmt in body {
                     self.analyze_node(stmt);

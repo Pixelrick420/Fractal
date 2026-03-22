@@ -848,14 +848,7 @@ impl Parser {
             "break" => Some("`break` is not valid here — did you mean `!break`?"),
             "continue" => Some("`continue` is not valid here — did you mean `!continue`?"),
             "import" => Some("`import` is not valid here — did you mean `!import`?"),
-            "start" => Some("`start` is not valid here — did you mean `!start`?"),
-            "end" => Some("`end` is not valid here — did you mean `!end`?"),
-            "exit" => Some("`exit` is not valid here — did you mean `!exit`?"),
             "struct" => Some("`struct` is not valid here — did you mean `:struct`?"),
-            "and" => Some("`and` is not valid here — did you mean `!and`?"),
-            "or" => Some("`or` is not valid here — did you mean `!or`?"),
-            "not" => Some("`not` is not valid here — did you mean `!not`?"),
-            "null" => Some("`null` is not valid here — did you mean `!null`?"),
             "int" => Some("`int` is not valid here — did you mean `:int`?"),
             "float" => Some("`float` is not valid here — did you mean `:float`?"),
             "char" => Some("`char` is not valid here — did you mean `:char`?"),
@@ -892,8 +885,15 @@ impl Parser {
             Some(TokenType::For) => {
                 self.advance();
                 self.expect(&TokenType::LParen)?;
-                let var_type = self.parse_datatype()?;
-                let var_name = self.expect_identifier()?;
+
+                let (var_type, var_name) = if Self::is_type_token_ref(self.peek()) {
+                    let vt = self.parse_datatype()?;
+                    let vn = self.expect_identifier()?;
+                    (vt, vn)
+                } else {
+                    let vn = self.expect_identifier()?;
+                    (ParseNode::TypeVoid, vn)
+                };
                 self.expect(&TokenType::Comma)?;
                 let start = self.parse_expression()?;
                 self.expect(&TokenType::Comma)?;
@@ -929,12 +929,6 @@ impl Parser {
             }
 
             Some(TokenType::Return) => {
-                if self.func_depth == 0 {
-                    return Err(self.err(
-                        "`!return` used outside of a function\n   \
-                         note: `!return` can only appear inside a `!func` body",
-                    ));
-                }
                 self.advance();
 
                 if matches!(self.peek(), Some(TokenType::EndL)) {
@@ -956,24 +950,12 @@ impl Parser {
             }
 
             Some(TokenType::Break) => {
-                if self.loop_depth == 0 {
-                    return Err(self.err(
-                        "`!break` used outside of a loop\n   \
-                         note: `!break` can only appear inside a `!for` or `!while` body",
-                    ));
-                }
                 self.advance();
                 self.expect(&TokenType::EndL)?;
                 Ok(ParseNode::Break)
             }
 
             Some(TokenType::Continue) => {
-                if self.loop_depth == 0 {
-                    return Err(self.err(
-                        "`!continue` used outside of a loop\n   \
-                         note: `!continue` can only appear inside a `!for` or `!while` body",
-                    ));
-                }
                 self.advance();
                 self.expect(&TokenType::EndL)?;
                 Ok(ParseNode::Continue)

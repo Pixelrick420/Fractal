@@ -263,6 +263,14 @@ impl CodeGen {
         self.line("#![allow(unused_variables, unused_mut, dead_code, non_snake_case, unused_imports, unreachable_patterns)]");
         self.line("use std::io::{self, BufRead, Write};");
         self.blank();
+        self.line("fn __fractal_fmt_float(v: f64) -> String {");
+        self.line("    if v.fract() == 0.0 && v.is_finite() {");
+        self.line("        format!(\"{:.1}\", v)");
+        self.line("    } else {");
+        self.line("        format!(\"{}\", v)");
+        self.line("    }");
+        self.line("}");
+        self.blank();
         if self.debug_mode {
             self.emit_debug_runtime();
             self.blank();
@@ -738,9 +746,28 @@ impl CodeGen {
                     s.chars().map(|c| format!("'{}'", escape_char(c))).collect();
                 format!("[{}]", chars.join(", "))
             }
-            (ParseNode::TypeList { .. }, Some(ParseNode::ArrayLit(elems))) => {
+            (ParseNode::TypeList { elem: list_elem }, Some(ParseNode::ArrayLit(elems))) => {
                 if elems.is_empty() {
                     "Vec::new()".to_string()
+                } else if let ParseNode::TypeStruct { name: sname } = list_elem.as_ref() {
+                    // list<:struct<T>> inline init — each element needs Some(Box::new(T{...}))
+                    let sname = sname.clone();
+                    let parts: Vec<_> = elems
+                        .iter()
+                        .map(|e| match e {
+                            ParseNode::StructLit(fields) => {
+                                let body = self.emit_struct_lit_body(&sname, fields);
+                                format!(
+                                    "Some(Box::new({} {{ {} }}))",
+                                    escape_struct_name(&sname),
+                                    body
+                                )
+                            }
+                            ParseNode::Null => "None".to_string(),
+                            _ => self.gen_expr(e),
+                        })
+                        .collect();
+                    format!("vec![{}]", parts.join(", "))
                 } else {
                     let parts: Vec<_> = elems.iter().map(|e| self.gen_expr(e)).collect();
                     format!("vec![{}]", parts.join(", "))
@@ -1180,16 +1207,31 @@ impl CodeGen {
         step: &ParseNode,
         body: &[ParseNode],
     ) {
-        let ty = self.type_str(var_type);
+        // TypeVoid sentinel means the var was pre-declared; don't redeclare it.
+        let is_predeclared = matches!(var_type, ParseNode::TypeVoid);
+        let ty = if is_predeclared {
+            String::new()
+        } else {
+            self.type_str(var_type)
+        };
         let s_s = self.gen_expr(start);
         let st_s = self.gen_expr(stop);
         let sp_s = self.gen_expr(step);
         let vn = escape_ident(var_name);
 
+        // Determine loop direction: negative literal step → count down
+        let is_negative_step = matches!(step, ParseNode::IntLit(n) if *n < 0)
+            || matches!(step, ParseNode::Unary { op: UnOp::Neg, .. });
+        let cmp_op = if is_negative_step { ">" } else { "<" };
+
         self.line("{");
         self.indent();
-        self.line(&format!("let mut {}: {} = {};", vn, ty, s_s));
-        self.line(&format!("while {} < {} {{", vn, st_s));
+        if is_predeclared {
+            self.line(&format!("{} = {};", vn, s_s));
+        } else {
+            self.line(&format!("let mut {}: {} = {};", vn, ty, s_s));
+        }
+        self.line(&format!("while {} {} {} {{", vn, cmp_op, st_s));
         self.indent();
         for stmt in body {
             self.gen_stmt_for_body(stmt, &vn, &sp_s);
@@ -1329,9 +1371,9 @@ impl CodeGen {
             }
         };
 
-        if self.try_builtin(func_base, call_args).is_some() {
-            let s = self.gen_expr(node);
-            self.line(&format!("{};", s));
+        if let Some(builtin_code) = self.try_builtin(func_base, call_args) {
+            self.flush_hoists();
+            self.line(&format!("{};", builtin_code));
             return;
         }
 
@@ -1563,6 +1605,29 @@ impl CodeGen {
         }
     }
 
+    fn expr_is_float(&self, node: &ParseNode) -> bool {
+        match node {
+            ParseNode::FloatLit(_) => true,
+            ParseNode::AccessChain { base, steps } if steps.is_empty() => matches!(
+                self.var_types
+                    .get(base.as_str())
+                    .or_else(|| self.local_var_types.get(base.as_str())),
+                Some(SemType::Float)
+            ),
+            ParseNode::Cast { target_type, .. } => {
+                matches!(target_type.as_ref(), ParseNode::TypeFloat)
+            }
+            ParseNode::Add { left, right, .. } => {
+                self.expr_is_float(left) || self.expr_is_float(right)
+            }
+            ParseNode::Mul { left, right, .. } => {
+                self.expr_is_float(left) || self.expr_is_float(right)
+            }
+            ParseNode::Unary { operand, .. } => self.expr_is_float(operand),
+            _ => false,
+        }
+    }
+
     fn parse_node_to_sem_type(&self, node: &ParseNode) -> SemType {
         match node {
             ParseNode::TypeInt => SemType::Int,
@@ -1728,13 +1793,10 @@ impl CodeGen {
                     self.gen_expr(right)
                 )
             }
-            ParseNode::Unary { op, operand } => {
-                let op_s = match op {
-                    UnOp::Neg => "-",
-                    UnOp::BitNot => "!",
-                };
-                format!("({}{})", op_s, self.gen_expr(operand))
-            }
+            ParseNode::Unary { op, operand } => match op {
+                UnOp::Neg => format!("(-{})", self.gen_expr(operand)),
+                UnOp::BitNot => format!("(!({}) as u64 as i64)", self.gen_expr(operand)),
+            },
             ParseNode::Cast { target_type, expr } => {
                 let e = self.gen_expr(expr);
                 match target_type.as_ref() {
@@ -1990,10 +2052,18 @@ impl CodeGen {
                         "{{ print!(\"{escaped}\"); io::stdout().flush().unwrap(); }}"
                     ))
                 } else {
-                    Some(format!(
-                        "{{ print!(\"{{}}\", {}); io::stdout().flush().unwrap(); }}",
-                        a[0]
-                    ))
+                    let is_float = self.expr_is_float(&args[0]);
+                    if is_float {
+                        Some(format!(
+                            "{{ print!(\"{{}}\", __fractal_fmt_float({})); io::stdout().flush().unwrap(); }}",
+                            a[0]
+                        ))
+                    } else {
+                        Some(format!(
+                            "{{ print!(\"{{}}\", {}); io::stdout().flush().unwrap(); }}",
+                            a[0]
+                        ))
+                    }
                 }
             }
             ("print", _) => {
@@ -2003,7 +2073,18 @@ impl CodeGen {
                 } else {
                     a[0].clone()
                 };
-                let rest = a[1..].join(", ");
+                let rest_args: Vec<String> = args[1..]
+                    .iter()
+                    .map(|arg| {
+                        let val = self.gen_expr(arg);
+                        if self.expr_is_float(arg) {
+                            format!("__fractal_fmt_float({})", val)
+                        } else {
+                            val
+                        }
+                    })
+                    .collect();
+                let rest = rest_args.join(", ");
                 Some(format!(
                     "{{ print!({}, {}); io::stdout().flush().unwrap(); }}",
                     fmt_lit, rest
@@ -2071,16 +2152,16 @@ impl CodeGen {
                 let container = self.gen_list_container(&args[0]);
                 Some(format!("{}.pop().unwrap()", container))
             }
-            ("insert", 2) => {
-                let container = self.gen_list_container(&args[0]);
-                let val = self.gen_call_arg(&args[1]);
-                Some(format!("{}.insert(0, {})", container, val))
-            }
             ("insert", 3) => {
                 let container = self.gen_list_container(&args[0]);
-                let idx = self.gen_expr(&args[1]);
-                let val = self.gen_call_arg(&args[2]);
-                Some(format!("{}.insert({} as usize, {})", container, idx, val))
+                let val = self.gen_call_arg(&args[1]);
+                let idx = self.gen_expr(&args[2]);
+                Some(format!(
+                    "{{ let __ins_len = {cont}.len(); let __ins_idx = ({idx} as usize).min(__ins_len); {cont}.insert(__ins_idx, {val}); }}",
+                    cont = container,
+                    idx = idx,
+                    val = val,
+                ))
             }
             ("delete", 2) => {
                 let container = self.gen_list_container(&args[0]);

@@ -414,7 +414,6 @@ impl Analyzer {
             },
 
             ParseNode::AccessChain { base, steps } => {
-                let mut base_undefined = false;
                 let qualified_key: Option<String> =
                     if let Some(AccessStep::Field(first_field)) = steps.first() {
                         let key = format!("{}::{}", base, first_field);
@@ -432,7 +431,7 @@ impl Analyzer {
                         let t = self.scopes.lookup(qkey).unwrap().sem_type.clone();
                         (t, &steps[1..])
                     } else {
-                        let (t, base_was_undefined) = match self.scopes.lookup(base) {
+                        let (t, _base) = match self.scopes.lookup(base) {
                             Some(sym) => (sym.sem_type.clone(), false),
                             None => {
                                 let is_bare_call =
@@ -450,10 +449,10 @@ impl Analyzer {
                                         });
                                     self.error(format!("undefined identifier `{}`", qualified));
                                 }
+
                                 (SemType::Unknown, true)
                             }
                         };
-                        base_undefined = base_was_undefined;
                         (t, steps.as_slice())
                     };
 
@@ -840,7 +839,7 @@ impl Analyzer {
                                         "`{}` is not a function and cannot be called",
                                         func_name
                                     ));
-                                } else if !base_undefined {
+                                } else {
                                     self.error(format!("undefined function `{}`", func_name));
                                 }
                                 SemType::Unknown
@@ -1315,10 +1314,23 @@ impl Analyzer {
                     ..
                 } => {
                     if self.scopes.defined_in_current(name) {
-                        self.error(format!(
-                            "function `{}` is already defined in this scope",
-                            name
-                        ));
+                        let is_builtin = self
+                            .scopes
+                            .lookup(name)
+                            .map_or(false, |s| s.origin == "builtin");
+                        if is_builtin {
+                            self.error(format!(
+                                "function `{}` is already defined in this scope\n\
+                                 hint: a built-in function named `{}` exists — \
+                                 consider renaming your function to avoid the conflict",
+                                name, name
+                            ));
+                        } else {
+                            self.error(format!(
+                                "function `{}` is already defined in this scope",
+                                name
+                            ));
+                        }
                         continue;
                     }
                     let param_types: Vec<SemType> = params

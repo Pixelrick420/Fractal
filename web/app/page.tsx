@@ -494,6 +494,7 @@ function MobileMenuIcon({ open }: { open: boolean }) {
 export default function Home() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const { release, error } = useLatestRelease();
 
   useEffect(() => {
@@ -821,7 +822,7 @@ export default function Home() {
         <div className={styles.sectionLabel}>// DOWNLOAD</div>
         <h2 className={styles.sectionTitle}>Start writing Fractal today.</h2>
         <p className={styles.sectionSubtitle}>
-          Two binaries. No installer. Just download, make executable, and run.
+          One command. No manual steps. The installer handles everything for you.
         </p>
 
         <div className={styles.releaseBadge}>
@@ -849,60 +850,33 @@ export default function Home() {
           )}
         </div>
 
-        <div className={styles.dlCards}>
-          {release ? (
-            release.assets
-              .filter(
-                (a) =>
-                  a.name === "fractal-compiler" || a.name === "fractal-editor",
-              )
-              .map((a) => <DownloadCard key={a.name} asset={a} />)
-          ) : error ? (
-            <a
-              href={`https://github.com/${REPO}/releases/latest`}
-              target="_blank"
-              rel="noreferrer"
-              className={styles.dlFallback}
-            >
-              Open latest release on GitHub →
-            </a>
-          ) : (
-            <>
-              <DownloadCardSkeleton />
-              <DownloadCardSkeleton />
-            </>
-          )}
+        <div className={styles.installBlock}>
+          <code className={styles.installCmd}>
+            wget -O install.sh https://raw.githubusercontent.com/Pixelrick420/Fractal/main/executable/install.sh &amp;&amp; sudo bash install.sh
+          </code>
+          <button
+            className={styles.installCopyBtn}
+            onClick={() => {
+              navigator.clipboard.writeText(
+                "wget -O install.sh https://raw.githubusercontent.com/Pixelrick420/Fractal/main/executable/install.sh && sudo bash install.sh"
+              ).then(() => setCopied(true)).catch(() => {});
+              setTimeout(() => setCopied(false), 2000);
+            }}
+          >
+            {copied ? (
+              <>
+                <CheckCircle size={13} style={{ display: "inline", verticalAlign: "middle", marginRight: 5 }} />
+                Copied
+              </>
+            ) : (
+              "Copy"
+            )}
+          </button>
         </div>
 
-        <div className={styles.dlSteps}>
-          <div className={styles.dlStep}>
-            <span className={styles.dlStepN}>1</span>
-            <div>
-              <strong>Download both files above</strong>
-              <code>fractal-compiler &nbsp; fractal-editor</code>
-            </div>
-          </div>
-          <div className={styles.dlStepArrow}>
-            <ArrowRight size={16} strokeWidth={1.5} />
-          </div>
-          <div className={styles.dlStep}>
-            <span className={styles.dlStepN}>2</span>
-            <div>
-              <strong>Make them executable</strong>
-              <code>chmod +x fractal-compiler fractal-editor</code>
-            </div>
-          </div>
-          <div className={styles.dlStepArrow}>
-            <ArrowRight size={16} strokeWidth={1.5} />
-          </div>
-          <div className={styles.dlStep}>
-            <span className={styles.dlStepN}>3</span>
-            <div>
-              <strong>Launch the editor</strong>
-              <code>./fractal-editor</code>
-            </div>
-          </div>
-        </div>
+        <p className={styles.installNote}>
+          Paste this into your terminal. Requires <code>wget</code> and <code>sudo</code> access.
+        </p>
 
         <a
           href={`https://github.com/${REPO}/releases`}

@@ -71,20 +71,32 @@ impl CodeEditor {
                                 ui.style_mut().override_text_style =
                                     Some(egui::TextStyle::Monospace);
                                 ui.vertical(|ui| {
+                                    // FIX: always allocate the same row height for every
+                                    // line regardless of whether it is the debug line.
+                                    // Previously, the debug-line branch called
+                                    // allocate_exact_size() but did NOT push a label
+                                    // through the UI layout, so the internal cursor
+                                    // advanced by a different amount than the normal
+                                    // ui.label() path. This caused a one-row shift
+                                    // between the gutter and the code area, making the
+                                    // gutter highlight appear on the wrong line number.
+                                    let row_h = font_size + 4.0; // match label height
                                     for n in 1..=line_count {
-                                        let is_debug_line = debug_line == Some(n) && n > 0;
+                                        let is_debug_line =
+                                            debug_line.map(|d| d > 0 && d == n).unwrap_or(false);
 
-                                        // Highlight the gutter cell for the active debug line.
+                                        // Allocate a consistent fixed-height rect for
+                                        // every row so the gutter and text area stay
+                                        // perfectly in sync.
+                                        let (row_rect, _) = ui.allocate_exact_size(
+                                            egui::vec2(line_num_width - 16.0, row_h),
+                                            egui::Sense::hover(),
+                                        );
+
                                         if is_debug_line {
-                                            let (gutter_rect, _) = ui.allocate_exact_size(
-                                                egui::vec2(
-                                                    line_num_width - 16.0,
-                                                    font_size + 2.0,
-                                                ),
-                                                egui::Sense::hover(),
-                                            );
+                                            // Accent background across the full gutter cell
                                             ui.painter().rect_filled(
-                                                gutter_rect.expand2(egui::vec2(8.0, 1.0)),
+                                                row_rect.expand2(egui::vec2(8.0, 1.0)),
                                                 egui::CornerRadius::same(2),
                                                 egui::Color32::from_rgba_premultiplied(
                                                     theme.accent.r(),
@@ -93,41 +105,39 @@ impl CodeEditor {
                                                     70,
                                                 ),
                                             );
-                                            // Draw the arrow indicator
+                                            // Arrow indicator on the left
                                             ui.painter().text(
                                                 egui::pos2(
-                                                    gutter_rect.left() + 2.0,
-                                                    gutter_rect.center().y,
+                                                    row_rect.left() + 2.0,
+                                                    row_rect.center().y,
                                                 ),
                                                 egui::Align2::LEFT_CENTER,
                                                 "▶",
                                                 egui::FontId::proportional(font_size - 3.0),
                                                 theme.accent,
                                             );
-                                            // Still render the number, shifted right
+                                            // Line number in accent colour
                                             ui.painter().text(
                                                 egui::pos2(
-                                                    gutter_rect.right() - 2.0,
-                                                    gutter_rect.center().y,
+                                                    row_rect.right() - 2.0,
+                                                    row_rect.center().y,
                                                 ),
                                                 egui::Align2::RIGHT_CENTER,
-                                                format!(
-                                                    "{:>width$}",
-                                                    n,
-                                                    width = width_chars
-                                                ),
+                                                format!("{:>width$}", n, width = width_chars),
                                                 egui::FontId::monospace(font_size - 1.0),
                                                 theme.accent,
                                             );
                                         } else {
-                                            ui.label(
-                                                egui::RichText::new(format!(
-                                                    "{:>width$}",
-                                                    n,
-                                                    width = width_chars
-                                                ))
-                                                .size(font_size - 1.0)
-                                                .color(self.theme.line_numbers_fg),
+                                            // Normal line number in muted colour
+                                            ui.painter().text(
+                                                egui::pos2(
+                                                    row_rect.right() - 2.0,
+                                                    row_rect.center().y,
+                                                ),
+                                                egui::Align2::RIGHT_CENTER,
+                                                format!("{:>width$}", n, width = width_chars),
+                                                egui::FontId::monospace(font_size - 1.0),
+                                                self.theme.line_numbers_fg,
                                             );
                                         }
                                     }

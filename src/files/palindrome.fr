@@ -2,7 +2,7 @@
     # code here
     :array<:char, 11> s = "abcdefedcba";
     :int j = 10;
-    !for (:int i, 0, 11, 1) {
+    !forr(:int i, 0, 11, 1) {
         !if (s[i] ~= s[j]) {
             print("not palindrome");
             !break;
@@ -10,23 +10,10 @@
         j -= 1;
     }
     !if (j == -1) {
-        print("palindrome");
+        print("\nPalindrome\n");
     }
-
-    !func check(:list<:int> a) -> :list<:int> {
-        a[3] = 9;
-        !return a;
+    !else {
+        print("\nnot palindrome\n");
     }
-    :list<:int> a = [1, 2, 3, 4];
-    :list<:int> b = check(a);
-    print("{} {}", a[3], b[3]);
-
-    !func check1(:array<:int, 5> a) -> :array<:int, 5> {
-        a[3] = 10;
-        !return a;
-    }
-    :array<:int, 5> c = [1, 2, 3, 4, 5];
-    :array<:int, 5> d = check1(c);
-    print("{} {}", c[3], d[3]);
 
 !end

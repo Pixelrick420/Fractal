@@ -56,6 +56,7 @@ impl Highlighter {
         let chars: Vec<char> = line.chars().collect();
         let mut i = 0;
 
+        // ── Continue a block comment that started on a previous line ──────────
         if *in_block_comment {
             let mut seg = String::new();
             while i < chars.len() {
@@ -80,32 +81,29 @@ impl Highlighter {
                 });
             }
             if *in_block_comment {
+                // Entire line is inside the block comment; nothing more to do.
                 return result;
             }
         }
 
-        {
-            let rest = &line[line
-                .char_indices()
-                .nth(i)
-                .map(|(b, _)| b)
-                .unwrap_or(line.len())..];
-            let trimmed = rest.trim_start();
-            if trimmed.starts_with("###") {
-            } else if trimmed.starts_with('#') && i == chars.iter().take(i).count() {
-                if result.is_empty() {
-                    result.push(Token {
-                        text: line.to_string(),
-                        color: self.theme.comment,
-                    });
-                    return result;
-                }
-            }
-        }
+        // ── FIX: The pre-loop inline-comment detection block that previously
+        // lived here has been removed.  It contained the condition
+        //
+        //     i == chars.iter().take(i).count()
+        //
+        // which is always `true` (both sides equal `i`), so any `#` that
+        // wasn't `###` caused an unconditional early return — swallowing the
+        // rest of the token stream for that line and, when combined with the
+        // mutable `in_block_comment` flag, corrupting subsequent lines too.
+        //
+        // The `#` line-comment case is handled correctly and completely by the
+        // `if chars[i] == '#'` branch inside the main loop below; no pre-loop
+        // detection is needed. ─────────────────────────────────────────────────
 
         let mut next_ident_is_fn = false;
 
         while i < chars.len() {
+            // ── Whitespace ────────────────────────────────────────────────────
             if chars[i].is_whitespace() {
                 let start = i;
                 while i < chars.len() && chars[i].is_whitespace() {
@@ -118,7 +116,11 @@ impl Highlighter {
                 continue;
             }
 
-            if chars[i] == '#' && i + 2 < chars.len() && chars[i + 1] == '#' && chars[i + 2] == '#'
+            // ── Block comment open: ### ───────────────────────────────────────
+            if chars[i] == '#'
+                && i + 2 < chars.len()
+                && chars[i + 1] == '#'
+                && chars[i + 2] == '#'
             {
                 let mut seg = String::from("###");
                 i += 3;
@@ -147,6 +149,8 @@ impl Highlighter {
                 continue;
             }
 
+            // ── Line comment: single # (not ###) ─────────────────────────────
+            // Everything from here to the end of the line is a comment.
             if chars[i] == '#' {
                 result.push(Token {
                     text: chars[i..].iter().collect(),
@@ -155,6 +159,7 @@ impl Highlighter {
                 break;
             }
 
+            // ── String literal ────────────────────────────────────────────────
             if chars[i] == '"' {
                 let start = i;
                 i += 1;
@@ -175,6 +180,7 @@ impl Highlighter {
                 continue;
             }
 
+            // ── Char literal ──────────────────────────────────────────────────
             if chars[i] == '\'' {
                 let start = i;
                 i += 1;
@@ -195,6 +201,7 @@ impl Highlighter {
                 continue;
             }
 
+            // ── !keyword / !operator ──────────────────────────────────────────
             if chars[i] == '!' {
                 let start = i;
                 i += 1;
@@ -215,6 +222,7 @@ impl Highlighter {
                 continue;
             }
 
+            // ── :: (field accessor) ───────────────────────────────────────────
             if chars[i] == ':' && i + 1 < chars.len() && chars[i + 1] == ':' {
                 result.push(Token {
                     text: "::".to_string(),
@@ -224,6 +232,7 @@ impl Highlighter {
                 continue;
             }
 
+            // ── :type annotation ──────────────────────────────────────────────
             if chars[i] == ':' {
                 i += 1;
                 let mut type_word = String::new();
@@ -238,6 +247,7 @@ impl Highlighter {
                         color: self.theme.type_name,
                     });
 
+                    // :struct<Name> — colour the struct name separately
                     if type_word == "struct" && i < chars.len() && chars[i] == '<' {
                         result.push(Token {
                             text: "<".to_string(),
@@ -274,6 +284,7 @@ impl Highlighter {
                 continue;
             }
 
+            // ── -> (return type arrow) ────────────────────────────────────────
             if chars[i] == '-' && i + 1 < chars.len() && chars[i + 1] == '>' {
                 result.push(Token {
                     text: "->".to_string(),
@@ -283,6 +294,7 @@ impl Highlighter {
                 continue;
             }
 
+            // ── Brackets ──────────────────────────────────────────────────────
             if Self::is_bracket_char(chars[i]) {
                 result.push(Token {
                     text: chars[i].to_string(),
@@ -292,6 +304,7 @@ impl Highlighter {
                 continue;
             }
 
+            // ── Two-character operators ───────────────────────────────────────
             if Self::is_operator_char(chars[i]) && i + 1 < chars.len() {
                 let two: String = chars[i..i + 2].iter().collect();
                 if matches!(
@@ -317,6 +330,7 @@ impl Highlighter {
                 }
             }
 
+            // ── Single-character operator ─────────────────────────────────────
             if Self::is_operator_char(chars[i]) {
                 result.push(Token {
                     text: chars[i].to_string(),
@@ -326,6 +340,7 @@ impl Highlighter {
                 continue;
             }
 
+            // ── Numeric literal ───────────────────────────────────────────────
             if chars[i].is_numeric() {
                 let start = i;
                 while i < chars.len()
@@ -340,6 +355,7 @@ impl Highlighter {
                 continue;
             }
 
+            // ── Identifier / keyword ──────────────────────────────────────────
             if chars[i].is_alphabetic() || chars[i] == '_' {
                 let start = i;
                 while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
@@ -347,6 +363,7 @@ impl Highlighter {
                 }
                 let text: String = chars[start..i].iter().collect();
 
+                // Peek ahead to see if this identifier is followed by '('
                 let mut j = i;
                 while j < chars.len() && chars[j] == ' ' {
                     j += 1;
@@ -369,6 +386,7 @@ impl Highlighter {
                 continue;
             }
 
+            // ── Fallback: emit the character as plain text ────────────────────
             result.push(Token {
                 text: chars[i].to_string(),
                 color: self.theme.text_default,

@@ -92,6 +92,8 @@ jobs:
           files: |
             executable/fractal-compiler
             executable/fractal-editor
+            executable/install.sh
+            executable/uninstall.sh
           prerelease: false
           make_latest: true
         env:

@@ -348,34 +348,34 @@ impl DebugSession {
         let Ok(content) = fs::read_to_string(&self.debug_file) else {
             return;
         };
-        let new_part = if self.file_offset as usize <= content.len() {
-            &content[self.file_offset as usize..]
-        } else {
+        let offset = self.file_offset as usize;
+        if offset > content.len() {
             return;
-        };
-        for line in new_part.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            if let Some(snap) = parse_snapshot_line(line) {
-                let was_finished = snap.finished;
-                self.snapshots.push(snap);
-                if was_finished {
-                    self.finished = true;
+        }
+        let new_part = &content[offset..];
+        if new_part.is_empty() {
+            return;
+        }
+
+        // Walk line by line, tracking exact byte positions so the offset
+        // is always correct regardless of blank/unparseable lines.
+        let mut consumed = 0usize;
+        for raw_line in new_part.lines() {
+            // Account for the newline character(s)
+            let line_bytes = raw_line.len() + 1; // +1 for '\n'
+            let trimmed = raw_line.trim();
+            if !trimmed.is_empty() {
+                if let Some(snap) = parse_snapshot_line(trimmed) {
+                    let was_finished = snap.finished;
+                    self.snapshots.push(snap);
+                    if was_finished {
+                        self.finished = true;
+                    }
                 }
             }
+            consumed += line_bytes;
         }
-        // Recalculate file offset cleanly from consumed snapshot count.
-        let total_consumed = self.snapshots.len();
-        let mut offset = 0usize;
-        for (i, line) in content.lines().enumerate() {
-            if i >= total_consumed {
-                break;
-            }
-            offset += line.len() + 1;
-        }
-        self.file_offset = offset as u64;
+        self.file_offset = (offset + consumed) as u64;
     }
 
     pub fn total_steps(&self) -> usize {

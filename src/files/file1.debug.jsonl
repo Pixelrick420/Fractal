@@ -1,0 +1,14 @@
+{"step":0,"label":"ExprStmt","line":0,"stack":["main2"],"scopes":[{"label":"main2","vars":[]}],"output":"","finished":false,"error":null}
+{"step":1,"label":"ExprStmt","line":0,"stack":["main2"],"scopes":[{"label":"main2","vars":[]}],"output":"","finished":false,"error":null}
+{"step":2,"label":"ExprStmt","line":0,"stack":["main2"],"scopes":[{"label":"main2","vars":[]}],"output":"","finished":false,"error":null}
+{"step":3,"label":"ExprStmt","line":0,"stack":["main2"],"scopes":[{"label":"main2","vars":[]}],"output":"","finished":false,"error":null}
+{"step":4,"label":"ExprStmt","line":0,"stack":["main2"],"scopes":[{"label":"main2","vars":[]}],"output":"","finished":false,"error":null}
+{"step":5,"label":"ExprStmt","line":0,"stack":["main2"],"scopes":[{"label":"main2","vars":[]}],"output":"","finished":false,"error":null}
+{"step":6,"label":"ExprStmt","line":0,"stack":["main2"],"scopes":[{"label":"main2","vars":[]}],"output":"","finished":false,"error":null}
+{"step":7,"label":"ExprStmt","line":0,"stack":["main2"],"scopes":[{"label":"main2","vars":[]}],"output":"","finished":false,"error":null}
+{"step":8,"label":"ExprStmt","line":0,"stack":["main2"],"scopes":[{"label":"main2","vars":[]}],"output":"","finished":false,"error":null}
+{"step":9,"label":"ExprStmt","line":0,"stack":["main2"],"scopes":[{"label":"main2","vars":[]}],"output":"","finished":false,"error":null}
+{"step":10,"label":"ExprStmt","line":0,"stack":["main2"],"scopes":[{"label":"main2","vars":[]}],"output":"","finished":false,"error":null}
+{"step":11,"label":"For i","line":0,"stack":["main2"],"scopes":[{"label":"main2","vars":[]}],"output":"","finished":false,"error":null}
+{"step":12,"label":"ExprStmt","line":0,"stack":["main"],"scopes":[{"label":"main","vars":[]}],"output":"","finished":false,"error":null}
+{"step":13,"label":"Program finished","line":0,"stack":["main"],"scopes":[{"label":"main","vars":[]}],"output":"","finished":true,"error":null}

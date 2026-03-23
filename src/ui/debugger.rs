@@ -312,9 +312,6 @@ pub struct DebugSession {
     file_offset: u64,
     pub tree: Vec<TreeNode>,
     pub finished: bool,
-    /// Maps snapshot label (e.g. "Decl x", "If", "For i") → tree node id.
-    /// Built once from the tree on construction, used to highlight the
-    /// correct AST node as the debugger steps through snapshots.
     label_to_node: HashMap<String, usize>,
 }
 
@@ -322,11 +319,6 @@ impl DebugSession {
     pub fn new(root: &ParseNode, debug_file: PathBuf) -> Self {
         let tree = build_tree_table(root);
 
-        // Build label → node-id lookup.
-        // We do a *first-match* insert so that for duplicate labels (e.g. two
-        // "If" nodes) the shallowest / earliest occurrence wins initially.
-        // The real match improves incrementally as the step counter advances
-        // (see `find_node_for_label` below).
         let mut label_to_node: HashMap<String, usize> = HashMap::new();
         for node in &tree {
             label_to_node.entry(node.label.clone()).or_insert(node.id);
@@ -357,12 +349,9 @@ impl DebugSession {
             return;
         }
 
-        // Walk line by line, tracking exact byte positions so the offset
-        // is always correct regardless of blank/unparseable lines.
         let mut consumed = 0usize;
         for raw_line in new_part.lines() {
-            // Account for the newline character(s)
-            let line_bytes = raw_line.len() + 1; // +1 for '\n'
+            let line_bytes = raw_line.len() + 1;
             let trimmed = raw_line.trim();
             if !trimmed.is_empty() {
                 if let Some(snap) = parse_snapshot_line(trimmed) {
@@ -444,9 +433,6 @@ impl DebugSession {
         }
     }
 
-    // ── Private helpers ───────────────────────────────────────────────────────
-
-    /// Convert a snapshot into a DebugFrame, resolving the active AST node.
     fn snap_to_frame(&self, snap: &DebugSnapshot) -> DebugFrame {
         let active_node_id = self.find_node_for_label(&snap.label, snap.step);
         DebugFrame {
@@ -461,16 +447,7 @@ impl DebugSession {
         }
     }
 
-    /// Find the best-matching tree node id for a snapshot label.
-    ///
-    /// Strategy: the snapshot labels match the tree node labels exactly
-    /// (both are produced by the same `stmt_debug_label` / `node_label`
-    /// logic).  When there are multiple nodes with the same label (e.g. two
-    /// "If" statements) we pick the one whose *position* in the flat tree
-    /// array is closest to `step` — a cheap heuristic that works well for
-    /// sequential programs.
     fn find_node_for_label(&self, label: &str, step: usize) -> usize {
-        // Collect all node ids whose label matches.
         let candidates: Vec<usize> = self
             .tree
             .iter()
@@ -479,18 +456,12 @@ impl DebugSession {
             .collect();
 
         match candidates.len() {
-            0 => {
-                // No exact match — fall back to the first-match map.
-                self.label_to_node.get(label).copied().unwrap_or(0)
-            }
+            0 => self.label_to_node.get(label).copied().unwrap_or(0),
             1 => candidates[0],
-            _ => {
-                // Multiple matches: pick the id numerically closest to `step`.
-                candidates
-                    .into_iter()
-                    .min_by_key(|&id| (id as isize - step as isize).unsigned_abs())
-                    .unwrap_or(0)
-            }
+            _ => candidates
+                .into_iter()
+                .min_by_key(|&id| (id as isize - step as isize).unsigned_abs())
+                .unwrap_or(0),
         }
     }
 }
@@ -739,10 +710,20 @@ fn extract_vars(obj: &str) -> Vec<VarRow> {
 }
 
 fn parse_var_object(obj: &str) -> Option<VarRow> {
-    let name = extract_str(obj, "\"name\"")?;
+    let raw_name = extract_str(obj, "\"name\"")?;
     let type_label = extract_str(obj, "\"type\"").unwrap_or_default();
     let value = extract_str(obj, "\"value\"").unwrap_or_default();
     let changed = extract_bool(obj, "\"changed\"").unwrap_or(false);
+
+    // FIX: codegen emits Rust variable names prefixed with "fractal_" to avoid
+    // clashing with Rust keywords (e.g. the Fractal variable "x" becomes the
+    // Rust local "fractal_x"). Strip that prefix here so the var view always
+    // shows the original Fractal source name.
+    let name = raw_name
+        .strip_prefix("fractal_")
+        .unwrap_or(&raw_name)
+        .to_string();
+
     Some(VarRow {
         name,
         type_label,

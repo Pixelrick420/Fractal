@@ -1,12 +1,11 @@
 !start
     # code here
     :int n;
-    #input("{}", n);
-    n = 1;
+    print("Enter number:");
+    input("{}", n);
     :int n2 = n;
     :int sum = 0;
     :int temp;
-    print("{}\t", n2);
     :int count = 0;
     !while (n2 > 0) {
         count+= 1;
@@ -22,18 +21,18 @@
         !return ans;
     }
     n2 = n;
-    print("{}", n);
+
     !while (n2 > 0) {
 
         temp = n2 % 10;
         sum += power(temp, count);
         n2 /= 10;
     }
-    print("{} {}\n", count, sum);
+
     !if (sum == n) {
-        print("armstrong\n");
+        print("{} is armstrong\n", n);
     }
     !else {
-        print("not\n");
+        print("{} is not armstrong\n", n);
     }
 !end

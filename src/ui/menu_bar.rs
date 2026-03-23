@@ -513,9 +513,9 @@ pub fn show_menu_bar(
                         ui.add_space(4.0);
 
                         let tree_label = if tree_view_open {
-                            "✓  AST Tree"
+                            "✓  Abstract Syntax Tree"
                         } else {
-                            "   AST Tree"
+                            "   Abstract Syntax Tree"
                         };
                         if icon_menu_item(ui, "", tree_label, "", t) {
                             action = MenuAction::ToggleTreeView;

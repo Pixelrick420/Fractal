@@ -41,7 +41,7 @@ impl TreeViewWindow {
         let t = *theme;
         let mut open = self.open;
 
-        egui::Window::new("AST Tree")
+        egui::Window::new("Abstract Syntax Tree")
             .id(egui::Id::new("fractal_tree_view"))
             .open(&mut open)
             .default_size([460.0, 580.0])
@@ -62,7 +62,7 @@ impl TreeViewWindow {
                         ui.set_min_width(ui.available_width());
                         ui.horizontal(|ui| {
                             ui.label(
-                                egui::RichText::new("⬡  AST Tree")
+                                egui::RichText::new("⬡  Abstract Syntax Tree")
                                     .size(12.5)
                                     .color(t.tab_active_fg)
                                     .strong(),

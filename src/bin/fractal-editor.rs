@@ -1068,42 +1068,22 @@ impl eframe::App for FractalEditor {
             self.var_view_window.show(ctx, frame_ref, &theme);
         }
 
-        let debug_line: Option<usize> = {
-            if let Some(ref frame) = self.debug_frame {
-                if frame.source_line > 0 {
-                    Some(frame.source_line)
-                } else {
-                    let term = debug_search_term(&frame.step_label);
-                    let code = self.tabs.get(self.active_tab).map(|t| t.code.as_str());
-                    if !term.is_empty() {
-                        let hint = frame.active_node_id;
-                        code.and_then(|c| find_code_line_at(c, &term, hint))
-                    } else if let Some(c) = code {
-                        let step = frame.active_node_id;
-                        let _total_steps = step.max(1);
-                        let code_lines: Vec<usize> = c
-                            .lines()
-                            .enumerate()
-                            .filter(|(_, l)| {
-                                let t = l.trim();
-                                !t.is_empty() && !t.starts_with('#') && t != "!start" && t != "!end"
-                            })
-                            .map(|(i, _)| i + 1)
-                            .collect();
-                        if code_lines.is_empty() {
-                            None
-                        } else {
-                            let idx = step.min(code_lines.len().saturating_sub(1));
-                            Some(code_lines[idx])
-                        }
-                    } else {
-                        None
-                    }
-                }
-            } else {
-                None
+        // ── Debug line highlight ──────────────────────────────────────────────
+        // Priority:
+        //   1. frame.source_line > 0  — exact line from compiler snapshot
+        //   2. debug_search_term()    — text search fallback
+        //   3. None                   — no highlight
+        let debug_line: Option<usize> = self.debug_frame.as_ref().and_then(|frame| {
+            if frame.source_line > 0 {
+                return Some(frame.source_line);
             }
-        };
+            let code = self.tabs.get(self.active_tab).map(|t| t.code.as_str())?;
+            let term = debug_search_term(&frame.step_label);
+            if !term.is_empty() {
+                return find_code_line_at(code, &term, frame.active_node_id);
+            }
+            None
+        });
 
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(self.theme.editor_bg))
@@ -1188,29 +1168,36 @@ fn apply_egui_style(ctx: &egui::Context, t: &Theme) {
     ctx.set_style(s);
 }
 
+// ── Debug line-search helpers ─────────────────────────────────────────────────
+
 fn debug_search_term(label: &str) -> String {
     let parts: Vec<&str> = label.splitn(4, ' ').collect();
     match parts.as_slice() {
         [kw, name, ..] if *kw == "Decl" || *kw == "StructDecl" || *kw == "FuncDef" => {
             name.to_string()
         }
-        ["For", name, ..] => name.to_string(),
+        // FIX: For loops use "!for" as their keyword in Fractal source.
+        // Previously this returned just the loop variable name (e.g. "i"),
+        // which matched any line containing that letter as a word boundary —
+        // almost always the wrong line. Searching for "!for" finds the actual
+        // for-loop declaration line reliably.
+        ["For", ..] => "!for".to_string(),
         ["If", ..] => "!if".to_string(),
         ["While", ..] => "!while".to_string(),
         ["Return", ..] => "!return".to_string(),
         ["Break", ..] => "!break".to_string(),
         ["Continue", ..] => "!continue".to_string(),
         ["Assign", op, ..] => match *op {
-            "MinusEq" => "-=".to_string(),
-            "PlusEq" => "+=".to_string(),
-            "StarEq" => "*=".to_string(),
-            "SlashEq" => "/=".to_string(),
+            "MinusEq"   => "-=".to_string(),
+            "PlusEq"    => "+=".to_string(),
+            "StarEq"    => "*=".to_string(),
+            "SlashEq"   => "/=".to_string(),
             "PercentEq" => "%=".to_string(),
-            "AmpEq" => "&=".to_string(),
-            "PipeEq" => "|=".to_string(),
-            "CaretEq" => "^=".to_string(),
-            "Eq" => " = ".to_string(),
-            _ => String::new(),
+            "AmpEq"     => "&=".to_string(),
+            "PipeEq"    => "|=".to_string(),
+            "CaretEq"   => "^=".to_string(),
+            "Eq"        => " = ".to_string(),
+            _           => String::new(),
         },
         _ => String::new(),
     }

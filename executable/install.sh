@@ -300,10 +300,15 @@ case "$BUILD_STRATEGY" in
         ;;
 esac
 
-# ── 10b. Ensure Rust is installed ────────────────────────────────────────────
+# ── 10b. Ensure Rust + C linker are installed ───────────────────────────────
 # fractal-compiler is a transpiler: it converts .fr → .rs then calls rustc
-# to produce the final binary. rustc must be on PATH at runtime.
+# to produce the final binary. rustc AND a C linker (cc/gcc) must be on PATH.
 ensure_rust
+
+if ! command -v cc &>/dev/null && ! command -v gcc &>/dev/null; then
+    info "C linker not found — installing gcc..."
+    _install_pkg gcc
+fi
 
 # ── 11. Verify ELF magic bytes ────────────────────────────────────────────────
 if $HAS_XXD; then

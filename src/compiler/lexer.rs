@@ -669,7 +669,14 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                         'n' => '\n',
                         't' => '\t',
                         'r' => '\r',
-                        '\\' => '\\',
+                        '\'' => {
+                            emit_error(program, &map_file, byte_off!(index - 1), 2, "E006",
+                                "unnecessary escape `\\'` in string literal",
+                                "invalid escape",
+                                "inside \"...\" strings, `'` does not need escaping — write it as `'` directly");
+                            had_error = true;
+                            '\''
+                        }
                         '"' => '"',
                         '0' => '\0',
                         c => {
@@ -773,6 +780,20 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                         '\\' => '\\',
                         '\'' => '\'',
                         '0' => '\0',
+                        '"' => {
+                            emit_error(
+                                program,
+                                &map_file,
+                                byte_off!(index - 2),
+                                2,
+                                "E006",
+                                "unnecessary escape `\\\"` in char literal",
+                                "invalid escape",
+                                "inside '...' char literals, `\"` does not need escaping — write it as `\"` directly",
+                            );
+                            had_error = true;
+                            '"'
+                        }
                         _ => {
                             emit_error(
                                 program,
@@ -836,6 +857,25 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
         }
 
         if is_operator_char(chars[index]) {
+            if chars[index] == '/' && chars.get(index + 1) == Some(&'/') {
+                let comment_start = token_start;
+                while index < chars.len() && chars[index] != '\n' {
+                    map_col += 1;
+                    index += 1;
+                }
+                emit_error(
+                            program,
+                            &map_file,
+                            byte_off!(comment_start),
+                            2,
+                            "E017",
+                            "unexpected `//`",
+                            "`//` is not a comment",
+                            "use `# comment` for single-line comments, or `### ... ###` for multi-line comments",
+                        );
+                had_error = true;
+                continue;
+            }
             if index + 1 < chars.len() {
                 let two = format!("{}{}", chars[index], chars[index + 1]);
                 let result = operator_map(&two);

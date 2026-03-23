@@ -850,8 +850,22 @@ impl CodeGen {
                             if rhs_is_call {
                                 format!("{}: {}", fname, val)
                             } else {
-                                format!("{}: Some(Box::new({}))", fname, val)
+                                format!("{}: {}.clone()", fname, val)
                             }
+                        }
+                    }
+                    Some(SemType::List { .. }) => {
+                        if let ParseNode::ArrayLit(elems) = fexpr {
+                            if elems.is_empty() {
+                                format!("{}: Some(Vec::new())", fname)
+                            } else {
+                                let parts: Vec<_> =
+                                    elems.iter().map(|e| self.gen_expr(e)).collect();
+                                format!("{}: Some(vec![{}])", fname, parts.join(", "))
+                            }
+                        } else {
+                            let val = self.gen_expr(fexpr);
+                            format!("{}: Some({})", fname, val)
                         }
                     }
                     _ => {

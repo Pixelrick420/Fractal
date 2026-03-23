@@ -247,11 +247,7 @@ function ErrorDemo() {
           Fractal says:
         </div>
         <pre className={styles.errorText}>
-          {`Error on line 1: Type mismatch
-  Cannot assign string to :int variable 'age'
-
-  → Fix: :int age = 25;
-  → Or if you want text: :string age = "hello";`}
+          {`✗  1 error(s): Semantic Error: cannot initialise \`age\` (type \`:int\`) with expression of type \`:array<:char, 5>`}
         </pre>
       </div>
     </div>
@@ -822,7 +818,8 @@ export default function Home() {
         <div className={styles.sectionLabel}>// DOWNLOAD</div>
         <h2 className={styles.sectionTitle}>Start writing Fractal today.</h2>
         <p className={styles.sectionSubtitle}>
-          One command. No manual steps. The installer handles everything for you.
+          One command. No manual steps. The installer handles everything for
+          you.
         </p>
 
         <div className={styles.releaseBadge}>
@@ -852,20 +849,32 @@ export default function Home() {
 
         <div className={styles.installBlock}>
           <code className={styles.installCmd}>
-            wget -O install.sh https://raw.githubusercontent.com/Pixelrick420/Fractal/main/executable/install.sh &amp;&amp; sudo bash install.sh
+            wget -O install.sh
+            https://raw.githubusercontent.com/Pixelrick420/Fractal/main/executable/install.sh
+            &amp;&amp; sudo bash install.sh
           </code>
           <button
             className={styles.installCopyBtn}
             onClick={() => {
-              navigator.clipboard.writeText(
-                "wget -O install.sh https://raw.githubusercontent.com/Pixelrick420/Fractal/main/executable/install.sh && sudo bash install.sh"
-              ).then(() => setCopied(true)).catch(() => {});
+              navigator.clipboard
+                .writeText(
+                  "wget -O install.sh https://raw.githubusercontent.com/Pixelrick420/Fractal/main/executable/install.sh && sudo bash install.sh",
+                )
+                .then(() => setCopied(true))
+                .catch(() => {});
               setTimeout(() => setCopied(false), 2000);
             }}
           >
             {copied ? (
               <>
-                <CheckCircle size={13} style={{ display: "inline", verticalAlign: "middle", marginRight: 5 }} />
+                <CheckCircle
+                  size={13}
+                  style={{
+                    display: "inline",
+                    verticalAlign: "middle",
+                    marginRight: 5,
+                  }}
+                />
                 Copied
               </>
             ) : (
@@ -875,7 +884,8 @@ export default function Home() {
         </div>
 
         <p className={styles.installNote}>
-          Paste this into your terminal. Requires <code>wget</code> and <code>sudo</code> access.
+          Paste this into your terminal. Requires <code>wget</code> and{" "}
+          <code>sudo</code> access.
         </p>
 
         <a

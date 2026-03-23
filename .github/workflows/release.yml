@@ -113,12 +113,31 @@ jobs:
       - name: Prepare executables folder
         run: |
           mkdir -p executable
+
+          # Show what built and what's in the repo root
+          echo '--- build output ---'
+          ls -lh target/x86_64-unknown-linux-musl/release/fractal-* 2>&1 || true
+          echo '--- repo root ---'
+          ls -lh . 2>&1 || true
+
           cp target/x86_64-unknown-linux-musl/release/fractal-compiler executable/fractal-compiler
           cp target/x86_64-unknown-linux-musl/release/fractal-editor   executable/fractal-editor
           chmod +x executable/fractal-compiler executable/fractal-editor
-          # Copy installer scripts if present in the repo root
-          [[ -f install.sh   ]] && cp install.sh   executable/install.sh
-          [[ -f uninstall.sh ]] && cp uninstall.sh executable/uninstall.sh
+
+          # Copy installer scripts — search up to 2 levels deep, skip build dirs
+          for script in install.sh uninstall.sh; do
+            found=$(find . -maxdepth 2 -name "$script" \
+              -not -path './target/*' -not -path './executable/*' | head -1)
+            if [[ -n "$found" ]]; then
+              cp "$found" "executable/$script"
+              echo "Copied $found -> executable/$script"
+            else
+              echo "Warning: $script not found in repo — skipping"
+            fi
+          done
+
+          echo '--- executable/ ---'
+          ls -lh executable/
 
       - name: Compute version tag
         id: version

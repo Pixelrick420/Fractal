@@ -100,6 +100,22 @@ pub fn format_code(src: &str) -> String {
     result + "\n"
 }
 
+fn collapse_spaced_ops(s: &str) -> String {
+    const COMPOUND: &[&str] = &[
+        "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "==", "~=", ">=", "<=", "->",
+    ];
+
+    let mut out = s.to_string();
+    for op in COMPOUND {
+        let spaced = format!("{} {}", &op[..1], &op[1..]);
+
+        while let Some(pos) = out.find(&spaced) {
+            out.replace_range(pos..pos + spaced.len(), op);
+        }
+    }
+    out
+}
+
 fn expand_line(line: &str, out: &mut Vec<String>) {
     if !needs_expansion(line) {
         out.push(line.to_owned());
@@ -689,7 +705,7 @@ fn normalise_line(line: &str) -> String {
         }
     }
 
-    out.trim_end().to_string()
+    collapse_spaced_ops(out.trim_end())
 }
 
 fn ensure_space_before(out: &mut String) {

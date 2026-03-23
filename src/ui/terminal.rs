@@ -54,6 +54,17 @@ impl Terminal {
         self.minimized = false;
     }
 
+    pub fn run_binary_with_env(&mut self, bin_path: &std::path::Path, lock_path: &std::path::Path) {
+        let cmd = format!(
+            "FRACTAL_DEBUG_LOCK={} {}\n",
+            lock_path.to_string_lossy(),
+            bin_path.to_string_lossy()
+        );
+        self.backend
+            .process_command(egui_term::BackendCommand::Write(cmd.into_bytes()));
+        self.minimized = false;
+    }
+
     pub fn clear(&mut self) {
         self.backend
             .process_command(egui_term::BackendCommand::Write(b"clear\n".to_vec()));

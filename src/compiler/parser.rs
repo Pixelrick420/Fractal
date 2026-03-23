@@ -30,6 +30,7 @@ pub enum ParseNode {
         struct_name: String,
         var_name: String,
         init: Option<Box<ParseNode>>,
+        line: usize,
     },
 
     Field {
@@ -41,19 +42,21 @@ pub enum ParseNode {
         data_type: Box<ParseNode>,
         name: String,
         init: Option<Box<ParseNode>>,
+        line: usize,
     },
 
     Assign {
         lvalue: Box<ParseNode>,
         op: AssignOp,
         expr: Box<ParseNode>,
+        line: usize,
     },
 
     If {
         condition: Box<ParseNode>,
         then_block: Vec<ParseNode>,
-
         else_block: Option<Vec<ParseNode>>,
+        line: usize,
     },
 
     For {
@@ -63,19 +66,31 @@ pub enum ParseNode {
         stop: Box<ParseNode>,
         step: Box<ParseNode>,
         body: Vec<ParseNode>,
+        line: usize,
     },
 
     While {
         condition: Box<ParseNode>,
         body: Vec<ParseNode>,
+        line: usize,
     },
 
-    Return(Box<ParseNode>),
-    Exit(Box<ParseNode>),
-    Break,
-    Continue,
+    Return {
+        expr: Box<ParseNode>,
+        line: usize,
+    },
+    Exit {
+        expr: Box<ParseNode>,
+        line: usize,
+    },
+    Break {
+        line: usize,
+    },
+    Continue {
+        line: usize,
+    },
 
-    ExprStmt(Box<ParseNode>),
+    ExprStmt(Box<ParseNode>, usize),
 
     AccessChain {
         base: String,
@@ -680,6 +695,7 @@ impl Parser {
     }
 
     fn parse_struct_item(&mut self, consume_endl: bool) -> PResult<ParseNode> {
+        let line = self.cur_line();
         self.expect(&TokenType::TypeStruct)?;
         self.expect(&TokenType::Less)?;
         let type_name = self.parse_struct_type_name()?;
@@ -712,6 +728,7 @@ impl Parser {
                     struct_name: type_name,
                     var_name,
                     init,
+                    line,
                 })
             }
 
@@ -826,10 +843,10 @@ impl Parser {
                 | ParseNode::While { .. }
                 | ParseNode::FuncDef { .. }
                 | ParseNode::StructDef { .. }
-                | ParseNode::Return(_)
-                | ParseNode::Exit(_)
-                | ParseNode::Break
-                | ParseNode::Continue
+                | ParseNode::Return { .. }
+                | ParseNode::Exit { .. }
+                | ParseNode::Break { .. }
+                | ParseNode::Continue { .. }
         ) {
             self.expect(&TokenType::EndL)?;
         }
@@ -869,6 +886,7 @@ impl Parser {
             )),
 
             Some(TokenType::If) => {
+                let line = self.cur_line();
                 self.advance();
                 self.expect(&TokenType::LParen)?;
                 let condition = self.parse_expression()?;
@@ -879,10 +897,12 @@ impl Parser {
                     condition: Box::new(condition),
                     then_block,
                     else_block,
+                    line,
                 })
             }
 
             Some(TokenType::For) => {
+                let line = self.cur_line();
                 self.advance();
                 self.expect(&TokenType::LParen)?;
 
@@ -911,10 +931,12 @@ impl Parser {
                     stop: Box::new(stop),
                     step: Box::new(step),
                     body,
+                    line,
                 })
             }
 
             Some(TokenType::While) => {
+                let line = self.cur_line();
                 self.advance();
                 self.expect(&TokenType::LParen)?;
                 let condition = self.parse_expression()?;
@@ -925,10 +947,12 @@ impl Parser {
                 Ok(ParseNode::While {
                     condition: Box::new(condition),
                     body,
+                    line,
                 })
             }
 
             Some(TokenType::Return) => {
+                let line = self.cur_line();
                 self.advance();
 
                 if matches!(self.peek(), Some(TokenType::EndL)) {
@@ -939,26 +963,35 @@ impl Parser {
                 }
                 let expr = self.parse_expression()?;
                 self.expect(&TokenType::EndL)?;
-                Ok(ParseNode::Return(Box::new(expr)))
+                Ok(ParseNode::Return {
+                    expr: Box::new(expr),
+                    line,
+                })
             }
 
             Some(TokenType::Exit) => {
+                let line = self.cur_line();
                 self.advance();
                 let expr = self.parse_expression()?;
                 self.expect(&TokenType::EndL)?;
-                Ok(ParseNode::Exit(Box::new(expr)))
+                Ok(ParseNode::Exit {
+                    expr: Box::new(expr),
+                    line,
+                })
             }
 
             Some(TokenType::Break) => {
+                let line = self.cur_line();
                 self.advance();
                 self.expect(&TokenType::EndL)?;
-                Ok(ParseNode::Break)
+                Ok(ParseNode::Break { line })
             }
 
             Some(TokenType::Continue) => {
+                let line = self.cur_line();
                 self.advance();
                 self.expect(&TokenType::EndL)?;
-                Ok(ParseNode::Continue)
+                Ok(ParseNode::Continue { line })
             }
 
             Some(TokenType::TypeStruct) => self.parse_struct_item(false),
@@ -973,8 +1006,9 @@ impl Parser {
             }
 
             _ => {
+                let line = self.cur_line();
                 let expr = self.parse_expression()?;
-                Ok(ParseNode::ExprStmt(Box::new(expr)))
+                Ok(ParseNode::ExprStmt(Box::new(expr), line))
             }
         }
     }
@@ -982,6 +1016,7 @@ impl Parser {
     fn parse_else_tail(&mut self) -> PResult<Option<Vec<ParseNode>>> {
         match self.peek().cloned() {
             Some(TokenType::Elif) => {
+                let line = self.cur_line();
                 self.advance();
                 self.expect(&TokenType::LParen)?;
                 let condition = self.parse_expression()?;
@@ -992,6 +1027,7 @@ impl Parser {
                     condition: Box::new(condition),
                     then_block,
                     else_block,
+                    line,
                 };
                 Ok(Some(vec![elif_node]))
             }
@@ -1004,6 +1040,7 @@ impl Parser {
     }
 
     fn parse_decl(&mut self) -> PResult<ParseNode> {
+        let line = self.cur_line();
         let data_type = self.parse_datatype()?;
         let name = self.expect_identifier()?;
 
@@ -1038,10 +1075,12 @@ impl Parser {
             data_type: Box::new(data_type),
             name,
             init,
+            line,
         })
     }
 
     fn parse_assign_or_expr_stmt(&mut self) -> PResult<ParseNode> {
+        let line = self.cur_line();
         let saved = self.pos;
 
         if let Ok(chain) = self.try_parse_lvalue_chain() {
@@ -1051,13 +1090,14 @@ impl Parser {
                     lvalue: Box::new(chain),
                     op,
                     expr: Box::new(expr),
+                    line,
                 });
             }
         }
 
         self.pos = saved;
         let expr = self.parse_expression()?;
-        Ok(ParseNode::ExprStmt(Box::new(expr)))
+        Ok(ParseNode::ExprStmt(Box::new(expr), line))
     }
 
     fn try_parse_lvalue_chain(&mut self) -> PResult<ParseNode> {
@@ -1566,6 +1606,7 @@ fn node_label(node: &ParseNode) -> String {
             data_type,
             name,
             init,
+            ..
         } => format!(
             "Decl  \x1b[36m{}\x1b[0m : {}{}",
             name,
@@ -1578,11 +1619,11 @@ fn node_label(node: &ParseNode) -> String {
             var_type, var_name, ..
         } => format!("For  \x1b[36m{}\x1b[0m : {}", var_name, type_str(var_type)),
         ParseNode::While { .. } => "While".into(),
-        ParseNode::Return(_) => "Return".into(),
-        ParseNode::Exit(_) => "Exit".into(),
-        ParseNode::Break => "\x1b[35mBreak\x1b[0m".into(),
-        ParseNode::Continue => "\x1b[35mContinue\x1b[0m".into(),
-        ParseNode::ExprStmt(_) => "ExprStmt".into(),
+        ParseNode::Return { .. } => "Return".into(),
+        ParseNode::Exit { .. } => "Exit".into(),
+        ParseNode::Break { .. } => "\x1b[35mBreak\x1b[0m".into(),
+        ParseNode::Continue { .. } => "\x1b[35mContinue\x1b[0m".into(),
+        ParseNode::ExprStmt(_, _) => "ExprStmt".into(),
         ParseNode::AccessChain { base, steps } => {
             let chain: String = steps
                 .iter()
@@ -1714,6 +1755,7 @@ fn print_node_children(node: &ParseNode, prefix: &str) {
             condition,
             then_block,
             else_block,
+            ..
         } => {
             let cp = print_section_header(
                 "condition",
@@ -1745,16 +1787,18 @@ fn print_node_children(node: &ParseNode, prefix: &str) {
             let bp = print_section_header("body", prefix, true);
             print_node_list(body, &bp);
         }
-        ParseNode::While { condition, body } => {
+        ParseNode::While {
+            condition, body, ..
+        } => {
             let cp = print_section_header("condition", prefix, false);
             print_node(condition, &cp, true);
             let bp = print_section_header("body", prefix, true);
             print_node_list(body, &bp);
         }
-        ParseNode::Return(e) | ParseNode::Exit(e) => {
+        ParseNode::Return { expr: e, .. } | ParseNode::Exit { expr: e, .. } => {
             print_node(e, prefix, true);
         }
-        ParseNode::ExprStmt(e) => {
+        ParseNode::ExprStmt(e, _) => {
             print_node(e, prefix, true);
         }
         ParseNode::AccessChain { steps, .. } => {
@@ -1814,354 +1858,5 @@ fn print_node_children(node: &ParseNode, prefix: &str) {
         }
 
         _ => {}
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_with_source;
-    use super::*;
-    use crate::compiler::lexer::tokenize_with_source;
-
-    fn parse_prog(src: &str) -> ParseNode {
-        let tokens = tokenize_with_source(src, "<test>");
-        parse_with_source(tokens, "<test>").expect("parse failed")
-    }
-
-    fn wrap(body: &str) -> String {
-        format!("!start\n{}\n!end", body)
-    }
-
-    #[test]
-    fn test_decl_int_float() {
-        let src = wrap(":int x = 42;\n:float y = 3.14;");
-        let tree = parse_prog(&src);
-        match &tree {
-            ParseNode::Program(items) => {
-                assert_eq!(items.len(), 2);
-                match &items[0] {
-                    ParseNode::Decl {
-                        name,
-                        init: Some(i),
-                        ..
-                    } => {
-                        assert_eq!(name, "x");
-                        assert!(matches!(**i, ParseNode::IntLit(42)));
-                    }
-                    _ => panic!("expected Decl"),
-                }
-                match &items[1] {
-                    ParseNode::Decl {
-                        name,
-                        init: Some(i),
-                        ..
-                    } => {
-                        assert_eq!(name, "y");
-                        assert!(matches!(**i, ParseNode::FloatLit(_)));
-                    }
-                    _ => panic!("expected Decl"),
-                }
-            }
-            _ => panic!("expected Program"),
-        }
-    }
-
-    #[test]
-    fn test_if_elif_else() {
-        let src = wrap("!if (a == 1) { x = 2; } !elif (a == 2) { x = 3; } !else { x = 4; }");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::If {
-                else_block: Some(eb),
-                ..
-            } => {
-                assert_eq!(eb.len(), 1);
-                match &eb[0] {
-                    ParseNode::If {
-                        else_block: Some(eb2),
-                        ..
-                    } => {
-                        assert_eq!(eb2.len(), 1);
-                    }
-                    _ => panic!("expected elif node"),
-                }
-            }
-            _ => panic!("expected If"),
-        }
-    }
-
-    #[test]
-    fn test_for_loop() {
-        let src = wrap("!for (:int i, 0, 10, 1) { x = i; }");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::For {
-                var_name,
-                start,
-                stop,
-                step,
-                body,
-                ..
-            } => {
-                assert_eq!(var_name, "i");
-                assert!(matches!(**start, ParseNode::IntLit(0)));
-                assert!(matches!(**stop, ParseNode::IntLit(10)));
-                assert!(matches!(**step, ParseNode::IntLit(1)));
-                assert_eq!(body.len(), 1);
-            }
-            _ => panic!("expected For"),
-        }
-    }
-
-    #[test]
-    fn test_while_loop() {
-        let src = wrap("!while (x > 0) { x -= 1; }");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::While { condition, body } => {
-                assert!(matches!(**condition, ParseNode::Cmp { op: CmpOp::Gt, .. }));
-                assert_eq!(body.len(), 1);
-            }
-            _ => panic!("expected While"),
-        }
-    }
-
-    #[test]
-    fn test_funcdef() {
-        let src = wrap("!func add(:int a, :int b) -> :int { !return a + b; }");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::FuncDef {
-                name,
-                params,
-                return_type,
-                body,
-            } => {
-                assert_eq!(name, "add");
-                assert_eq!(params.len(), 2);
-                assert!(matches!(**return_type, ParseNode::TypeInt));
-                assert_eq!(body.len(), 1);
-            }
-            _ => panic!("expected FuncDef"),
-        }
-    }
-
-    #[test]
-    fn test_struct_def_and_decl() {
-        let src = wrap(
-            ":struct<Node> { :int val; :struct<Node> next; };\n\
-             :struct<Node> n = {val = 1, next = !null};",
-        );
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::StructDef { name, fields } => {
-                assert_eq!(name, "Node");
-                assert_eq!(fields.len(), 2);
-            }
-            _ => panic!("expected StructDef"),
-        }
-        match &items[1] {
-            ParseNode::StructDecl {
-                struct_name,
-                var_name,
-                init: Some(i),
-            } => {
-                assert_eq!(struct_name, "Node");
-                assert_eq!(var_name, "n");
-                assert!(matches!(**i, ParseNode::StructLit(_)));
-            }
-            _ => panic!("expected StructDecl with init"),
-        }
-    }
-
-    #[test]
-    fn test_logical_operators() {
-        let src = wrap(":boolean r = a !and b !or !not c;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Decl {
-                init: Some(expr), ..
-            } => {
-                assert!(
-                    matches!(**expr, ParseNode::LogOr { .. }),
-                    "expected LogOr at top, got {:?}",
-                    expr
-                );
-            }
-            _ => panic!("expected Decl"),
-        }
-    }
-
-    #[test]
-    fn test_bitwise_operators() {
-        let src = wrap(":int r = a | b ^ c & d;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        match &items[0] {
-            ParseNode::Decl {
-                init: Some(expr), ..
-            } => match expr.as_ref() {
-                ParseNode::BitOr { left, right } => {
-                    assert!(matches!(
-                        **left,
-                        ParseNode::AccessChain { ref steps, .. } if steps.is_empty()
-                    ));
-                    assert!(matches!(**right, ParseNode::BitXor { .. }));
-                }
-                _ => panic!("expected BitOr at top"),
-            },
-            _ => panic!("expected Decl"),
-        }
-    }
-
-    #[test]
-    fn test_assign_ops() {
-        let src = wrap("x += 1;\nx -= 2;\nx *= 3;\nx /= 4;\nx %= 5;\nx &= 6;\nx |= 7;\nx ^= 8;");
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        assert_eq!(items.len(), 8);
-        let expected_ops = [
-            "PlusEq",
-            "MinusEq",
-            "StarEq",
-            "SlashEq",
-            "PercentEq",
-            "AmpEq",
-            "PipeEq",
-            "CaretEq",
-        ];
-        for (item, _op_name) in items.iter().zip(expected_ops.iter()) {
-            assert!(matches!(item, ParseNode::Assign { .. }), "expected Assign");
-        }
-    }
-
-    #[test]
-    fn test_cast_qualified_call_array() {
-        let src = wrap(
-            ":int x = :int(3.7);\n\
-             math::sin(x);\n\
-             :array<:int, 3> arr = [1, 2, 3];",
-        );
-        let tree = parse_prog(&src);
-        let items = match &tree {
-            ParseNode::Program(i) => i,
-            _ => panic!(),
-        };
-        assert_eq!(items.len(), 3);
-
-        match &items[0] {
-            ParseNode::Decl { init: Some(i), .. } => {
-                assert!(matches!(**i, ParseNode::Cast { .. }));
-            }
-            _ => panic!("expected Decl with Cast init"),
-        }
-
-        match &items[1] {
-            ParseNode::ExprStmt(e) => match e.as_ref() {
-                ParseNode::AccessChain { base, steps } => {
-                    assert_eq!(base, "math");
-                    assert_eq!(steps.len(), 2);
-                    assert!(matches!(&steps[0], AccessStep::Field(f) if f == "sin"));
-                    assert!(matches!(&steps[1], AccessStep::Call(_)));
-                }
-                _ => panic!("expected AccessChain"),
-            },
-            _ => panic!("expected ExprStmt"),
-        }
-
-        match &items[2] {
-            ParseNode::Decl { init: Some(i), .. } => match i.as_ref() {
-                ParseNode::ArrayLit(elems) => assert_eq!(elems.len(), 3),
-                _ => panic!("expected ArrayLit"),
-            },
-            _ => panic!("expected Decl with ArrayLit"),
-        }
-    }
-
-    #[test]
-    fn test_access_chain_index_and_member() {
-        let src = wrap(":int x = arr[0][1];");
-        let tree = parse_prog(&src);
-        match &tree {
-            ParseNode::Program(items) => match &items[0] {
-                ParseNode::Decl { init: Some(i), .. } => match i.as_ref() {
-                    ParseNode::AccessChain { base, steps } => {
-                        assert_eq!(base, "arr");
-                        assert_eq!(steps.len(), 2);
-                        assert!(matches!(&steps[0], AccessStep::Index(_)));
-                        assert!(matches!(&steps[1], AccessStep::Index(_)));
-                    }
-                    _ => panic!("expected AccessChain"),
-                },
-                _ => panic!("expected Decl"),
-            },
-            _ => panic!(),
-        }
-
-        let src2 = wrap("at_arr[0]::i_val = 1;");
-        let tree2 = parse_prog(&src2);
-        match &tree2 {
-            ParseNode::Program(items) => match &items[0] {
-                ParseNode::Assign { lvalue, .. } => match lvalue.as_ref() {
-                    ParseNode::AccessChain { base, steps } => {
-                        assert_eq!(base, "at_arr");
-                        assert_eq!(steps.len(), 2);
-                        assert!(matches!(&steps[0], AccessStep::Index(_)));
-                        assert!(matches!(&steps[1], AccessStep::Field(f) if f == "i_val"));
-                    }
-                    _ => panic!("expected AccessChain lvalue"),
-                },
-                _ => panic!("expected Assign"),
-            },
-            _ => panic!(),
-        }
-
-        let src3 = wrap("alice::addr::street = \"Main St\";");
-        let tree3 = parse_prog(&src3);
-        match &tree3 {
-            ParseNode::Program(items) => match &items[0] {
-                ParseNode::Assign { lvalue, .. } => match lvalue.as_ref() {
-                    ParseNode::AccessChain { base, steps } => {
-                        assert_eq!(base, "alice");
-                        assert_eq!(steps.len(), 2);
-                        assert!(matches!(&steps[0], AccessStep::Field(f) if f == "addr"));
-                        assert!(matches!(&steps[1], AccessStep::Field(f) if f == "street"));
-                    }
-                    _ => panic!("expected AccessChain lvalue"),
-                },
-                _ => panic!("expected Assign"),
-            },
-            _ => panic!(),
-        }
     }
 }

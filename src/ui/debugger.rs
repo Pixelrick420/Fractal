@@ -119,6 +119,7 @@ fn children_of(n: &ParseNode) -> Vec<&ParseNode> {
             condition,
             then_block,
             else_block,
+            ..
         } => {
             let mut c = vec![condition.as_ref()];
             c.extend(then_block);
@@ -138,13 +139,15 @@ fn children_of(n: &ParseNode) -> Vec<&ParseNode> {
             c.extend(body);
             c
         }
-        ParseNode::While { condition, body } => {
+        ParseNode::While {
+            condition, body, ..
+        } => {
             let mut c = vec![condition.as_ref()];
             c.extend(body);
             c
         }
-        ParseNode::Return(e) | ParseNode::Exit(e) => vec![e.as_ref()],
-        ParseNode::ExprStmt(e) => vec![e.as_ref()],
+        ParseNode::Return { expr, .. } | ParseNode::Exit { expr, .. } => vec![expr.as_ref()],
+        ParseNode::ExprStmt(e, _) => vec![e.as_ref()],
         ParseNode::LogOr { left, right }
         | ParseNode::LogAnd { left, right }
         | ParseNode::BitOr { left, right }
@@ -186,6 +189,7 @@ fn node_label(n: &ParseNode) -> String {
             data_type,
             name,
             init,
+            ..
         } => format!(
             "Decl {} : {}{}",
             name,
@@ -196,11 +200,11 @@ fn node_label(n: &ParseNode) -> String {
         ParseNode::If { .. } => "If".into(),
         ParseNode::For { var_name, .. } => format!("For {}", var_name),
         ParseNode::While { .. } => "While".into(),
-        ParseNode::Return(_) => "Return".into(),
-        ParseNode::Exit(_) => "Exit".into(),
-        ParseNode::Break => "Break".into(),
-        ParseNode::Continue => "Continue".into(),
-        ParseNode::ExprStmt(_) => "ExprStmt".into(),
+        ParseNode::Return { .. } => "Return".into(),
+        ParseNode::Exit { .. } => "Exit".into(),
+        ParseNode::Break { .. } => "Break".into(),
+        ParseNode::Continue { .. } => "Continue".into(),
+        ParseNode::ExprStmt(_, _) => "ExprStmt".into(),
         ParseNode::AccessChain { base, steps } => {
             let chain: String = steps
                 .iter()

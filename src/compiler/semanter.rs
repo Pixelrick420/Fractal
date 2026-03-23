@@ -1509,6 +1509,7 @@ impl Analyzer {
                 data_type,
                 name,
                 init,
+                ..
             } => {
                 let decl_ty = self.resolve_type_node(data_type);
                 if matches!(decl_ty, SemType::Void) {
@@ -1651,6 +1652,7 @@ impl Analyzer {
                 struct_name,
                 var_name,
                 init,
+                ..
             } => {
                 let sem_ty = SemType::Struct(struct_name.clone());
                 if self.scopes.lookup(struct_name).is_none() {
@@ -1680,7 +1682,9 @@ impl Analyzer {
                 }
             }
 
-            ParseNode::Assign { lvalue, op, expr } => {
+            ParseNode::Assign {
+                lvalue, op, expr, ..
+            } => {
                 let lv_ty = self.infer_expr(lvalue);
 
                 let is_int_only_op = matches!(
@@ -1817,6 +1821,7 @@ impl Analyzer {
                 condition,
                 then_block,
                 else_block,
+                ..
             } => {
                 let ct = self.infer_expr(condition);
                 if !matches!(ct, SemType::Boolean | SemType::Unknown) {
@@ -1846,6 +1851,7 @@ impl Analyzer {
                 stop,
                 step,
                 body,
+                ..
             } => {
                 let vt = self.resolve_type_node(var_type);
                 if !vt.is_integer() && !matches!(vt, SemType::Unknown) {
@@ -1905,7 +1911,9 @@ impl Analyzer {
                 self.scopes.pop();
             }
 
-            ParseNode::While { condition, body } => {
+            ParseNode::While {
+                condition, body, ..
+            } => {
                 let ct = self.infer_expr(condition);
                 if !matches!(ct, SemType::Boolean | SemType::Unknown) {
                     self.error(format!(
@@ -1922,7 +1930,7 @@ impl Analyzer {
                 self.scopes.pop();
             }
 
-            ParseNode::Return(expr) => {
+            ParseNode::Return { expr, .. } => {
                 let is_null = matches!(expr.as_ref(), ParseNode::Null);
                 let ret_ty = self.infer_expr(expr);
                 if let Some(expected) = self.current_return_type.clone() {
@@ -1954,23 +1962,23 @@ impl Analyzer {
                 }
             }
 
-            ParseNode::Exit(expr) => {
+            ParseNode::Exit { expr, .. } => {
                 self.infer_expr(expr);
             }
 
-            ParseNode::Break => {
+            ParseNode::Break { .. } => {
                 if self.loop_depth == 0 {
                     self.error("`!break` used outside of a loop");
                 }
             }
 
-            ParseNode::Continue => {
+            ParseNode::Continue { .. } => {
                 if self.loop_depth == 0 {
                     self.error("`!continue` used outside of a loop");
                 }
             }
 
-            ParseNode::ExprStmt(expr) => {
+            ParseNode::ExprStmt(expr, _) => {
                 let ty = self.infer_expr(expr);
 
                 let is_call = matches!(expr.as_ref(), ParseNode::AccessChain { steps, .. }

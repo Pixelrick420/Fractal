@@ -231,16 +231,18 @@ impl CodeGen {
         self.indent();
         if self.debug_mode {
             self.line("__fractal_debug_init();");
+            self.line("let __fractal_lock_path = std::env::var(\"FRACTAL_DEBUG_LOCK\").unwrap_or_default();");
+            self.line("if !__fractal_lock_path.is_empty() { __FRACTAL_DBG_LOCK.set(__fractal_lock_path).ok(); }");
         }
         for s in &stmts {
             self.gen_stmt(s);
             if self.debug_mode {
                 if !matches!(
                     s,
-                    ParseNode::Return(_)
-                        | ParseNode::Break
-                        | ParseNode::Continue
-                        | ParseNode::Exit(_)
+                    ParseNode::Return { .. }
+                        | ParseNode::Break { .. }
+                        | ParseNode::Continue { .. }
+                        | ParseNode::Exit { .. }
                         | ParseNode::If { .. }
                         | ParseNode::While { .. }
                 ) {
@@ -407,10 +409,10 @@ impl CodeGen {
             if self.debug_mode {
                 if !matches!(
                     s,
-                    ParseNode::Return(_)
-                        | ParseNode::Break
-                        | ParseNode::Continue
-                        | ParseNode::Exit(_)
+                    ParseNode::Return { .. }
+                        | ParseNode::Break { .. }
+                        | ParseNode::Continue { .. }
+                        | ParseNode::Exit { .. }
                         | ParseNode::If { .. }
                         | ParseNode::While { .. }
                 ) {
@@ -474,6 +476,7 @@ impl CodeGen {
                 data_type,
                 name: var_name,
                 init,
+                ..
             } = s
             {
                 let ty = self.type_str(data_type);
@@ -527,10 +530,10 @@ impl CodeGen {
 
         if self.debug_mode {
             match node {
-                ParseNode::Return(_)
-                | ParseNode::Break
-                | ParseNode::Continue
-                | ParseNode::Exit(_)
+                ParseNode::Return { .. }
+                | ParseNode::Break { .. }
+                | ParseNode::Continue { .. }
+                | ParseNode::Exit { .. }
                 | ParseNode::If { .. }
                 | ParseNode::While { .. } => {
                     self.emit_snapshot(node);
@@ -543,20 +546,25 @@ impl CodeGen {
                 data_type,
                 name,
                 init,
+                ..
             } => self.gen_decl(data_type, name, init.as_deref()),
 
             ParseNode::StructDecl {
                 struct_name,
                 var_name,
                 init,
+                ..
             } => self.gen_struct_decl(struct_name, var_name, init.as_deref()),
 
-            ParseNode::Assign { lvalue, op, expr } => self.gen_assign(lvalue, op, expr),
+            ParseNode::Assign {
+                lvalue, op, expr, ..
+            } => self.gen_assign(lvalue, op, expr),
 
             ParseNode::If {
                 condition,
                 then_block,
                 else_block,
+                ..
             } => self.gen_if(condition, then_block, else_block.as_deref()),
 
             ParseNode::For {
@@ -566,9 +574,12 @@ impl CodeGen {
                 stop,
                 step,
                 body,
-            } => self.gen_for(var_type, var_name, start, stop, step, body),
+                line,
+            } => self.gen_for(var_type, var_name, start, stop, step, body, *line),
 
-            ParseNode::While { condition, body } => {
+            ParseNode::While {
+                condition, body, ..
+            } => {
                 let c = self.gen_expr(condition);
                 self.line(&format!("while {} {{", c));
                 self.indent();
@@ -577,10 +588,10 @@ impl CodeGen {
                     if self.debug_mode {
                         if !matches!(
                             s,
-                            ParseNode::Return(_)
-                                | ParseNode::Break
-                                | ParseNode::Continue
-                                | ParseNode::Exit(_)
+                            ParseNode::Return { .. }
+                                | ParseNode::Break { .. }
+                                | ParseNode::Continue { .. }
+                                | ParseNode::Exit { .. }
                                 | ParseNode::If { .. }
                                 | ParseNode::While { .. }
                         ) {
@@ -596,7 +607,7 @@ impl CodeGen {
                 }
             }
 
-            ParseNode::Return(expr) => match expr.as_ref() {
+            ParseNode::Return { expr, .. } => match expr.as_ref() {
                 ParseNode::Null => {
                     if self.current_return_void {
                         self.line("return;");
@@ -659,15 +670,15 @@ impl CodeGen {
                 }
             },
 
-            ParseNode::Exit(expr) => {
+            ParseNode::Exit { expr, .. } => {
                 let e = self.gen_expr(expr);
                 self.line(&format!("std::process::exit({} as i32);", e));
             }
 
-            ParseNode::Break => self.line("break;"),
-            ParseNode::Continue => self.line("continue;"),
+            ParseNode::Break { .. } => self.line("break;"),
+            ParseNode::Continue { .. } => self.line("continue;"),
 
-            ParseNode::ExprStmt(e) => {
+            ParseNode::ExprStmt(e, _) => {
                 self.gen_call_stmt(e);
             }
 
@@ -1140,10 +1151,10 @@ impl CodeGen {
             if self.debug_mode {
                 if !matches!(
                     s,
-                    ParseNode::Return(_)
-                        | ParseNode::Break
-                        | ParseNode::Continue
-                        | ParseNode::Exit(_)
+                    ParseNode::Return { .. }
+                        | ParseNode::Break { .. }
+                        | ParseNode::Continue { .. }
+                        | ParseNode::Exit { .. }
                         | ParseNode::If { .. }
                         | ParseNode::While { .. }
                 ) {
@@ -1163,6 +1174,7 @@ impl CodeGen {
                     condition: ec,
                     then_block: et,
                     else_block: ee,
+                    ..
                 }] = eb
                 {
                     let ec_s = self.gen_expr(ec);
@@ -1174,10 +1186,10 @@ impl CodeGen {
                         if self.debug_mode {
                             if !matches!(
                                 s,
-                                ParseNode::Return(_)
-                                    | ParseNode::Break
-                                    | ParseNode::Continue
-                                    | ParseNode::Exit(_)
+                                ParseNode::Return { .. }
+                                    | ParseNode::Break { .. }
+                                    | ParseNode::Continue { .. }
+                                    | ParseNode::Exit { .. }
                                     | ParseNode::If { .. }
                                     | ParseNode::While { .. }
                             ) {
@@ -1196,10 +1208,10 @@ impl CodeGen {
                         if self.debug_mode {
                             if !matches!(
                                 s,
-                                ParseNode::Return(_)
-                                    | ParseNode::Break
-                                    | ParseNode::Continue
-                                    | ParseNode::Exit(_)
+                                ParseNode::Return { .. }
+                                    | ParseNode::Break { .. }
+                                    | ParseNode::Continue { .. }
+                                    | ParseNode::Exit { .. }
                                     | ParseNode::If { .. }
                                     | ParseNode::While { .. }
                             ) {
@@ -1216,17 +1228,18 @@ impl CodeGen {
 
     fn gen_stmt_for_body(&mut self, node: &ParseNode, var_name: &str, step_expr: &str) {
         match node {
-            ParseNode::Continue => {
+            ParseNode::Continue { .. } => {
                 self.line(&format!("{} += {};", var_name, step_expr));
                 self.line("continue;");
             }
-            ParseNode::Break => {
+            ParseNode::Break { .. } => {
                 self.line("break;");
             }
             ParseNode::If {
                 condition,
                 then_block,
                 else_block,
+                ..
             } => {
                 self.gen_if_for_body(
                     condition,
@@ -1243,10 +1256,13 @@ impl CodeGen {
                 stop,
                 step,
                 body,
+                line,
             } => {
-                self.gen_for(var_type, inner_vn, start, stop, step, body);
+                self.gen_for(var_type, inner_vn, start, stop, step, body, *line);
             }
-            ParseNode::While { condition, body } => {
+            ParseNode::While {
+                condition, body, ..
+            } => {
                 let c = self.gen_expr(condition);
                 self.line(&format!("while {} {{", c));
                 self.indent();
@@ -1293,6 +1309,7 @@ impl CodeGen {
                     condition: ec,
                     then_block: et,
                     else_block: ee,
+                    ..
                 }] = eb
                 {
                     let ec_s = self.gen_expr(ec);
@@ -1326,6 +1343,7 @@ impl CodeGen {
         stop: &ParseNode,
         step: &ParseNode,
         body: &[ParseNode],
+        for_line: usize,
     ) {
         let is_predeclared = matches!(var_type, ParseNode::TypeVoid);
         let ty = if is_predeclared {
@@ -1357,22 +1375,24 @@ impl CodeGen {
             let func = self.debug_current_func.clone();
             let vars_code = self.build_vars_json_code();
             let snap = format!(
-                "__fractal_debug_snapshot!(\"{lb}\", \"{fc}\", 0, [{vrs}], false, None::<&str>);",
+                "__fractal_debug_snapshot!(\"{lb}\", \"{fc}\", {ln}, [{vrs}], false, None::<&str>);",
                 lb = for_label,
                 fc = func,
+                ln = for_line,
                 vrs = vars_code,
             );
             self.line(&snap);
+            self.line("__fractal_debug_wait();");
         }
         for stmt in body {
             self.gen_stmt_for_body(stmt, &vn, &sp_s);
             if self.debug_mode {
                 if !matches!(
                     stmt,
-                    ParseNode::Return(_)
-                        | ParseNode::Break
-                        | ParseNode::Continue
-                        | ParseNode::Exit(_)
+                    ParseNode::Return { .. }
+                        | ParseNode::Break { .. }
+                        | ParseNode::Continue { .. }
+                        | ParseNode::Exit { .. }
                         | ParseNode::If { .. }
                         | ParseNode::While { .. }
                 ) {
@@ -2241,6 +2261,7 @@ impl CodeGen {
             vrs = vars_code,
         );
         self.line(&line);
+        self.line("__fractal_debug_wait();");
     }
 
     fn build_vars_json_code(&self) -> String {
@@ -2269,9 +2290,11 @@ impl CodeGen {
         self.line("static __FRACTAL_DBG_INIT: Once = Once::new();");
         self.line("#[allow(clippy::type_complexity)]");
         self.line("static __FRACTAL_DBG_FILE: Mutex<Option<__DbgBufWriter<__DbgFile>>> = Mutex::new(None);");
-
         self.line("static __FRACTAL_DBG_PREV: std::sync::OnceLock<Mutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();");
         self.line("static __FRACTAL_DBG_STEP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);");
+        self.line(
+            "static __FRACTAL_DBG_LOCK: std::sync::OnceLock<String> = std::sync::OnceLock::new();",
+        );
         self.blank();
 
         self.line("fn __fractal_debug_init() {");
@@ -2286,6 +2309,22 @@ impl CodeGen {
         self.line("*__FRACTAL_DBG_FILE.lock().unwrap() = Some(__DbgBufWriter::new(__f));");
         self.dedent();
         self.line("});");
+        self.dedent();
+        self.line("}");
+        self.blank();
+
+        self.line("fn __fractal_debug_wait() {");
+        self.indent();
+        self.line("if let Some(path) = __FRACTAL_DBG_LOCK.get() {");
+        self.indent();
+        self.line("let _ = std::fs::write(path, \"\");");
+        self.line("while std::fs::metadata(path).is_ok() {");
+        self.indent();
+        self.line("std::thread::sleep(std::time::Duration::from_millis(10));");
+        self.dedent();
+        self.line("}");
+        self.dedent();
+        self.line("}");
         self.dedent();
         self.line("}");
         self.blank();
@@ -2408,6 +2447,7 @@ fn stmt_debug_label(node: &ParseNode) -> String {
             name,
             data_type,
             init,
+            ..
         } => format!(
             "Decl {} : {}{}",
             name,
@@ -2425,15 +2465,26 @@ fn stmt_debug_label(node: &ParseNode) -> String {
         ParseNode::If { .. } => "If".into(),
         ParseNode::For { var_name, .. } => format!("For {}", var_name),
         ParseNode::While { .. } => "While".into(),
-        ParseNode::Return(_) => "Return".into(),
-        ParseNode::Exit(_) => "Exit".into(),
-        ParseNode::ExprStmt(_) => "ExprStmt".into(),
+        ParseNode::Return { .. } => "Return".into(),
+        ParseNode::Exit { .. } => "Exit".into(),
+        ParseNode::ExprStmt(_, _) => "ExprStmt".into(),
         _ => "stmt".into(),
     }
 }
 
 fn stmt_source_line(node: &ParseNode) -> usize {
     match node {
+        ParseNode::Decl { line, .. } => *line,
+        ParseNode::StructDecl { line, .. } => *line,
+        ParseNode::Assign { line, .. } => *line,
+        ParseNode::If { line, .. } => *line,
+        ParseNode::For { line, .. } => *line,
+        ParseNode::While { line, .. } => *line,
+        ParseNode::Return { line, .. } => *line,
+        ParseNode::Exit { line, .. } => *line,
+        ParseNode::Break { line } => *line,
+        ParseNode::Continue { line } => *line,
+        ParseNode::ExprStmt(_, line) => *line,
         _ => 0,
     }
 }

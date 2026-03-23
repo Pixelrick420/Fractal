@@ -105,6 +105,7 @@ struct FractalEditor {
     debug_session: Option<DebugSession>,
     debug_frame: Option<DebugFrame>,
     debug_jsonl_path: Option<PathBuf>,
+    debug_lock_path: Option<PathBuf>,
     debug_binary_running: bool,
     pending_debug_source: Option<PathBuf>,
     tree_view_window: TreeViewWindow,
@@ -151,6 +152,7 @@ impl FractalEditor {
             debug_session: None,
             debug_frame: None,
             debug_jsonl_path: None,
+            debug_lock_path: None,
             debug_binary_running: false,
             pending_debug_source: None,
             tree_view_window: TreeViewWindow::new(),
@@ -510,7 +512,9 @@ impl FractalEditor {
                 CompileResult::Success(_bin_path) => {}
                 CompileResult::DebugSuccess(bin_path, jsonl_path) => {
                     self.start_debug_session_from_source(&jsonl_path, ctx);
-                    self.terminal.run_binary(&bin_path);
+                    let lock_path = jsonl_path.with_extension("lock");
+                    self.debug_lock_path = Some(lock_path.clone());
+                    self.terminal.run_binary_with_env(&bin_path, &lock_path);
                     self.terminal.minimized = false;
                     self.debug_binary_running = true;
                     self.debug_jsonl_path = Some(jsonl_path);
@@ -612,6 +616,11 @@ impl FractalEditor {
                     Some("Waiting for program output… (is input expected?)".into());
             }
             Some(frame) => {
+                // Delete the lock file so the program can advance to the next statement.
+                if let Some(ref path) = self.debug_lock_path {
+                    let _ = std::fs::remove_file(path);
+                }
+
                 self.var_view_window.push_output(&frame.buffered_output);
 
                 let finished = frame.finished;
@@ -622,11 +631,18 @@ impl FractalEditor {
                 if finished {
                     self.success_message = Some("Debug: program finished.".into());
                     self.debug_binary_running = false;
+                    // Clean up lock file if somehow still present
+                    if let Some(ref path) = self.debug_lock_path {
+                        let _ = std::fs::remove_file(path);
+                    }
                 } else if errored {
                     let msg = err_msg.unwrap_or_else(|| "Runtime error".into());
                     self.error_message = Some(format!("Debug fault: {msg}"));
                     self.debug_session = None;
                     self.debug_binary_running = false;
+                    if let Some(ref path) = self.debug_lock_path {
+                        let _ = std::fs::remove_file(path);
+                    }
                 }
             }
         }
@@ -636,9 +652,14 @@ impl FractalEditor {
         if let Some(ref path) = self.debug_jsonl_path {
             let _ = fs::remove_file(path);
         }
+        // Unblock the waiting program so it can exit cleanly
+        if let Some(ref path) = self.debug_lock_path {
+            let _ = fs::remove_file(path);
+        }
         self.debug_session = None;
         self.debug_frame = None;
         self.debug_jsonl_path = None;
+        self.debug_lock_path = None;
         self.debug_binary_running = false;
         self.var_view_window.clear_output();
         self.success_message = Some("Debug session stopped.".into());

@@ -20,8 +20,8 @@ fn block_contains_exit_no_break(stmts: &[ParseNode]) -> bool {
 
 fn node_contains_exit_no_break(node: &ParseNode) -> bool {
     match node {
-        ParseNode::Return(_) | ParseNode::Exit(_) => true,
-        ParseNode::Break => false,
+        ParseNode::Return { .. } | ParseNode::Exit { .. } => true,
+        ParseNode::Break { .. } => false,
         ParseNode::If {
             then_block,
             else_block,
@@ -42,7 +42,7 @@ fn node_contains_exit_no_break(node: &ParseNode) -> bool {
 
 fn stmt_always_returns(node: &ParseNode) -> bool {
     match node {
-        ParseNode::Return(_) | ParseNode::Exit(_) => true,
+        ParseNode::Return { .. } | ParseNode::Exit { .. } => true,
 
         ParseNode::If {
             then_block,
@@ -57,7 +57,9 @@ fn stmt_always_returns(node: &ParseNode) -> bool {
             then_returns && else_returns
         }
 
-        ParseNode::While { condition, body } => {
+        ParseNode::While {
+            condition, body, ..
+        } => {
             matches!(condition.as_ref(), ParseNode::BoolLit(true))
                 && block_contains_exit_no_break(body)
         }

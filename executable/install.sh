@@ -300,6 +300,11 @@ case "$BUILD_STRATEGY" in
         ;;
 esac
 
+# ── 10b. Ensure Rust is installed ────────────────────────────────────────────
+# fractal-compiler is a transpiler: it converts .fr → .rs then calls rustc
+# to produce the final binary. rustc must be on PATH at runtime.
+ensure_rust
+
 # ── 11. Verify ELF magic bytes ────────────────────────────────────────────────
 if $HAS_XXD; then
     info "Verifying binaries..."

@@ -1006,6 +1006,28 @@ impl Parser {
     fn parse_decl(&mut self) -> PResult<ParseNode> {
         let data_type = self.parse_datatype()?;
         let name = self.expect_identifier()?;
+
+        let compound_op = match self.peek() {
+            Some(TokenType::PlusEquals) => Some("+="),
+            Some(TokenType::MinusEquals) => Some("-="),
+            Some(TokenType::StarEquals) => Some("*="),
+            Some(TokenType::SlashEquals) => Some("/="),
+            Some(TokenType::PercentEquals) => Some("%="),
+            Some(TokenType::AmpersandEquals) => Some("&="),
+            Some(TokenType::PipeEquals) => Some("|="),
+            Some(TokenType::CaretEquals) => Some("^="),
+            _ => None,
+        };
+        if let Some(op) = compound_op {
+            return Err(self.err(format!(
+                "`{name}` has not been declared yet, so `{op}` is not valid here\n   \
+                 note: `{op}` requires the variable to already exist — \
+                 you cannot declare and compound-assign in one step\n   \
+                 hint: to declare with an initial value use `=`:  `:int {name} = <expr>;`\n   \
+                 hint: if `{name}` was declared earlier, remove the type prefix: `{name} {op} <expr>;`"
+            )));
+        }
+
         let init = if matches!(self.peek(), Some(TokenType::Equals)) {
             self.advance();
             Some(Box::new(self.parse_expression()?))

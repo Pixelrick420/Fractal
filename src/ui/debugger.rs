@@ -3,8 +3,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-// ─── Value type (kept for AST eval preview only) ─────────────────────────────
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum FractalValue {
     Int(i64),
@@ -57,8 +55,6 @@ impl FractalValue {
         }
     }
 }
-
-// ─── AST Tree ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct TreeNode {
@@ -263,8 +259,6 @@ fn type_str(n: &ParseNode) -> String {
     }
 }
 
-// ─── Debug snapshot (read from file) ─────────────────────────────────────────
-
 #[derive(Debug, Clone)]
 pub struct DebugSnapshot {
     pub step: usize,
@@ -303,8 +297,6 @@ pub struct DebugFrame {
     pub buffered_output: String,
 }
 
-// ─── Debug session ────────────────────────────────────────────────────────────
-
 pub struct DebugSession {
     debug_file: PathBuf,
     snapshots: Vec<DebugSnapshot>,
@@ -335,7 +327,6 @@ impl DebugSession {
         }
     }
 
-    /// Poll the debug file for new snapshots without advancing the cursor.
     pub fn poll_file(&mut self) {
         let Ok(content) = fs::read_to_string(&self.debug_file) else {
             return;
@@ -387,8 +378,6 @@ impl DebugSession {
         self.snap_to_frame(&self.snapshots[idx])
     }
 
-    /// Advance cursor by one and return the new frame.
-    /// Returns None if no new snapshot is available yet.
     pub fn step(&mut self) -> Option<DebugFrame> {
         if self.cursor >= self.snapshots.len() {
             return None;
@@ -478,8 +467,6 @@ fn placeholder_frame() -> DebugFrame {
         buffered_output: String::new(),
     }
 }
-
-// ─── JSON snapshot parser ─────────────────────────────────────────────────────
 
 fn parse_snapshot_line(line: &str) -> Option<DebugSnapshot> {
     let step = extract_u64(line, "\"step\"")?;
@@ -715,10 +702,6 @@ fn parse_var_object(obj: &str) -> Option<VarRow> {
     let value = extract_str(obj, "\"value\"").unwrap_or_default();
     let changed = extract_bool(obj, "\"changed\"").unwrap_or(false);
 
-    // FIX: codegen emits Rust variable names prefixed with "fractal_" to avoid
-    // clashing with Rust keywords (e.g. the Fractal variable "x" becomes the
-    // Rust local "fractal_x"). Strip that prefix here so the var view always
-    // shows the original Fractal source name.
     let name = raw_name
         .strip_prefix("fractal_")
         .unwrap_or(&raw_name)

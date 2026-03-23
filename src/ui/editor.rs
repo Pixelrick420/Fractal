@@ -16,8 +16,6 @@ impl CodeEditor {
         self.theme = theme;
     }
 
-    /// `debug_line` is 1-based source line number to highlight.
-    /// Pass `None` when not in a debug session, `Some(0)` to highlight nothing.
     pub fn show_with_id(
         &mut self,
         ui: &mut egui::Ui,
@@ -61,91 +59,13 @@ impl CodeEditor {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.horizontal_top(|ui| {
-                    // ── Line number gutter ────────────────────────────────────
                     if show_line_numbers {
-                        egui::Frame::new()
-                            .fill(self.theme.line_numbers_bg)
-                            .inner_margin(egui::Margin::symmetric(8, 8))
-                            .show(ui, |ui| {
-                                ui.set_width(line_num_width);
-                                ui.style_mut().override_text_style =
-                                    Some(egui::TextStyle::Monospace);
-                                ui.vertical(|ui| {
-                                    // FIX: always allocate the same row height for every
-                                    // line regardless of whether it is the debug line.
-                                    // Previously, the debug-line branch called
-                                    // allocate_exact_size() but did NOT push a label
-                                    // through the UI layout, so the internal cursor
-                                    // advanced by a different amount than the normal
-                                    // ui.label() path. This caused a one-row shift
-                                    // between the gutter and the code area, making the
-                                    // gutter highlight appear on the wrong line number.
-                                    let row_h = font_size + 4.0; // match label height
-                                    for n in 1..=line_count {
-                                        let is_debug_line =
-                                            debug_line.map(|d| d > 0 && d == n).unwrap_or(false);
-
-                                        // Allocate a consistent fixed-height rect for
-                                        // every row so the gutter and text area stay
-                                        // perfectly in sync.
-                                        let (row_rect, _) = ui.allocate_exact_size(
-                                            egui::vec2(line_num_width - 16.0, row_h),
-                                            egui::Sense::hover(),
-                                        );
-
-                                        if is_debug_line {
-                                            // Accent background across the full gutter cell
-                                            ui.painter().rect_filled(
-                                                row_rect.expand2(egui::vec2(8.0, 1.0)),
-                                                egui::CornerRadius::same(2),
-                                                egui::Color32::from_rgba_premultiplied(
-                                                    theme.accent.r(),
-                                                    theme.accent.g(),
-                                                    theme.accent.b(),
-                                                    70,
-                                                ),
-                                            );
-                                            // Arrow indicator on the left
-                                            ui.painter().text(
-                                                egui::pos2(
-                                                    row_rect.left() + 2.0,
-                                                    row_rect.center().y,
-                                                ),
-                                                egui::Align2::LEFT_CENTER,
-                                                "▶",
-                                                egui::FontId::proportional(font_size - 3.0),
-                                                theme.accent,
-                                            );
-                                            // Line number in accent colour
-                                            ui.painter().text(
-                                                egui::pos2(
-                                                    row_rect.right() - 2.0,
-                                                    row_rect.center().y,
-                                                ),
-                                                egui::Align2::RIGHT_CENTER,
-                                                format!("{:>width$}", n, width = width_chars),
-                                                egui::FontId::monospace(font_size - 1.0),
-                                                theme.accent,
-                                            );
-                                        } else {
-                                            // Normal line number in muted colour
-                                            ui.painter().text(
-                                                egui::pos2(
-                                                    row_rect.right() - 2.0,
-                                                    row_rect.center().y,
-                                                ),
-                                                egui::Align2::RIGHT_CENTER,
-                                                format!("{:>width$}", n, width = width_chars),
-                                                egui::FontId::monospace(font_size - 1.0),
-                                                self.theme.line_numbers_fg,
-                                            );
-                                        }
-                                    }
-                                });
-                            });
+                        let (_, _) = ui.allocate_exact_size(
+                            egui::vec2(line_num_width, ui.available_height()),
+                            egui::Sense::hover(),
+                        );
                     }
 
-                    // ── Text editor ───────────────────────────────────────────
                     let text_edit = egui::TextEdit::multiline(code)
                         .id(text_edit_id)
                         .font(egui::TextStyle::Monospace)
@@ -157,25 +77,91 @@ impl CodeEditor {
 
                     let mut output = text_edit.show(ui);
 
-                    // ── Debug line highlight ──────────────────────────────────
-                    // galley_pos is the screen-space origin of the text.
-                    // row.rect() is relative to that origin.
-                    // Stretch the highlight across the full clip rect width.
+                    if show_line_numbers {
+                        let gpos = output.galley_pos;
+                        let rows = &output.galley.rows;
+                        let painter = ui.painter();
+
+                        let gutter_rect = egui::Rect::from_min_size(
+                            egui::pos2(gpos.x - line_num_width, gpos.y),
+                            egui::vec2(line_num_width, output.response.rect.height()),
+                        );
+
+                        painter.rect_filled(
+                            gutter_rect,
+                            egui::CornerRadius::ZERO,
+                            theme.line_numbers_bg,
+                        );
+
+                        for (i, row) in rows.iter().enumerate() {
+                            let line_num = i + 1;
+                            if line_num > line_count {
+                                break;
+                            }
+
+                            let row_rect = row.rect();
+
+                            let row_top = gpos.y + row_rect.min.y;
+                            let row_bottom = gpos.y + row_rect.max.y;
+                            let row_mid_y = (row_top + row_bottom) * 0.5;
+
+                            let is_debug_line =
+                                debug_line.map(|d| d > 0 && d == line_num).unwrap_or(false);
+
+                            if is_debug_line {
+                                let cell = egui::Rect::from_min_max(
+                                    egui::pos2(gutter_rect.min.x, row_top),
+                                    egui::pos2(gutter_rect.max.x, row_bottom),
+                                );
+                                painter.rect_filled(
+                                    cell,
+                                    egui::CornerRadius::same(2),
+                                    egui::Color32::from_rgba_premultiplied(
+                                        theme.accent.r(),
+                                        theme.accent.g(),
+                                        theme.accent.b(),
+                                        70,
+                                    ),
+                                );
+                                painter.text(
+                                    egui::pos2(gutter_rect.min.x + 10.0, row_mid_y),
+                                    egui::Align2::LEFT_CENTER,
+                                    "▶",
+                                    egui::FontId::proportional(font_size - 3.0),
+                                    theme.accent,
+                                );
+                                painter.text(
+                                    egui::pos2(gutter_rect.max.x - 8.0, row_mid_y),
+                                    egui::Align2::RIGHT_CENTER,
+                                    format!("{:>width$}", line_num, width = width_chars),
+                                    egui::FontId::monospace(font_size - 1.0),
+                                    theme.accent,
+                                );
+                            } else {
+                                painter.text(
+                                    egui::pos2(gutter_rect.max.x - 8.0, row_mid_y),
+                                    egui::Align2::RIGHT_CENTER,
+                                    format!("{:>width$}", line_num, width = width_chars),
+                                    egui::FontId::monospace(font_size - 1.0),
+                                    theme.line_numbers_fg,
+                                );
+                            }
+                        }
+                    }
+
                     if let Some(line_num) = debug_line {
                         if line_num > 0 {
                             let gpos = output.galley_pos;
                             let rows = &output.galley.rows;
                             if let Some(row) = rows.get(line_num.saturating_sub(1)) {
                                 let rr = row.rect();
-                                let row_top    = gpos.y + rr.min.y;
+                                let row_top = gpos.y + rr.min.y;
                                 let row_bottom = gpos.y + rr.max.y;
                                 let clip = ui.clip_rect();
                                 let highlight_rect = egui::Rect::from_min_max(
-                                    egui::pos2(clip.left(),  row_top),
+                                    egui::pos2(clip.left(), row_top),
                                     egui::pos2(clip.right(), row_bottom),
                                 );
-
-                                // Background fill
                                 ui.painter().rect_filled(
                                     highlight_rect,
                                     egui::CornerRadius::same(2),
@@ -186,7 +172,6 @@ impl CodeEditor {
                                         45,
                                     ),
                                 );
-                                // Left border stripe
                                 ui.painter().rect_filled(
                                     egui::Rect::from_min_size(
                                         highlight_rect.min,
@@ -195,8 +180,6 @@ impl CodeEditor {
                                     egui::CornerRadius::same(1),
                                     theme.accent,
                                 );
-
-                                // Auto-scroll to keep highlighted line visible
                                 ui.scroll_to_rect(
                                     highlight_rect.expand2(egui::vec2(0.0, font_size * 3.0)),
                                     None,
@@ -205,7 +188,6 @@ impl CodeEditor {
                         }
                     }
 
-                    // ── Search / selection highlight ──────────────────────────
                     if let Some((byte_start, byte_end)) = select_range {
                         let char_start = byte_offset_to_char_index(code, byte_start);
                         let char_end = byte_offset_to_char_index(code, byte_end);
@@ -266,9 +248,7 @@ impl CodeEditor {
                         ui.scroll_to_rect(padded, None);
                     }
 
-                    // ── Auto-indent on Enter ──────────────────────────────────
-                    if output.response.has_focus()
-                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                    if output.response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
                     {
                         if let Some(cursor_range) = output.cursor_range {
                             let pos = cursor_range.primary.index;

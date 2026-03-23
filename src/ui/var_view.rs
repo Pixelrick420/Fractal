@@ -36,38 +36,32 @@ impl VarViewWindow {
         let output = self.output_history.clone();
         let mut open = self.open;
 
-        // ── Contrast-safe palette ─────────────────────────────────────────────
-        // All colours are fully opaque or high-alpha so they read in both
-        // dark (panel_bg ≈ #161B22) and light (panel_bg ≈ #EEF0F6) themes.
-        let body_text  = t.tab_active_fg;   // primary text — always readable
-        let muted_text = t.tab_inactive_fg; // secondary labels
-        // value_col: tab_active_fg is the primary text colour, always
-        // readable on panel_bg in both dark and light themes
-        let value_col  = t.tab_active_fg;
-        // Changed highlight: use a clearly visible solid tint.
-        // Mix amber into panel_bg at 30% so it's unmissable but not garish.
+        let body_text = t.tab_active_fg;
+        let muted_text = t.tab_inactive_fg;
+
+        let value_col = t.tab_active_fg;
+
         let changed_bg = {
             let a = t.tab_dirty_dot;
             let b = t.panel_bg;
-            // Manual 30% blend: result = a*0.3 + b*0.7
+
             egui::Color32::from_rgb(
                 ((a.r() as u16 * 80 + b.r() as u16 * 175) / 255) as u8,
                 ((a.g() as u16 * 80 + b.g() as u16 * 175) / 255) as u8,
                 ((a.b() as u16 * 80 + b.b() as u16 * 175) / 255) as u8,
             )
         };
-        let changed_fg = t.tab_dirty_dot;   // amber/orange — readable on any bg
-        // Alternate row tint — subtle, just enough to distinguish rows
+        let changed_fg = t.tab_dirty_dot;
+
         let alt_row = {
             use crate::ui::theme::ThemeVariant;
             match t.variant {
-                ThemeVariant::Dark  => egui::Color32::from_rgba_premultiplied(255, 255, 255, 18),
-                ThemeVariant::Light => egui::Color32::from_rgba_premultiplied(0,   0,   0,   22),
+                ThemeVariant::Dark => egui::Color32::from_rgba_premultiplied(255, 255, 255, 18),
+                ThemeVariant::Light => egui::Color32::from_rgba_premultiplied(0, 0, 0, 22),
             }
         };
-        let accent_bg  = egui::Color32::from_rgba_premultiplied(
-            t.accent.r(), t.accent.g(), t.accent.b(), 22,
-        );
+        let accent_bg =
+            egui::Color32::from_rgba_premultiplied(t.accent.r(), t.accent.g(), t.accent.b(), 22);
 
         egui::Window::new("Variable State")
             .id(egui::Id::new("fractal_var_view"))
@@ -85,7 +79,6 @@ impl VarViewWindow {
             .show(ctx, |ui| {
                 ui.set_min_width(240.0);
 
-                // ── Step label banner ─────────────────────────────────────
                 egui::Frame::new()
                     .fill(accent_bg)
                     .inner_margin(egui::Margin::symmetric(12, 6))
@@ -98,13 +91,10 @@ impl VarViewWindow {
                                 String::new()
                             };
                             ui.label(
-                                egui::RichText::new(format!(
-                                    "▶  {}{}",
-                                    frame.step_label, line_txt
-                                ))
-                                .size(11.0)
-                                .color(t.accent)
-                                .monospace(),
+                                egui::RichText::new(format!("▶  {}{}", frame.step_label, line_txt))
+                                    .size(11.0)
+                                    .color(t.accent)
+                                    .monospace(),
                             );
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -116,24 +106,19 @@ impl VarViewWindow {
                                     } else {
                                         ("running", t.struct_name)
                                     };
-                                    ui.label(
-                                        egui::RichText::new(status)
-                                            .size(10.0)
-                                            .color(col),
-                                    );
+                                    ui.label(egui::RichText::new(status).size(10.0).color(col));
                                 },
                             );
                         });
                     });
 
-                // Separator
                 let (sep, _) = ui.allocate_exact_size(
                     egui::vec2(ui.available_width(), 1.0),
                     egui::Sense::hover(),
                 );
-                ui.painter().rect_filled(sep, egui::CornerRadius::ZERO, t.border);
+                ui.painter()
+                    .rect_filled(sep, egui::CornerRadius::ZERO, t.border);
 
-                // ── Scrollable body ───────────────────────────────────────
                 egui::ScrollArea::vertical()
                     .id_salt("var_view_scroll")
                     .auto_shrink([false; 2])
@@ -157,7 +142,6 @@ impl VarViewWindow {
                         for (idx, scope) in scopes.iter().enumerate() {
                             let is_top = idx == 0;
 
-                            // Scope label
                             ui.horizontal(|ui| {
                                 ui.add_space(10.0);
                                 let hdr_text = if scope.label == "global" {
@@ -185,11 +169,13 @@ impl VarViewWindow {
                                     );
                                 });
                             } else {
-                                // Use vertical layout with left padding so the
-                                // table stacks rows top-to-bottom, not side-by-side.
                                 ui.add_space(2.0);
-                                let indent = egui::Frame::new()
-                                    .inner_margin(egui::Margin { left: 8, right: 4, top: 0, bottom: 0 });
+                                let indent = egui::Frame::new().inner_margin(egui::Margin {
+                                    left: 8,
+                                    right: 4,
+                                    top: 0,
+                                    bottom: 0,
+                                });
                                 indent.show(ui, |ui| {
                                     draw_var_table(
                                         ui,
@@ -217,14 +203,16 @@ impl VarViewWindow {
                                     sr,
                                     egui::CornerRadius::ZERO,
                                     egui::Color32::from_rgba_premultiplied(
-                                        t.border.r(), t.border.g(), t.border.b(), 100,
+                                        t.border.r(),
+                                        t.border.g(),
+                                        t.border.b(),
+                                        100,
                                     ),
                                 );
                                 ui.add_space(6.0);
                             }
                         }
 
-                        // ── Call Stack ────────────────────────────────────
                         if !frame.call_stack.is_empty() {
                             ui.add_space(4.0);
                             let (cs_sep, _) = ui.allocate_exact_size(
@@ -259,16 +247,12 @@ impl VarViewWindow {
                                             .color(col),
                                     );
                                     ui.label(
-                                        egui::RichText::new(name)
-                                            .size(11.0)
-                                            .color(col)
-                                            .monospace(),
+                                        egui::RichText::new(name).size(11.0).color(col).monospace(),
                                     );
                                 });
                             }
                         }
 
-                        // ── Error banner ──────────────────────────────────
                         if let Some(err) = &frame.error {
                             ui.add_space(8.0);
                             egui::Frame::new()
@@ -290,7 +274,6 @@ impl VarViewWindow {
                                 });
                         }
 
-                        // ── Program output ────────────────────────────────
                         if !output.is_empty() {
                             ui.add_space(8.0);
                             let (o_sep, _) = ui.allocate_exact_size(
@@ -319,7 +302,7 @@ impl VarViewWindow {
                                 .inner_margin(egui::Margin::same(8))
                                 .show(ui, |ui| {
                                     ui.set_min_width(ui.available_width());
-                                    // terminal_fg is always readable on editor_bg
+
                                     ui.label(
                                         egui::RichText::new(&output)
                                             .size(11.0)
@@ -350,32 +333,25 @@ fn draw_var_table(
     type_col: egui::Color32,
     border_col: egui::Color32,
 ) {
-    // available_width() is correct here because draw_var_table is called
-    // inside a vertical Frame, not a horizontal layout.
     let available_w = ui.available_width().max(160.0);
-    // Proportional column widths: 30% name, 20% type, rest = value
+
     let col_name_w = (available_w * 0.30).min(100.0).max(52.0);
     let col_type_w = (available_w * 0.20).min(70.0).max(44.0);
-    let col_val_w  = (available_w - col_name_w - col_type_w).max(40.0);
-    let row_h      = 22.0_f32;
+    let col_val_w = (available_w - col_name_w - col_type_w).max(40.0);
+    let row_h = 22.0_f32;
 
-    // Header row — use 130 alpha for bg so it's visible on both dark/light
-    let (hdr_rect, _) =
-        ui.allocate_exact_size(egui::vec2(available_w, 17.0), egui::Sense::hover());
+    let (hdr_rect, _) = ui.allocate_exact_size(egui::vec2(available_w, 17.0), egui::Sense::hover());
     ui.painter().rect_filled(
         hdr_rect,
         egui::CornerRadius::same(3),
-        egui::Color32::from_rgba_premultiplied(
-            border_col.r(), border_col.g(), border_col.b(), 130,
-        ),
+        egui::Color32::from_rgba_premultiplied(border_col.r(), border_col.g(), border_col.b(), 130),
     );
     let hfont = egui::FontId::proportional(9.5);
     for (x, lbl) in [
-        (hdr_rect.left() + 6.0,                          "NAME"),
-        (hdr_rect.left() + col_name_w + 6.0,             "TYPE"),
+        (hdr_rect.left() + 6.0, "NAME"),
+        (hdr_rect.left() + col_name_w + 6.0, "TYPE"),
         (hdr_rect.left() + col_name_w + col_type_w + 6.0, "VALUE"),
     ] {
-        // body_text is always readable (it's the primary foreground colour)
         ui.painter().text(
             egui::pos2(x, hdr_rect.center().y),
             egui::Align2::LEFT_CENTER,
@@ -391,14 +367,14 @@ fn draw_var_table(
         let (row_rect, _) =
             ui.allocate_exact_size(egui::vec2(available_w, row_h), egui::Sense::hover());
 
-        // Row background
         if row.changed {
-            ui.painter().rect_filled(row_rect, egui::CornerRadius::same(2), changed_bg);
+            ui.painter()
+                .rect_filled(row_rect, egui::CornerRadius::same(2), changed_bg);
         } else if idx % 2 == 1 {
-            ui.painter().rect_filled(row_rect, egui::CornerRadius::ZERO, alt_row);
+            ui.painter()
+                .rect_filled(row_rect, egui::CornerRadius::ZERO, alt_row);
         }
 
-        // NAME
         ui.painter().text(
             egui::pos2(row_rect.left() + 6.0, row_rect.center().y),
             egui::Align2::LEFT_CENTER,
@@ -407,7 +383,6 @@ fn draw_var_table(
             body_text,
         );
 
-        // TYPE
         ui.painter().text(
             egui::pos2(row_rect.left() + col_name_w + 6.0, row_rect.center().y),
             egui::Align2::LEFT_CENTER,
@@ -416,7 +391,6 @@ fn draw_var_table(
             type_col,
         );
 
-        // VALUE — changed values use amber (always visible), normal uses text_default
         let vc = if row.changed { changed_fg } else { value_col };
         ui.painter().text(
             egui::pos2(
@@ -429,7 +403,6 @@ fn draw_var_table(
             vc,
         );
 
-        // Changed dot
         if row.changed {
             ui.painter().circle_filled(
                 egui::pos2(row_rect.right() - 5.0, row_rect.center().y),
@@ -440,7 +413,6 @@ fn draw_var_table(
     }
 }
 
-/// Clip a string to fit within `max_px` pixels, appending "…" if truncated.
 fn clip_str(s: &str, max_px: f32, font: &egui::FontId, ui: &egui::Ui) -> String {
     if max_px <= 0.0 || s.is_empty() {
         return String::new();

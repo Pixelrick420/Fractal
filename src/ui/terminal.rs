@@ -112,8 +112,6 @@ impl Terminal {
                     let avail = ui.available_size();
                     let term_theme = TerminalTheme::new(Box::new(theme_to_palette(&t)));
 
-                    // Focus the terminal when the pointer is anywhere in the panel
-                    // (including the header). clip_rect() gives the full panel area.
                     let panel_rect = ui.clip_rect();
                     let pointer_in_panel = ui.ctx().input(|i| {
                         i.pointer
@@ -121,23 +119,19 @@ impl Terminal {
                             .map_or(false, |p| panel_rect.contains(p))
                     });
 
-                    // Boost scroll sensitivity: amplify wheel events.
                     let scroll_delta = ui.input(|i| i.raw_scroll_delta);
                     if pointer_in_panel && scroll_delta.y.abs() > 0.5 {
                         let lines = ((scroll_delta.y.abs() / 8.0) * 3.0).max(1.0) as i32;
                         if scroll_delta.y > 0.0 {
-                            // Scroll up
                             self.backend
                                 .process_command(egui_term::BackendCommand::Scroll(lines));
                         } else {
-                            // Scroll down — negative lines
                             self.backend
                                 .process_command(egui_term::BackendCommand::Scroll(-lines));
                         }
                         ui.ctx().request_repaint();
                     }
 
-                    // Auto-scroll when pointer drags near the top or bottom edge
                     let (is_dragging, drag_pos) =
                         ui.input(|i| (i.pointer.is_decidedly_dragging(), i.pointer.hover_pos()));
                     if is_dragging {
@@ -177,7 +171,6 @@ impl Terminal {
         }
     }
 
-    /// Returns (do_clear, do_toggle)
     fn draw_header(&mut self, ui: &mut egui::Ui, t: Theme) -> (bool, bool) {
         let mut do_clear = false;
         let mut do_toggle = false;

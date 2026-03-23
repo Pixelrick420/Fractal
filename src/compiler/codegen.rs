@@ -1930,7 +1930,7 @@ impl CodeGen {
 
         if steps.len() >= 2 {
             if let AccessStep::Field(qualified_name) = &steps[0] {
-                let full = format!("{}::{}", base_escaped, qualified_name);
+                let full = format!("{}::{}", base_escaped, escape_ident(qualified_name));
                 if !self.var_types.contains_key(base)
                     && !self.local_var_types.contains_key(base)
                     && !self.struct_params.contains(base)

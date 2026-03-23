@@ -1,0 +1,63 @@
+
+!start
+    :int n = 5;
+    :list<:int> a = [5, 4, 3, 2, 1];
+
+    !func merge(:list<:int> arr, :int l, :int m, :int r) -> :void {
+        :int n1 = m - l + 1;
+        :int n2 = r - m;
+
+        :list<:int> L = [];
+        :list<:int> R = [];
+
+        !for (:int i, 0, n1, 1) {
+            append(L, arr[l + i]);
+        }
+
+        !for (:int j, 0, n2, 1) {
+            append(R, arr[m + 1 + j]);
+        }
+
+        :int i = 0;
+        :int j = 0;
+        :int k = l;
+
+        !while (i < n1 !and j < n2) {
+            !if (L[i] <= R[j]) {
+                arr[k] = L[i];
+                i += 1;
+            }
+            !else {
+                arr[k] = R[j];
+                j += 1;
+            }
+            k += 1;
+        }
+
+        !while (i < n1) {
+            arr[k] = L[i];
+            i += 1;
+            k += 1;
+        }
+
+        !while (j < n2) {
+            arr[k] = R[j];
+            j += 1;
+            k += 1;
+        }
+    }
+
+    !func mergeSort(:list<:int> arr, :int l, :int r) -> :void {
+        !if (l < r) {
+            :int m = (l + r) / 2;
+            mergeSort(arr, l, m);
+            mergeSort(arr, m + 1, r);
+            merge(arr, l, m, r);
+        }
+    }
+
+    mergeSort(a, 0, n - 1);
+    !for (:int i, 0, n, 1) {
+        print("{}\t", a[i]);
+    }
+!end

@@ -1,0 +1,28 @@
+!start
+    # code here
+    !func bubble(:list<:int> a) -> :void {
+        :int n;
+        #print("Enter number of elements:");
+        #input("{}", n);
+        n = 5;
+        #:list<:int> a = [2, 4, 1, 5, 3];
+        !for (:int i, 0, -10, -1) {
+
+            print("2");
+        }
+
+        :int temp;
+        !for (:int i, 0, n-1, 1) {
+            !for (:int j, 0, n-1-i, 1) {
+                !if (a[j] > a[j+1]) {
+                    temp = a[j];
+                    a[j] = a[j+1];
+                    a[j+1] = temp;
+
+                }
+            }
+        }
+        #!return a;
+    }
+
+!end

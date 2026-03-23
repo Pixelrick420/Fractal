@@ -67,12 +67,17 @@ jobs:
           echo "=== fractal-compiler ==="
           file "$bin"
           ldd "$bin" 2>&1 || true
-          # Must report "not a dynamic executable"
-          if ! ldd "$bin" 2>&1 | grep -q 'not a dynamic executable'; then
+          # musl static binaries print "statically linked"; glibc dynamic ones
+          # print a list of .so files. Accept either "statically linked" or
+          # "not a dynamic executable" (both mean fully static).
+          ldd_out=$(ldd "$bin" 2>&1 || true)
+          if echo "$ldd_out" | grep -qE 'statically linked|not a dynamic executable'; then
+            echo "OK: fractal-compiler is fully static"
+          else
             echo "ERROR: fractal-compiler is not fully static"
+            echo "$ldd_out"
             exit 1
           fi
-          echo "OK: fractal-compiler is fully static"
 
       # ── fractal-editor ──────────────────────────────────────────────────────
       # Uses eframe/glow (OpenGL) + egui_term, which require libGL and libEGL

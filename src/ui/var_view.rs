@@ -6,6 +6,10 @@ pub struct VarViewWindow {
     pub open: bool,
     pub title: String,
     output_history: String,
+    /// Index into frame.scopes that the user has selected.
+    /// 0 = the top (currently-executing) frame, which is the default.
+    /// None means "follow the top frame automatically".
+    selected_scope: Option<usize>,
 }
 
 impl VarViewWindow {
@@ -14,6 +18,7 @@ impl VarViewWindow {
             open: false,
             title: "Variable State".into(),
             output_history: String::new(),
+            selected_scope: None,
         }
     }
 
@@ -27,6 +32,12 @@ impl VarViewWindow {
         self.output_history.clear();
     }
 
+    /// Called whenever the debug session steps forward so the selection
+    /// resets to the top (active) frame.
+    pub fn on_step(&mut self) {
+        self.selected_scope = None;
+    }
+
     pub fn show(&mut self, ctx: &egui::Context, frame: &DebugFrame, theme: &Theme) {
         if !self.open {
             return;
@@ -38,13 +49,11 @@ impl VarViewWindow {
 
         let body_text = t.tab_active_fg;
         let muted_text = t.tab_inactive_fg;
-
         let value_col = t.tab_active_fg;
 
         let changed_bg = {
             let a = t.tab_dirty_dot;
             let b = t.panel_bg;
-
             egui::Color32::from_rgb(
                 ((a.r() as u16 * 80 + b.r() as u16 * 175) / 255) as u8,
                 ((a.g() as u16 * 80 + b.g() as u16 * 175) / 255) as u8,
@@ -63,12 +72,17 @@ impl VarViewWindow {
         let accent_bg =
             egui::Color32::from_rgba_premultiplied(t.accent.r(), t.accent.g(), t.accent.b(), 22);
 
+        // scopes[0] is the TOP (active) frame. The displayed scope is either
+        // what the user clicked or always index-0.
+        let num_scopes = frame.scopes.len();
+        let effective_scope = self.selected_scope.unwrap_or(0).min(num_scopes.saturating_sub(1));
+
         egui::Window::new("Variable State")
             .id(egui::Id::new("fractal_var_view"))
             .open(&mut open)
-            .default_size([320.0, 460.0])
+            .default_size([340.0, 500.0])
             .min_size([240.0, 160.0])
-            .max_size([560.0, 860.0])
+            .max_size([600.0, 900.0])
             .resizable(true)
             .frame(
                 egui::Frame::window(&ctx.style())
@@ -79,6 +93,7 @@ impl VarViewWindow {
             .show(ctx, |ui| {
                 ui.set_min_width(240.0);
 
+                // ── Header bar ──────────────────────────────────────────────
                 egui::Frame::new()
                     .fill(accent_bg)
                     .inner_margin(egui::Margin::symmetric(12, 6))
@@ -125,9 +140,87 @@ impl VarViewWindow {
                     .show(ui, |ui| {
                         ui.add_space(8.0);
 
-                        let scopes: Vec<_> = frame.scopes.iter().rev().collect();
+                        // ── Call-stack selector ──────────────────────────────
+                        // Displayed top→bottom so the active (top) frame is first.
+                        // frame.scopes[0] = active callee, last = main/<main>.
+                        // frame.call_stack is bottom→top so last = active name.
+                        if !frame.call_stack.is_empty() {
+                            ui.horizontal(|ui| {
+                                ui.add_space(10.0);
+                                ui.label(
+                                    egui::RichText::new("call stack")
+                                        .size(10.0)
+                                        .color(muted_text)
+                                        .strong(),
+                                );
+                            });
+                            ui.add_space(4.0);
 
-                        if scopes.is_empty() {
+                            // Stack entries: iterate call_stack in reverse so the active
+                            // function appears first (matches scopes[0]).
+                            let stack = &frame.call_stack;
+                            for (visual_idx, stack_entry) in stack.iter().enumerate().rev().enumerate() {
+                                let (stack_idx, name) = stack_entry;
+                                // scope_idx: the stack's top = scopes[0], bottom = scopes[last]
+                                let scope_idx = stack.len() - 1 - stack_idx;
+                                let is_selected = scope_idx == effective_scope;
+
+                                let row_bg = if is_selected {
+                                    accent_bg
+                                } else {
+                                    egui::Color32::TRANSPARENT
+                                };
+
+                                let (row_rect, row_resp) = ui.allocate_exact_size(
+                                    egui::vec2(ui.available_width(), 22.0),
+                                    egui::Sense::click(),
+                                );
+
+                                if row_resp.clicked() {
+                                    self.selected_scope = Some(scope_idx);
+                                }
+
+                                if row_resp.hovered() && !is_selected {
+                                    ui.painter().rect_filled(
+                                        row_rect,
+                                        egui::CornerRadius::ZERO,
+                                        egui::Color32::from_rgba_premultiplied(
+                                            t.accent.r(), t.accent.g(), t.accent.b(), 12,
+                                        ),
+                                    );
+                                } else if is_selected {
+                                    ui.painter().rect_filled(
+                                        row_rect,
+                                        egui::CornerRadius::ZERO,
+                                        row_bg,
+                                    );
+                                }
+
+                                let col = if is_selected { t.accent } else { muted_text };
+                                let depth_indent = visual_idx as f32 * 10.0;
+                                let arrow = if is_selected { "▶ " } else { "  " };
+
+                                ui.painter().text(
+                                    egui::pos2(row_rect.left() + 16.0 + depth_indent, row_rect.center().y),
+                                    egui::Align2::LEFT_CENTER,
+                                    format!("{}{}", arrow, name),
+                                    egui::FontId::monospace(11.0),
+                                    col,
+                                );
+                            }
+
+                            ui.add_space(6.0);
+                            let (cs_sep, _) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), 1.0),
+                                egui::Sense::hover(),
+                            );
+                            ui.painter()
+                                .rect_filled(cs_sep, egui::CornerRadius::ZERO, t.border);
+                            ui.add_space(6.0);
+                        }
+
+                        // ── Variable table for the selected scope ────────────
+                        if frame.scopes.is_empty() {
                             ui.horizontal(|ui| {
                                 ui.add_space(12.0);
                                 ui.label(
@@ -137,14 +230,15 @@ impl VarViewWindow {
                                         .italics(),
                                 );
                             });
-                        }
+                        } else {
+                            let scope = &frame.scopes[effective_scope];
 
-                        for (idx, scope) in scopes.iter().enumerate() {
-                            let is_top = idx == 0;
-
+                            // Scope header
                             ui.horizontal(|ui| {
                                 ui.add_space(10.0);
-                                let hdr_text = if scope.label == "global" {
+                                let hdr_text = if scope.label == "global"
+                                    || scope.label == "<main>"
+                                {
                                     "global scope".into()
                                 } else {
                                     format!("fn: {}", scope.label)
@@ -152,7 +246,7 @@ impl VarViewWindow {
                                 ui.label(
                                     egui::RichText::new(hdr_text)
                                         .size(10.5)
-                                        .color(if is_top { t.accent } else { muted_text })
+                                        .color(t.accent)
                                         .strong(),
                                 );
                             });
@@ -191,68 +285,9 @@ impl VarViewWindow {
                                     );
                                 });
                             }
-
-                            ui.add_space(6.0);
-
-                            if idx < scopes.len() - 1 {
-                                let (sr, _) = ui.allocate_exact_size(
-                                    egui::vec2(ui.available_width().max(10.0) - 16.0, 1.0),
-                                    egui::Sense::hover(),
-                                );
-                                ui.painter().rect_filled(
-                                    sr,
-                                    egui::CornerRadius::ZERO,
-                                    egui::Color32::from_rgba_premultiplied(
-                                        t.border.r(),
-                                        t.border.g(),
-                                        t.border.b(),
-                                        100,
-                                    ),
-                                );
-                                ui.add_space(6.0);
-                            }
                         }
 
-                        if !frame.call_stack.is_empty() {
-                            ui.add_space(4.0);
-                            let (cs_sep, _) = ui.allocate_exact_size(
-                                egui::vec2(ui.available_width(), 1.0),
-                                egui::Sense::hover(),
-                            );
-                            ui.painter()
-                                .rect_filled(cs_sep, egui::CornerRadius::ZERO, t.border);
-                            ui.add_space(6.0);
-
-                            ui.horizontal(|ui| {
-                                ui.add_space(10.0);
-                                ui.label(
-                                    egui::RichText::new("call stack")
-                                        .size(10.0)
-                                        .color(muted_text)
-                                        .strong(),
-                                );
-                            });
-                            ui.add_space(4.0);
-
-                            let stack = &frame.call_stack;
-                            for (i, name) in stack.iter().enumerate().rev() {
-                                let is_cur = i == stack.len() - 1;
-                                let col = if is_cur { t.accent } else { muted_text };
-                                let depth_indent = (stack.len() - 1 - i) as f32 * 12.0;
-                                ui.horizontal(|ui| {
-                                    ui.add_space(16.0 + depth_indent);
-                                    ui.label(
-                                        egui::RichText::new(if is_cur { "▶ " } else { "  " })
-                                            .size(10.0)
-                                            .color(col),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new(name).size(11.0).color(col).monospace(),
-                                    );
-                                });
-                            }
-                        }
-
+                        // ── Error banner ─────────────────────────────────────
                         if let Some(err) = &frame.error {
                             ui.add_space(8.0);
                             egui::Frame::new()
@@ -274,6 +309,7 @@ impl VarViewWindow {
                                 });
                         }
 
+                        // ── Output so far ────────────────────────────────────
                         if !output.is_empty() {
                             ui.add_space(8.0);
                             let (o_sep, _) = ui.allocate_exact_size(
@@ -302,7 +338,6 @@ impl VarViewWindow {
                                 .inner_margin(egui::Margin::same(8))
                                 .show(ui, |ui| {
                                     ui.set_min_width(ui.available_width());
-
                                     ui.label(
                                         egui::RichText::new(&output)
                                             .size(11.0)
@@ -375,10 +410,13 @@ fn draw_var_table(
                 .rect_filled(row_rect, egui::CornerRadius::ZERO, alt_row);
         }
 
+        // Strip the fractal_ prefix for display
+        let display_name = row.name.strip_prefix("fractal_").unwrap_or(&row.name);
+
         ui.painter().text(
             egui::pos2(row_rect.left() + 6.0, row_rect.center().y),
             egui::Align2::LEFT_CENTER,
-            clip_str(&row.name, col_name_w - 10.0, &font, ui),
+            clip_str(display_name, col_name_w - 10.0, &font, ui),
             font.clone(),
             body_text,
         );

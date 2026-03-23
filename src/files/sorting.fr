@@ -1,7 +1,10 @@
 !start
     !import "./bubblesort.fr";
-
+    :int n = 2;
+    input("{}", n);
+    print("{}", n);
     :list<:int> b = [5, 4, 1, 2, 1];
+
     bubblesort::bubble(b);
 
 !end

@@ -32,8 +32,6 @@ const BTN_H: f32 = 28.0;
 const BTN_ROUNDING: f32 = 5.0;
 const ICON_BTN_W: f32 = 34.0;
 
-const FLYOUT_GAP: f32 = 0.0;
-
 pub fn show_menu_bar(
     ctx: &egui::Context,
     _state: &mut MenuBarState,
@@ -78,9 +76,7 @@ pub fn show_menu_bar(
 
     let t = theme;
 
-    let flyout_open_id = egui::Id::new("recent_flyout_open");
-    let flyout_row_rect_id = egui::Id::new("recent_row_rect");
-    let recent_clicked_id = egui::Id::new("recent_clicked_path");
+    let recent_submenu_open_id = egui::Id::new("recent_submenu_open");
 
     egui::TopBottomPanel::top("menu_bar")
         .frame(
@@ -187,23 +183,44 @@ pub fn show_menu_bar(
 
                         styled_separator(ui, t);
 
-                        let flyout_was_hovered = ui
+                        let submenu_open = ui
                             .ctx()
-                            .data(|d| d.get_temp::<bool>(flyout_open_id).unwrap_or(false));
+                            .data(|d| d.get_temp::<bool>(recent_submenu_open_id).unwrap_or(false));
 
                         let (r_row, r_resp) = ui.allocate_exact_size(
                             egui::vec2(ui.available_width(), 28.0),
-                            egui::Sense::hover(),
+                            egui::Sense::click(),
                         );
                         let row_hovered = r_resp.hovered();
 
-                        let show_flyout = row_hovered || flyout_was_hovered;
+                        let item_h = 26.0_f32;
+                        let sub_padding = 4.0_f32;
+                        let sub_w = 280.0_f32;
+                        let sub_items = recent_files.len().max(1);
+                        let sub_h = sub_items as f32 * item_h + sub_padding * 2.0;
 
-                        if show_flyout {
-                            ui.painter()
-                                .rect_filled(r_row, egui::CornerRadius::same(4), t.accent);
+                        let sub_rect = egui::Rect::from_min_size(
+                            egui::pos2(r_row.right() + 2.0, r_row.top()),
+                            egui::vec2(sub_w, sub_h),
+                        );
+
+                        let sub_hovered = ui.ctx().input(|i| {
+                            i.pointer
+                                .hover_pos()
+                                .map(|p| sub_rect.contains(p))
+                                .unwrap_or(false)
+                        });
+
+                        let show_sub = submenu_open || row_hovered || sub_hovered;
+
+                        if show_sub {
+                            ui.painter().rect_filled(
+                                r_row,
+                                egui::CornerRadius::same(4),
+                                t.button_hover_bg,
+                            );
                         }
-                        let row_fg = if show_flyout { t.tab_bar_bg } else { t.menu_fg };
+                        let row_fg = if show_sub { t.tab_active_fg } else { t.menu_fg };
                         ui.painter().text(
                             egui::pos2(r_row.left() + 10.0, r_row.center().y),
                             egui::Align2::LEFT_CENTER,
@@ -211,6 +228,7 @@ pub fn show_menu_bar(
                             egui::FontId::proportional(13.5),
                             row_fg,
                         );
+
                         ui.painter().text(
                             egui::pos2(r_row.right() - 10.0, r_row.center().y),
                             egui::Align2::RIGHT_CENTER,
@@ -219,11 +237,115 @@ pub fn show_menu_bar(
                             row_fg,
                         );
 
-                        ui.ctx()
-                            .data_mut(|d| d.insert_temp(flyout_row_rect_id, r_row));
+                        if r_resp.clicked() {
+                            ui.ctx()
+                                .data_mut(|d| d.insert_temp(recent_submenu_open_id, !submenu_open));
+                        } else if row_hovered && !submenu_open {
+                            ui.ctx()
+                                .data_mut(|d| d.insert_temp(recent_submenu_open_id, true));
+                        } else if !show_sub && submenu_open {
+                            ui.ctx()
+                                .data_mut(|d| d.insert_temp(recent_submenu_open_id, false));
+                        }
 
-                        if row_hovered {
-                            ui.ctx().data_mut(|d| d.insert_temp(flyout_open_id, true));
+                        if show_sub {
+                            let painter = ui.painter();
+                            painter.rect_filled(sub_rect, egui::CornerRadius::same(4), t.menu_bg);
+                            painter.rect_stroke(
+                                sub_rect,
+                                egui::CornerRadius::same(4),
+                                egui::Stroke::new(1.0, t.border),
+                                egui::StrokeKind::Outside,
+                            );
+
+                            if recent_files.is_empty() {
+                                let er = egui::Rect::from_min_size(
+                                    egui::pos2(
+                                        sub_rect.left() + sub_padding,
+                                        sub_rect.top() + sub_padding,
+                                    ),
+                                    egui::vec2(sub_w - sub_padding * 2.0, item_h),
+                                );
+                                painter.text(
+                                    egui::pos2(er.left() + 12.0, er.center().y),
+                                    egui::Align2::LEFT_CENTER,
+                                    "No recent files",
+                                    egui::FontId::proportional(12.5),
+                                    t.tab_inactive_fg,
+                                );
+                            } else {
+                                let inner_w = sub_w - sub_padding * 2.0;
+                                for (idx, path) in recent_files.iter().take(10).enumerate() {
+                                    let name = path
+                                        .file_name()
+                                        .map(|n| n.to_string_lossy().to_string())
+                                        .unwrap_or_else(|| path.to_string_lossy().to_string());
+                                    let full = path.to_string_lossy().to_string();
+                                    let short = if full.len() > 36 {
+                                        format!("…{}", &full[full.len() - 35..])
+                                    } else {
+                                        full.clone()
+                                    };
+
+                                    let ir = egui::Rect::from_min_size(
+                                        egui::pos2(
+                                            sub_rect.left() + sub_padding,
+                                            sub_rect.top() + sub_padding + idx as f32 * item_h,
+                                        ),
+                                        egui::vec2(inner_w, item_h),
+                                    );
+
+                                    let item_id = recent_submenu_open_id.with(idx);
+                                    let ir_resp = ui.interact(ir, item_id, egui::Sense::click());
+                                    let ih = ir_resp.hovered();
+
+                                    if ih {
+                                        ui.painter().rect_filled(
+                                            ir,
+                                            egui::CornerRadius::same(4),
+                                            t.accent,
+                                        );
+                                    }
+                                    let ifg = if ih { t.tab_bar_bg } else { t.menu_fg };
+                                    let ihint = if ih {
+                                        egui::Color32::from_rgba_premultiplied(
+                                            t.tab_bar_bg.r(),
+                                            t.tab_bar_bg.g(),
+                                            t.tab_bar_bg.b(),
+                                            160,
+                                        )
+                                    } else {
+                                        egui::Color32::from_rgba_premultiplied(
+                                            t.tab_inactive_fg.r(),
+                                            t.tab_inactive_fg.g(),
+                                            t.tab_inactive_fg.b(),
+                                            130,
+                                        )
+                                    };
+                                    ui.painter().text(
+                                        egui::pos2(ir.left() + 12.0, ir.center().y),
+                                        egui::Align2::LEFT_CENTER,
+                                        &name,
+                                        egui::FontId::proportional(13.0),
+                                        ifg,
+                                    );
+                                    ui.painter().text(
+                                        egui::pos2(ir.right() - 10.0, ir.center().y),
+                                        egui::Align2::RIGHT_CENTER,
+                                        &short,
+                                        egui::FontId::proportional(10.5),
+                                        ihint,
+                                    );
+
+                                    if ir_resp.clicked() {
+                                        action = MenuAction::OpenRecent(path.clone());
+                                        ui.ctx().data_mut(|d| {
+                                            d.insert_temp(recent_submenu_open_id, false)
+                                        });
+                                        Popup::close_id(ctx, file_id);
+                                    }
+                                }
+                            }
                         }
 
                         styled_separator(ui, t);
@@ -249,148 +371,8 @@ pub fn show_menu_bar(
                 }
 
                 let popup_is_open = Popup::is_id_open(ctx, file_id);
-                let flyout_active =
-                    ctx.data(|d| d.get_temp::<bool>(flyout_open_id).unwrap_or(false));
-                let row_rect: Option<egui::Rect> = ctx.data(|d| d.get_temp(flyout_row_rect_id));
-
-                if popup_is_open && flyout_active {
-                    if let Some(r_row) = row_rect {
-                        let flyout_pos = egui::pos2(r_row.right() + FLYOUT_GAP, r_row.top());
-                        let recent_area_id = egui::Id::new("recent_flyout_area");
-
-                        let area_resp = egui::Area::new(recent_area_id)
-                            .order(egui::Order::Foreground)
-                            .fixed_pos(flyout_pos)
-                            .show(ctx, |ui| {
-                                egui::Frame::new()
-                                    .fill(t.menu_bg)
-                                    .stroke(egui::Stroke::new(1.0, t.border))
-                                    .corner_radius(egui::CornerRadius::same(6))
-                                    .shadow(egui::Shadow {
-                                        offset: [0, 4],
-                                        blur: 12,
-                                        spread: 0,
-                                        color: egui::Color32::from_black_alpha(80),
-                                    })
-                                    .inner_margin(egui::Margin::same(4))
-                                    .show(ui, |ui| {
-                                        ui.set_min_width(260.0);
-                                        ui.add_space(2.0);
-
-                                        if recent_files.is_empty() {
-                                            let (er, _) = ui.allocate_exact_size(
-                                                egui::vec2(260.0, 28.0),
-                                                egui::Sense::hover(),
-                                            );
-                                            ui.painter().text(
-                                                egui::pos2(er.left() + 12.0, er.center().y),
-                                                egui::Align2::LEFT_CENTER,
-                                                "No recent files",
-                                                egui::FontId::proportional(12.5),
-                                                t.tab_inactive_fg,
-                                            );
-                                        } else {
-                                            for path in recent_files.iter().take(10) {
-                                                let name = path
-                                                    .file_name()
-                                                    .map(|n| n.to_string_lossy().to_string())
-                                                    .unwrap_or_else(|| {
-                                                        path.to_string_lossy().to_string()
-                                                    });
-                                                let full = path.to_string_lossy().to_string();
-                                                let short = if full.len() > 36 {
-                                                    format!("…{}", &full[full.len() - 35..])
-                                                } else {
-                                                    full.clone()
-                                                };
-
-                                                let (ir, ir_resp) = ui.allocate_exact_size(
-                                                    egui::vec2(260.0, 28.0),
-                                                    egui::Sense::click(),
-                                                );
-                                                let ih = ir_resp.hovered();
-                                                if ih {
-                                                    ui.painter().rect_filled(
-                                                        ir,
-                                                        egui::CornerRadius::same(4),
-                                                        t.accent,
-                                                    );
-                                                }
-                                                let ifg = if ih { t.tab_bar_bg } else { t.menu_fg };
-                                                let ihint = if ih {
-                                                    egui::Color32::from_rgba_premultiplied(
-                                                        t.tab_bar_bg.r(),
-                                                        t.tab_bar_bg.g(),
-                                                        t.tab_bar_bg.b(),
-                                                        160,
-                                                    )
-                                                } else {
-                                                    egui::Color32::from_rgba_premultiplied(
-                                                        t.tab_inactive_fg.r(),
-                                                        t.tab_inactive_fg.g(),
-                                                        t.tab_inactive_fg.b(),
-                                                        130,
-                                                    )
-                                                };
-                                                ui.painter().text(
-                                                    egui::pos2(ir.left() + 12.0, ir.center().y),
-                                                    egui::Align2::LEFT_CENTER,
-                                                    &name,
-                                                    egui::FontId::proportional(13.0),
-                                                    ifg,
-                                                );
-                                                ui.painter().text(
-                                                    egui::pos2(ir.right() - 10.0, ir.center().y),
-                                                    egui::Align2::RIGHT_CENTER,
-                                                    &short,
-                                                    egui::FontId::proportional(10.5),
-                                                    ihint,
-                                                );
-
-                                                if ir_resp.clicked() {
-                                                    ctx.data_mut(|d| {
-                                                        d.insert_temp(
-                                                            recent_clicked_id,
-                                                            path.clone(),
-                                                        )
-                                                    });
-                                                    ctx.data_mut(|d| {
-                                                        d.insert_temp(flyout_open_id, false)
-                                                    });
-                                                    Popup::close_id(ctx, file_id);
-                                                }
-                                            }
-                                        }
-                                        ui.add_space(2.0);
-                                    });
-                            });
-
-                        let pointer_pos = ctx.input(|i| i.pointer.hover_pos());
-                        let flyout_window_rect = area_resp.response.rect;
-
-                        let bridge = egui::Rect::from_min_max(
-                            egui::pos2(r_row.right(), r_row.top()),
-                            egui::pos2(flyout_window_rect.left(), r_row.bottom()),
-                        );
-
-                        let still_active = pointer_pos.map_or(false, |p| {
-                            flyout_window_rect.contains(p)
-                                || bridge.contains(p)
-                                || r_row.contains(p)
-                        });
-
-                        ctx.data_mut(|d| d.insert_temp(flyout_open_id, still_active));
-                    }
-                } else if !popup_is_open {
-                    ctx.data_mut(|d| d.insert_temp(flyout_open_id, false));
-                }
-
-                if matches!(action, MenuAction::None) {
-                    let deferred: Option<PathBuf> =
-                        ctx.data_mut(|d| d.remove_temp(recent_clicked_id));
-                    if let Some(path) = deferred {
-                        action = MenuAction::OpenRecent(path);
-                    }
+                if !popup_is_open {
+                    ctx.data_mut(|d| d.insert_temp(recent_submenu_open_id, false));
                 }
 
                 ui.add_space(4.0);

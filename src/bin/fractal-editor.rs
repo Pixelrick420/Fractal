@@ -97,6 +97,7 @@ struct FractalEditor {
 
     error_message: Option<String>,
     success_message: Option<String>,
+    recent_file_error: Option<String>,
     last_autosave: Instant,
 
     recent_files: Vec<PathBuf>,
@@ -141,6 +142,7 @@ impl FractalEditor {
             allow_quit: false,
             error_message: None,
             success_message: None,
+            recent_file_error: None,
             last_autosave: Instant::now(),
             tabs: vec![Tab::new(theme)],
             active_tab: 0,
@@ -944,8 +946,13 @@ impl eframe::App for FractalEditor {
             MenuAction::ToggleDocs => self.docs_window.open = !self.docs_window.open,
             MenuAction::OpenSettings => self.settings_panel.open(),
             MenuAction::OpenRecent(path) => {
-                self.open_file(&path.clone());
-                self.docs_window.open = false;
+                if path.exists() {
+                    self.open_file(&path.clone());
+                    self.docs_window.open = false;
+                } else {
+                    self.recent_file_error =
+                        Some(format!("Could not open recent file:\n{}", path.display()));
+                }
             }
             MenuAction::Search => {
                 if !self.search_bar.visible {
@@ -1001,6 +1008,34 @@ impl eframe::App for FractalEditor {
 
         self.handle_close_confirm(ctx);
         self.handle_quit_confirm(ctx);
+
+        if let Some(ref msg) = self.recent_file_error.clone() {
+            let t = self.theme;
+            let mut close_popup = false;
+            egui::Window::new("File Not Found")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .fixed_size(egui::vec2(360.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("⚠").size(20.0).color(t.terminal_error));
+                        ui.add_space(6.0);
+                        ui.label(egui::RichText::new(msg).size(13.0).color(t.menu_fg));
+                    });
+                    ui.add_space(12.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                        if ui.button("OK").clicked() {
+                            close_popup = true;
+                        }
+                    });
+                    ui.add_space(4.0);
+                });
+            if close_popup {
+                self.recent_file_error = None;
+            }
+        }
 
         self.file_dialog.show(ctx);
         if let Some(result) = self.file_dialog.result.take() {
@@ -1068,11 +1103,6 @@ impl eframe::App for FractalEditor {
             self.var_view_window.show(ctx, frame_ref, &theme);
         }
 
-        // ── Debug line highlight ──────────────────────────────────────────────
-        // Priority:
-        //   1. frame.source_line > 0  — exact line from compiler snapshot
-        //   2. debug_search_term()    — text search fallback
-        //   3. None                   — no highlight
         let debug_line: Option<usize> = self.debug_frame.as_ref().and_then(|frame| {
             if frame.source_line > 0 {
                 return Some(frame.source_line);
@@ -1168,19 +1198,13 @@ fn apply_egui_style(ctx: &egui::Context, t: &Theme) {
     ctx.set_style(s);
 }
 
-// ── Debug line-search helpers ─────────────────────────────────────────────────
-
 fn debug_search_term(label: &str) -> String {
     let parts: Vec<&str> = label.splitn(4, ' ').collect();
     match parts.as_slice() {
         [kw, name, ..] if *kw == "Decl" || *kw == "StructDecl" || *kw == "FuncDef" => {
             name.to_string()
         }
-        // FIX: For loops use "!for" as their keyword in Fractal source.
-        // Previously this returned just the loop variable name (e.g. "i"),
-        // which matched any line containing that letter as a word boundary —
-        // almost always the wrong line. Searching for "!for" finds the actual
-        // for-loop declaration line reliably.
+
         ["For", ..] => "!for".to_string(),
         ["If", ..] => "!if".to_string(),
         ["While", ..] => "!while".to_string(),
@@ -1188,16 +1212,16 @@ fn debug_search_term(label: &str) -> String {
         ["Break", ..] => "!break".to_string(),
         ["Continue", ..] => "!continue".to_string(),
         ["Assign", op, ..] => match *op {
-            "MinusEq"   => "-=".to_string(),
-            "PlusEq"    => "+=".to_string(),
-            "StarEq"    => "*=".to_string(),
-            "SlashEq"   => "/=".to_string(),
+            "MinusEq" => "-=".to_string(),
+            "PlusEq" => "+=".to_string(),
+            "StarEq" => "*=".to_string(),
+            "SlashEq" => "/=".to_string(),
             "PercentEq" => "%=".to_string(),
-            "AmpEq"     => "&=".to_string(),
-            "PipeEq"    => "|=".to_string(),
-            "CaretEq"   => "^=".to_string(),
-            "Eq"        => " = ".to_string(),
-            _           => String::new(),
+            "AmpEq" => "&=".to_string(),
+            "PipeEq" => "|=".to_string(),
+            "CaretEq" => "^=".to_string(),
+            "Eq" => " = ".to_string(),
+            _ => String::new(),
         },
         _ => String::new(),
     }

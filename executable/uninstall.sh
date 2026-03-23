@@ -1,29 +1,40 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  Fractal Language — Linux Uninstaller
-#  Removes: fractal-compiler  fractal-editor  from  /usr/bin
+#  Fractal Language — Uninstaller
+#  https://github.com/Pixelrick420/Fractal
 # =============================================================================
 
 set -euo pipefail
 
+# ── Colours ───────────────────────────────────────────────────────────────────
 RED='\033[1;31m'; GREEN='\033[1;32m'; CYAN='\033[1;36m'
 YELLOW='\033[1;33m'; BOLD='\033[1m'; RESET='\033[0m'
 
 info()    { echo -e "${CYAN}${BOLD}  →${RESET} $*"; }
 success() { echo -e "${GREEN}${BOLD}  ✓${RESET} $*"; }
 warn()    { echo -e "${YELLOW}${BOLD}  !${RESET} $*"; }
-die()     { echo -e "${RED}${BOLD}  ✗ Error:${RESET} $*" >&2; exit 1; }
+die()     { echo -e "\n${RED}${BOLD}  ✗ Error:${RESET} $*\n" >&2; exit 1; }
 
+# ── Banner ────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${RED}${BOLD}╔══════════════════════════════════════════╗${RESET}"
 echo -e "${RED}${BOLD}║      Fractal Language Uninstaller        ║${RESET}"
 echo -e "${RED}${BOLD}╚══════════════════════════════════════════╝${RESET}"
 echo ""
 
+# ── Privilege helper ──────────────────────────────────────────────────────────
+if [[ "$(id -u)" -eq 0 ]]; then
+    SUDO=""
+else
+    command -v sudo &>/dev/null \
+        || die "'sudo' is not installed and you are not root.\n  Please run this uninstaller as root, or install sudo first."
+    SUDO="sudo"
+fi
+
 INSTALL_DIR="/usr/bin"
 BINARIES=("fractal-compiler" "fractal-editor")
 
-# ── 1. Check anything is actually installed ───────────────────────────────────
+# ── 1. Find what is installed ─────────────────────────────────────────────────
 FOUND=()
 for bin in "${BINARIES[@]}"; do
     [[ -f "${INSTALL_DIR}/${bin}" ]] && FOUND+=("$bin")
@@ -41,7 +52,7 @@ done
 echo ""
 
 # ── 2. Confirm ────────────────────────────────────────────────────────────────
-read -rp "$(echo -e "${YELLOW}${BOLD}  Proceed with uninstall? [y/N]:${RESET} ")" CONFIRM
+read -rp "$(echo -e "${YELLOW}${BOLD}  Proceed? [y/N]:${RESET} ")" CONFIRM
 case "$CONFIRM" in
     [yY][eE][sS]|[yY]) ;;
     *) echo ""; warn "Aborted."; exit 0 ;;
@@ -49,36 +60,50 @@ esac
 echo ""
 
 # ── 3. Remove binaries ────────────────────────────────────────────────────────
-info "Removing binaries (sudo required)..."
+info "Removing binaries..."
 
 for bin in "${FOUND[@]}"; do
-    sudo rm -f "${INSTALL_DIR}/${bin}" \
-        || die "Failed to remove '${bin}' from ${INSTALL_DIR}."
-    success "  Removed ${INSTALL_DIR}/${bin}"
+    $SUDO rm -f "${INSTALL_DIR}/${bin}" \
+        || die "Failed to remove '${bin}' — make sure you have sufficient privileges."
+    success "Removed ${INSTALL_DIR}/${bin}"
 done
 
-# ── 4. Verify gone ────────────────────────────────────────────────────────────
-echo ""
-info "Verifying removal..."
-
+# ── 4. Verify removed ─────────────────────────────────────────────────────────
 ALL_GONE=true
 for bin in "${FOUND[@]}"; do
     if command -v "$bin" &>/dev/null; then
-        warn "  '${bin}' still found at $(command -v "$bin") — may be a duplicate installation."
+        LOCATION=$(command -v "$bin")
+        warn "'${bin}' still found at ${LOCATION} — there may be another copy outside ${INSTALL_DIR}."
         ALL_GONE=false
-    else
-        success "  '${bin}' is no longer on PATH."
     fi
 done
 
-# ── 5. Optional: remove rustup ────────────────────────────────────────────────
+# ── 5. Clean up shell rc entries ──────────────────────────────────────────────
+RC_FILES=(
+    "$HOME/.bashrc"
+    "$HOME/.zshrc"
+    "$HOME/.profile"
+    "$HOME/.kshrc"
+    "$HOME/.config/fish/config.fish"
+)
+for rc in "${RC_FILES[@]}"; do
+    if [[ -f "$rc" ]] && grep -q 'Added by Fractal installer' "$rc" 2>/dev/null; then
+        sed -i '/# Added by Fractal installer/{N;N;d}' "$rc" 2>/dev/null || true
+        info "Cleaned up Fractal installer entries from ${rc}."
+    fi
+done
+
+# ── 6. Optional: remove Rust ──────────────────────────────────────────────────
 echo ""
 if command -v rustup &>/dev/null; then
-    read -rp "$(echo -e "${YELLOW}${BOLD}  Also remove Rust (rustup)?${RESET} This affects all Rust projects on this machine. [y/N]: ")" RM_RUST
+    echo -e "${YELLOW}${BOLD}  Rust (rustup) is installed on this machine.${RESET}"
+    warn "Removing Rust will affect ALL Rust projects, not just Fractal."
+    read -rp "$(echo -e "${YELLOW}${BOLD}  Remove Rust as well? [y/N]:${RESET} ")" RM_RUST
     case "$RM_RUST" in
         [yY][eE][sS]|[yY])
             info "Running rustup self uninstall..."
-            rustup self uninstall -y || die "rustup uninstall failed."
+            rustup self uninstall -y \
+                || die "rustup uninstall failed — try running 'rustup self uninstall' manually."
             success "Rust removed."
             ;;
         *)
@@ -87,7 +112,7 @@ if command -v rustup &>/dev/null; then
     esac
 fi
 
-# ── 6. Done ───────────────────────────────────────────────────────────────────
+# ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 if $ALL_GONE; then
     echo -e "${GREEN}${BOLD}  Fractal has been uninstalled.${RESET}"

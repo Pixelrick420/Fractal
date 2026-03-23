@@ -1,21 +1,17 @@
 name: Build and Release Fractal
-
 on:
   push:
     branches:
       - main
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
-
 permissions:
   contents: write
-
 jobs:
   build-and-release:
     name: Build Fractal Binaries
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,6 +20,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+          targets: x86_64-unknown-linux-musl
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -32,14 +29,17 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-musl-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
+            ${{ runner.os }}-cargo-musl-
             ${{ runner.os }}-cargo-
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            musl-tools \
+            pkg-config \
             libxkbcommon-dev \
             libwayland-dev \
             libx11-dev \
@@ -47,17 +47,73 @@ jobs:
             libxi-dev \
             libxrandr-dev \
             libgl1-mesa-dev \
-            pkg-config
+            libegl1-mesa-dev
 
-      - name: Build release binaries
-        run: cargo build --release
+      # ── fractal-compiler ────────────────────────────────────────────────────
+      # Pure CLI binary with no GUI deps — fully static via musl + crt-static.
+      # Zero runtime dependencies: runs on any x86-64 Linux kernel >= 3.2.
+      - name: Build fractal-compiler (fully static)
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          RUSTFLAGS: "-C target-feature=+crt-static"
+          PKG_CONFIG_ALL_STATIC: "1"
+        run: |
+          cargo build --release --target x86_64-unknown-linux-musl \
+            --bin fractal-compiler
+
+      - name: Verify fractal-compiler is fully static
+        run: |
+          bin=target/x86_64-unknown-linux-musl/release/fractal-compiler
+          echo "=== fractal-compiler ==="
+          file "$bin"
+          ldd "$bin" 2>&1 || true
+          # Must report "not a dynamic executable"
+          if ! ldd "$bin" 2>&1 | grep -q 'not a dynamic executable'; then
+            echo "ERROR: fractal-compiler is not fully static"
+            exit 1
+          fi
+          echo "OK: fractal-compiler is fully static"
+
+      # ── fractal-editor ──────────────────────────────────────────────────────
+      # Uses eframe/glow (OpenGL) + egui_term, which require libGL and libEGL
+      # at runtime — these are GPU driver interfaces that cannot be statically
+      # bundled (they are provided by the user's graphics stack).
+      # We still build with musl to eliminate the GLIBC version dependency;
+      # the only runtime libs needed are libGL, libEGL, and libX11/wayland,
+      # all of which ship with every desktop Linux.
+      - name: Build fractal-editor (musl, opengl runtime)
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          # Do NOT add crt-static here — it conflicts with OpenGL dynamic linking
+          RUSTFLAGS: ""
+          PKG_CONFIG_ALLOW_CROSS: "1"
+        run: |
+          cargo build --release --target x86_64-unknown-linux-musl \
+            --bin fractal-editor
+
+      - name: Verify fractal-editor dependencies are minimal
+        run: |
+          bin=target/x86_64-unknown-linux-musl/release/fractal-editor
+          echo "=== fractal-editor ==="
+          file "$bin"
+          echo "--- dynamic deps (only GL/EGL/X11/wayland expected) ---"
+          ldd "$bin" 2>&1 || true
+          # Fail if it links against a versioned GLIBC symbol (the original bug)
+          if objdump -p "$bin" 2>/dev/null | grep -q 'GLIBC_2\.[0-9]'; then
+            echo "ERROR: fractal-editor has versioned GLIBC deps — musl build failed"
+            exit 1
+          fi
+          echo "OK: fractal-editor has no versioned GLIBC dependencies"
 
       - name: Prepare executables folder
         run: |
           mkdir -p executable
-          cp target/release/fractal-compiler executable/fractal-compiler
-          cp target/release/fractal-editor   executable/fractal-editor
+          cp target/x86_64-unknown-linux-musl/release/fractal-compiler executable/fractal-compiler
+          cp target/x86_64-unknown-linux-musl/release/fractal-editor   executable/fractal-editor
           chmod +x executable/fractal-compiler executable/fractal-editor
+          # Copy installer scripts if present in the repo root
+          [[ -f install.sh   ]] && cp install.sh   executable/install.sh
+          [[ -f uninstall.sh ]] && cp uninstall.sh executable/uninstall.sh
 
       - name: Compute version tag
         id: version
@@ -74,20 +130,25 @@ jobs:
           name: "Fractal ${{ steps.version.outputs.tag }}"
           body: |
             ## Fractal Language — ${{ steps.version.outputs.tag }}
-
             Built from commit `${{ steps.version.outputs.short }}` on branch `${{ github.ref_name }}`.
 
-            ### Downloads
-            | Binary | Description |
-            |--------|-------------|
-            | `fractal-compiler` | Compiles `.fr` source files |
-            | `fractal-editor`   | GUI editor with syntax highlighting |
+            Both binaries use musl — no GLIBC version requirement.
+
+            | Binary | Runtime dependencies |
+            |--------|---------------------|
+            | `fractal-compiler` | None — fully static, runs on any x86-64 Linux |
+            | `fractal-editor`   | `libGL`/`libEGL` + X11 or Wayland (present on any desktop Linux) |
+
+            ### One-line install
+            ```bash
+            curl -fsSL https://github.com/Pixelrick420/Fractal/releases/latest/download/install.sh | bash
+            ```
 
             ### Usage
             ```bash
-            chmod +x fractal-compiler fractal-editor
-            ./fractal-compiler your_program.fr
-            ./fractal-editor
+            fractal-compiler your_program.fr
+            fractal-compiler debug your_program.fr
+            fractal-editor
             ```
           files: |
             executable/fractal-compiler

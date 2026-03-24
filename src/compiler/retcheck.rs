@@ -60,7 +60,7 @@ fn stmt_always_returns(node: &ParseNode) -> bool {
         ParseNode::While {
             condition, body, ..
         } => {
-            matches!(condition.as_ref(), ParseNode::BoolLit(true))
+            matches!(condition.as_ref(), ParseNode::BoolLit(true, _))
                 && block_contains_exit_no_break(body)
         }
 
@@ -76,7 +76,7 @@ pub fn check_function_returns(
     body: &[ParseNode],
     errors: &mut Vec<String>,
 ) {
-    if matches!(return_type, ParseNode::TypeVoid) {
+    if matches!(return_type, ParseNode::TypeVoid(_)) {
         return;
     }
 

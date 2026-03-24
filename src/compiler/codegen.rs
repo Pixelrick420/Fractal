@@ -129,39 +129,41 @@ impl CodeGen {
 
     fn type_str(&self, node: &ParseNode) -> String {
         match node {
-            ParseNode::TypeInt => "i64".into(),
-            ParseNode::TypeFloat => "f64".into(),
-            ParseNode::TypeChar => "char".into(),
-            ParseNode::TypeBoolean => "bool".into(),
-            ParseNode::TypeVoid => "()".into(),
-            ParseNode::TypeArray { elem, size } => match elem.as_ref() {
-                ParseNode::TypeStruct { name } => {
+            ParseNode::TypeInt(_) => "i64".into(),
+            ParseNode::TypeFloat(_) => "f64".into(),
+            ParseNode::TypeChar(_) => "char".into(),
+            ParseNode::TypeBoolean(_) => "bool".into(),
+            ParseNode::TypeVoid(_) => "()".into(),
+            ParseNode::TypeArray { elem, size, .. } => match elem.as_ref() {
+                ParseNode::TypeStruct { name, .. } => {
                     format!("[Option<Box<{}>>; {}]", escape_struct_name(name), size)
                 }
                 _ => format!("[{}; {}]", self.type_str(elem), size),
             },
-            ParseNode::TypeList { elem } => match elem.as_ref() {
-                ParseNode::TypeStruct { name } => {
+            ParseNode::TypeList { elem, .. } => match elem.as_ref() {
+                ParseNode::TypeStruct { name, .. } => {
                     format!("Vec<Option<Box<{}>>>", escape_struct_name(name))
                 }
                 _ => format!("Vec<{}>", self.type_str(elem)),
             },
-            ParseNode::TypeStruct { name } => escape_struct_name(name),
+            ParseNode::TypeStruct { name, .. } => escape_struct_name(name),
             _ => "/* ? */".into(),
         }
     }
 
     fn field_type_str(&self, node: &ParseNode) -> String {
         match node {
-            ParseNode::TypeStruct { name } => format!("Option<Box<{}>>", escape_struct_name(name)),
+            ParseNode::TypeStruct { name, .. } => {
+                format!("Option<Box<{}>>", escape_struct_name(name))
+            }
             _ => format!("Option<{}>", self.type_str(node)),
         }
     }
 
     fn ret_type_str(&self, node: &ParseNode) -> String {
         match node {
-            ParseNode::TypeVoid => String::new(),
-            ParseNode::TypeStruct { name } => {
+            ParseNode::TypeVoid(_) => String::new(),
+            ParseNode::TypeStruct { name, .. } => {
                 format!(" -> Option<Box<{}>>", escape_struct_name(name))
             }
             _ => format!(" -> {}", self.type_str(node)),
@@ -170,12 +172,12 @@ impl CodeGen {
 
     fn zero_val(&self, node: &ParseNode) -> String {
         match node {
-            ParseNode::TypeInt => "0_i64".into(),
-            ParseNode::TypeFloat => "0.0_f64".into(),
-            ParseNode::TypeChar => "'\\0'".into(),
-            ParseNode::TypeBoolean => "false".into(),
-            ParseNode::TypeArray { elem, size } => match elem.as_ref() {
-                ParseNode::TypeStruct { name } => {
+            ParseNode::TypeInt(_) => "0_i64".into(),
+            ParseNode::TypeFloat(_) => "0.0_f64".into(),
+            ParseNode::TypeChar(_) => "'\\0'".into(),
+            ParseNode::TypeBoolean(_) => "false".into(),
+            ParseNode::TypeArray { elem, size, .. } => match elem.as_ref() {
+                ParseNode::TypeStruct { name, .. } => {
                     format!(
                         "std::array::from_fn(|_| Some(Box::new({}::default())))",
                         escape_struct_name(name)
@@ -184,7 +186,7 @@ impl CodeGen {
                 _ => format!("[{}; {}]", self.zero_val(elem), size),
             },
             ParseNode::TypeList { .. } => "Vec::new()".into(),
-            ParseNode::TypeStruct { name } => {
+            ParseNode::TypeStruct { name, .. } => {
                 format!("Some(Box::new({}::default()))", escape_struct_name(name))
             }
             _ => "Default::default()".into(),
@@ -237,8 +239,6 @@ impl CodeGen {
             self.line("__fractal_debug_init();");
             self.line("let __fractal_lock_path = std::env::var(\"FRACTAL_DEBUG_LOCK\").unwrap_or_default();");
             self.line("if !__fractal_lock_path.is_empty() { __FRACTAL_DBG_LOCK.set(__fractal_lock_path).ok(); }");
-            // The thread-local already has ("<main>", "[]") seeded.
-            // We keep debug_current_func = "<main>" so snapshot labels are correct.
         }
         for s in &stmts {
             self.gen_stmt(s);
@@ -277,9 +277,10 @@ impl CodeGen {
                 params,
                 return_type,
                 body,
+                ..
             } => self.gen_funcdef(name, params, return_type, body),
-            ParseNode::StructDef { name, fields } => self.gen_structdef(name, fields),
-            ParseNode::Module { name, items } => self.gen_module(name, items),
+            ParseNode::StructDef { name, fields, .. } => self.gen_structdef(name, fields),
+            ParseNode::Module { name, items, .. } => self.gen_module(name, items),
             _ => self.gen_stmt(node),
         }
     }
@@ -314,10 +315,10 @@ impl CodeGen {
     ) {
         let prev_ret = self.current_return_struct.take();
         let prev_void = self.current_return_void;
-        if let ParseNode::TypeStruct { name: sname } = return_type {
+        if let ParseNode::TypeStruct { name: sname, .. } = return_type {
             self.current_return_struct = Some(sname.clone());
         }
-        self.current_return_void = matches!(return_type, ParseNode::TypeVoid);
+        self.current_return_void = matches!(return_type, ParseNode::TypeVoid(_));
 
         let prev_params = std::mem::take(&mut self.struct_params);
         let prev_param_types = std::mem::take(&mut self.struct_param_types);
@@ -334,11 +335,11 @@ impl CodeGen {
                 name: pname,
             } = p
             {
-                if let ParseNode::TypeStruct { name: sname } = data_type.as_ref() {
+                if let ParseNode::TypeStruct { name: sname, .. } = data_type.as_ref() {
                     self.struct_params.insert(pname.clone());
                     self.struct_param_types.insert(pname.clone(), sname.clone());
                 }
-                if matches!(data_type.as_ref(), ParseNode::TypeBoolean) {
+                if matches!(data_type.as_ref(), ParseNode::TypeBoolean(_)) {
                     self.bool_params.insert(pname.clone());
                 }
                 if matches!(data_type.as_ref(), ParseNode::TypeArray { .. }) {
@@ -350,7 +351,7 @@ impl CodeGen {
                 }
                 if matches!(data_type.as_ref(), ParseNode::TypeList { .. }) {
                     self.list_params.insert(pname.clone());
-                    if let ParseNode::TypeList { elem } = data_type.as_ref() {
+                    if let ParseNode::TypeList { elem, .. } = data_type.as_ref() {
                         let elem_sem = self.parse_node_to_sem_type(elem);
                         self.list_param_elem_types.insert(pname.clone(), elem_sem);
                     }
@@ -366,11 +367,11 @@ impl CodeGen {
                     name: pname,
                 } => {
                     let ty = match data_type.as_ref() {
-                        ParseNode::TypeStruct { name: sname } => {
+                        ParseNode::TypeStruct { name: sname, .. } => {
                             format!("&mut Option<Box<{}>>", escape_struct_name(sname))
                         }
-                        ParseNode::TypeArray { elem, size } => match elem.as_ref() {
-                            ParseNode::TypeStruct { name: sname } => {
+                        ParseNode::TypeArray { elem, size, .. } => match elem.as_ref() {
+                            ParseNode::TypeStruct { name: sname, .. } => {
                                 format!(
                                     "&mut [Option<Box<{}>>; {}]",
                                     escape_struct_name(sname),
@@ -379,8 +380,8 @@ impl CodeGen {
                             }
                             _ => format!("&mut [{}; {}]", self.type_str(elem), size),
                         },
-                        ParseNode::TypeList { elem } => match elem.as_ref() {
-                            ParseNode::TypeStruct { name: sname } => {
+                        ParseNode::TypeList { elem, .. } => match elem.as_ref() {
+                            ParseNode::TypeStruct { name: sname, .. } => {
                                 format!("&mut Vec<Option<Box<{}>>>", escape_struct_name(sname))
                             }
                             _ => format!("&mut Vec<{}>", self.type_str(elem)),
@@ -407,7 +408,7 @@ impl CodeGen {
         self.debug_current_func = name.to_string();
         self.debug_visible_vars.clear();
 
-        // FIX 4: Push all parameters into debug_visible_vars so their values
+        // Push all parameters into debug_visible_vars so their values
         // appear in the variable state panel and update as they change.
         if self.debug_mode {
             for p in params {
@@ -425,11 +426,7 @@ impl CodeGen {
         if self.debug_mode {
             self.line("__fractal_debug_init();");
 
-            // --- Freeze the CALLER's vars in its frame RIGHT NOW ---
-            // build_vars_json_code() still refers to the CALLER's
-            // debug_visible_vars (we haven't cleared them yet).
-            // We serialise them inline so the caller's frame stores its
-            // live state at the moment this call is entered.
+            // Freeze the CALLER's vars in its frame RIGHT NOW
             let caller_vars_code = self.build_vars_json_code();
             let caller_vars_json = if caller_vars_code.is_empty() {
                 "\"[]\".to_string()".to_string()
@@ -454,12 +451,8 @@ impl CodeGen {
                 })
                 .collect();
 
-            // Build display name: "funcname" or "mod::funcname(v1, v2, ...)".
-            // Must produce a String expression (not a &str literal) because
-            // __FRACTAL_CALL_STACK holds Vec<(String, String)>.
             let qualified_name = format!("{}{}", self.debug_module_prefix, name);
             let display_name = if param_idents.is_empty() {
-                // "\"funcname\".to_string()" in the generated code
                 format!("\"{}\".to_string()", qualified_name)
             } else {
                 let fmt_placeholders = param_idents
@@ -474,7 +467,6 @@ impl CodeGen {
                 )
             };
 
-            // Build initial vars JSON string for this frame using current param values
             let init_vars: Vec<String> = params
                 .iter()
                 .filter_map(|p| {
@@ -524,8 +516,7 @@ impl CodeGen {
             }
         }
 
-        // Pop this call frame when the function exits. The thread-local
-        // stores (name, vars_json) tuples so pop() removes the whole pair.
+        // Pop this call frame when the function exits.
         if self.debug_mode {
             self.line("__FRACTAL_CALL_STACK.with(|__s| { __s.borrow_mut().pop(); });");
         }
@@ -554,8 +545,6 @@ impl CodeGen {
         self.line("use super::*;");
         self.blank();
 
-        // Track the module prefix so gen_funcdef can label stack frames as
-        // "bubblesort::bubble(…)" instead of just "bubble(…)".
         let prev_module_prefix = self.debug_module_prefix.clone();
         self.debug_module_prefix = format!("{}::", name);
 
@@ -577,10 +566,10 @@ impl CodeGen {
                 ParseNode::Decl { data_type, .. }
                 if matches!(
                     data_type.as_ref(),
-                    ParseNode::TypeInt
-                        | ParseNode::TypeFloat
-                        | ParseNode::TypeChar
-                        | ParseNode::TypeBoolean
+                    ParseNode::TypeInt(_)
+                        | ParseNode::TypeFloat(_)
+                        | ParseNode::TypeChar(_)
+                        | ParseNode::TypeBoolean(_)
                 )
             )
         });
@@ -595,10 +584,10 @@ impl CodeGen {
             {
                 let ty = self.type_str(data_type);
                 let rust_ty = match data_type.as_ref() {
-                    ParseNode::TypeInt => "i64",
-                    ParseNode::TypeFloat => "f64",
-                    ParseNode::TypeChar => "char",
-                    ParseNode::TypeBoolean => "bool",
+                    ParseNode::TypeInt(_) => "i64",
+                    ParseNode::TypeFloat(_) => "f64",
+                    ParseNode::TypeChar(_) => "char",
+                    ParseNode::TypeBoolean(_) => "bool",
                     _ => &ty,
                 };
                 let rhs = match init {
@@ -717,20 +706,20 @@ impl CodeGen {
                 self.dedent();
                 self.line("}");
 
-                if matches!(condition.as_ref(), ParseNode::BoolLit(true)) {
+                if let ParseNode::BoolLit(true, _) = condition.as_ref() {
                     self.line("unreachable!();");
                 }
             }
 
             ParseNode::Return { expr, .. } => match expr.as_ref() {
-                ParseNode::Null => {
+                ParseNode::Null(_) => {
                     if self.current_return_void {
                         self.line("return;");
                     } else {
                         self.line("return None;");
                     }
                 }
-                ParseNode::StructLit(fields) => {
+                ParseNode::StructLit(fields, _) => {
                     if let Some(sname) = self.current_return_struct.clone() {
                         let body = self.emit_struct_lit_body(&sname.clone(), fields);
                         self.flush_hoists();
@@ -755,7 +744,7 @@ impl CodeGen {
                     }
                 }
 
-                ParseNode::AccessChain { base: n, steps }
+                ParseNode::AccessChain { base: n, steps, .. }
                     if steps.is_empty()
                         && (matches!(self.var_types.get(n.as_str()), Some(SemType::Struct(_)))
                             || matches!(
@@ -767,13 +756,13 @@ impl CodeGen {
                     self.line(&format!("return {}.clone();", escape_ident(n)));
                 }
 
-                ParseNode::AccessChain { base: n, steps }
+                ParseNode::AccessChain { base: n, steps, .. }
                     if steps.is_empty() && self.array_params.contains(n.as_str()) =>
                 {
                     self.line(&format!("return {}.clone();", escape_ident(n)));
                 }
 
-                ParseNode::AccessChain { base: n, steps }
+                ParseNode::AccessChain { base: n, steps, .. }
                     if steps.is_empty() && self.list_params.contains(n.as_str()) =>
                 {
                     self.line(&format!("return {}.clone();", escape_ident(n)));
@@ -802,25 +791,26 @@ impl CodeGen {
                 params,
                 return_type,
                 body,
+                ..
             } => self.gen_funcdef(name, params, return_type, body),
-            ParseNode::StructDef { name, fields } => self.gen_structdef(name, fields),
+            ParseNode::StructDef { name, fields, .. } => self.gen_structdef(name, fields),
 
             _ => {}
         }
     }
 
     fn gen_decl(&mut self, data_type: &ParseNode, name: &str, init: Option<&ParseNode>) {
-        if let ParseNode::TypeStruct { name: sname } = data_type {
+        if let ParseNode::TypeStruct { name: sname, .. } = data_type {
             let sname = sname.clone();
             self.gen_struct_decl(&sname, name, init);
             return;
         }
 
-        if matches!(data_type, ParseNode::TypeBoolean) {
+        if matches!(data_type, ParseNode::TypeBoolean(_)) {
             self.local_var_types
                 .insert(name.to_string(), SemType::Boolean);
         }
-        if let ParseNode::TypeArray { elem, size } = data_type {
+        if let ParseNode::TypeArray { elem, size, .. } = data_type {
             self.local_var_types.insert(
                 name.to_string(),
                 SemType::Array {
@@ -829,7 +819,7 @@ impl CodeGen {
                 },
             );
         }
-        if let ParseNode::TypeList { elem } = data_type {
+        if let ParseNode::TypeList { elem, .. } = data_type {
             self.local_var_types.insert(
                 name.to_string(),
                 SemType::List {
@@ -840,22 +830,27 @@ impl CodeGen {
 
         let ty = self.type_str(data_type);
         let rhs = match (data_type, init) {
-            (ParseNode::TypeArray { elem, .. }, Some(ParseNode::StringLit(s)))
-                if matches!(elem.as_ref(), ParseNode::TypeChar) =>
+            (ParseNode::TypeArray { elem, .. }, Some(ParseNode::StringLit(s, _)))
+                if matches!(elem.as_ref(), ParseNode::TypeChar(_)) =>
             {
                 let chars: Vec<String> =
                     s.chars().map(|c| format!("'{}'", escape_char(c))).collect();
                 format!("[{}]", chars.join(", "))
             }
-            (ParseNode::TypeList { elem: list_elem }, Some(ParseNode::ArrayLit(elems))) => {
+            (
+                ParseNode::TypeList {
+                    elem: list_elem, ..
+                },
+                Some(ParseNode::ArrayLit(elems, _)),
+            ) => {
                 if elems.is_empty() {
                     "Vec::new()".to_string()
-                } else if let ParseNode::TypeStruct { name: sname } = list_elem.as_ref() {
+                } else if let ParseNode::TypeStruct { name: sname, .. } = list_elem.as_ref() {
                     let sname = sname.clone();
                     let parts: Vec<_> = elems
                         .iter()
                         .map(|e| match e {
-                            ParseNode::StructLit(fields) => {
+                            ParseNode::StructLit(fields, _) => {
                                 let body = self.emit_struct_lit_body(&sname, fields);
                                 format!(
                                     "Some(Box::new({} {{ {} }}))",
@@ -863,7 +858,7 @@ impl CodeGen {
                                     body
                                 )
                             }
-                            ParseNode::Null => "None".to_string(),
+                            ParseNode::Null(_) => "None".to_string(),
                             _ => self.gen_expr(e),
                         })
                         .collect();
@@ -900,8 +895,8 @@ impl CodeGen {
                 "Some(Box::new({}::default()))",
                 escape_struct_name(struct_name)
             ),
-            Some(ParseNode::Null) => "None".to_string(),
-            Some(ParseNode::StructLit(fields)) => {
+            Some(ParseNode::Null(_)) => "None".to_string(),
+            Some(ParseNode::StructLit(fields, _)) => {
                 let sn = struct_name.to_string();
                 let body = self.emit_struct_lit_body(&sn, fields);
                 format!(
@@ -942,13 +937,13 @@ impl CodeGen {
         fields
             .iter()
             .map(|(fname, fexpr)| {
-                if matches!(fexpr, ParseNode::Null) {
+                if matches!(fexpr, ParseNode::Null(_)) {
                     return format!("{}: None", fname);
                 }
                 let wrapped = match ftypes.get(fname) {
                     Some(SemType::Struct(sname)) => {
                         let sname = sname.clone();
-                        if let ParseNode::StructLit(nested_fields) = fexpr {
+                        if let ParseNode::StructLit(nested_fields, _) = fexpr {
                             let body = self.emit_struct_lit_body(&sname, nested_fields);
                             format!(
                                 "{}: Some(Box::new({} {{ {} }}))",
@@ -970,7 +965,7 @@ impl CodeGen {
                         }
                     }
                     Some(SemType::List { .. }) => {
-                        if let ParseNode::ArrayLit(elems) = fexpr {
+                        if let ParseNode::ArrayLit(elems, _) = fexpr {
                             if elems.is_empty() {
                                 format!("{}: Some(Vec::new())", fname)
                             } else {
@@ -995,16 +990,16 @@ impl CodeGen {
     }
 
     fn gen_assign(&mut self, lvalue: &ParseNode, op: &AssignOp, expr: &ParseNode) {
-        if let ParseNode::AccessChain { base, steps } = lvalue {
+        if let ParseNode::AccessChain { base, steps, .. } = lvalue {
             if let Some(AccessStep::Field(fname)) = steps.last() {
                 let fname = fname.clone();
-                let is_null = matches!(expr, ParseNode::Null);
+                let is_null = matches!(expr, ParseNode::Null(_));
                 let prefix = self.emit_struct_field_prefix(base, steps);
 
                 if matches!(op, AssignOp::Eq) {
                     let rhs = if is_null {
                         "None".to_string()
-                    } else if let ParseNode::StructLit(fields) = expr {
+                    } else if let ParseNode::StructLit(fields, _) = expr {
                         if let Some(SemType::Struct(sname)) =
                             self.resolve_field_type(base, steps, &fname)
                         {
@@ -1035,6 +1030,7 @@ impl CodeGen {
                             if let ParseNode::AccessChain {
                                 base: _rhs_base,
                                 steps: rhs_steps,
+                                ..
                             } = expr
                             {
                                 matches!(rhs_steps.last(), Some(AccessStep::Call(_))) || {
@@ -1146,14 +1142,14 @@ impl CodeGen {
 
     fn gen_lvalue(&mut self, node: &ParseNode) -> String {
         match node {
-            ParseNode::AccessChain { base, steps } => self.emit_access_chain_mut(base, steps),
+            ParseNode::AccessChain { base, steps, .. } => self.emit_access_chain_mut(base, steps),
             _ => self.gen_expr(node),
         }
     }
 
     fn gen_list_container(&mut self, node: &ParseNode) -> String {
         match node {
-            ParseNode::AccessChain { base, steps } => {
+            ParseNode::AccessChain { base, steps, .. } => {
                 let lv = self.emit_access_chain_mut(base, steps);
                 let is_field_end = steps
                     .last()
@@ -1474,7 +1470,7 @@ impl CodeGen {
         body: &[ParseNode],
         for_line: usize,
     ) {
-        let is_predeclared = matches!(var_type, ParseNode::TypeVoid);
+        let is_predeclared = matches!(var_type, ParseNode::TypeVoid(_));
         let ty = if is_predeclared {
             String::new()
         } else {
@@ -1485,7 +1481,7 @@ impl CodeGen {
         let sp_s = self.gen_expr(step);
         let vn = escape_ident(var_name);
 
-        let is_negative_step = matches!(step, ParseNode::IntLit(n) if *n < 0)
+        let is_negative_step = matches!(step, ParseNode::IntLit(n, _) if *n < 0)
             || matches!(step, ParseNode::Unary { op: UnOp::Neg, .. });
         let cmp_op = if is_negative_step { ">" } else { "<" };
 
@@ -1497,10 +1493,6 @@ impl CodeGen {
             self.line(&format!("let mut {}: {} = {};", vn, ty, s_s));
         }
 
-        // FIX 2: Push the loop variable into debug_visible_vars so it appears
-        // in the variable state panel. Track the list length before so we can
-        // truncate after the loop and avoid leaking the inner-scope variable
-        // into the enclosing scope (important for nested for loops).
         let vars_len_before = self.debug_visible_vars.len();
         if self.debug_mode && !is_predeclared {
             let for_ty_label = parse_node_type_label(var_type);
@@ -1544,8 +1536,6 @@ impl CodeGen {
         self.dedent();
         self.line("}");
 
-        // FIX 2: Remove the loop variable from the visible list after the loop
-        // so it does not bleed into the surrounding scope's variable panel.
         if self.debug_mode && !is_predeclared {
             self.debug_visible_vars.truncate(vars_len_before);
         }
@@ -1556,7 +1546,7 @@ impl CodeGen {
 
     fn gen_call_stmt(&mut self, node: &ParseNode) {
         let (func_base, call_args) = match node {
-            ParseNode::AccessChain { base, steps } => {
+            ParseNode::AccessChain { base, steps, .. } => {
                 if steps.len() == 1 {
                     if let AccessStep::Call(args) = &steps[0] {
                         (base.as_str(), args.as_slice())
@@ -1586,7 +1576,7 @@ impl CodeGen {
         let mut mut_bases: std::collections::HashSet<String> = std::collections::HashSet::new();
         for arg in call_args {
             match arg {
-                ParseNode::AccessChain { base, steps }
+                ParseNode::AccessChain { base, steps, .. }
                     if self.access_chain_is_struct(base, steps) =>
                 {
                     mut_bases.insert(base.clone());
@@ -1597,7 +1587,7 @@ impl CodeGen {
 
         let mut array_struct_args: HashMap<String, Vec<(usize, String)>> = HashMap::new();
         for (i, arg) in call_args.iter().enumerate() {
-            if let ParseNode::AccessChain { base, steps } = arg {
+            if let ParseNode::AccessChain { base, steps, .. } = arg {
                 if steps.len() == 1 {
                     if let AccessStep::Index(idx_expr) = &steps[0] {
                         if self.access_chain_is_struct(base, steps) {
@@ -1664,7 +1654,7 @@ impl CodeGen {
 
         let mut hoisted: Vec<(usize, String)> = Vec::new();
         for (i, arg) in call_args.iter().enumerate() {
-            if let ParseNode::AccessChain { base, steps } = arg {
+            if let ParseNode::AccessChain { base, steps, .. } = arg {
                 if mut_bases.contains(base.as_str()) && !self.access_chain_is_struct(base, steps) {
                     let tmp = format!("__arg_{}_{}", func_base, i);
                     let val = self.emit_access_chain(base, steps);
@@ -1699,7 +1689,7 @@ impl CodeGen {
 
     fn gen_call_arg(&mut self, node: &ParseNode) -> String {
         match node {
-            ParseNode::AccessChain { base, steps } => {
+            ParseNode::AccessChain { base, steps, .. } => {
                 let is_struct_result = self.access_chain_is_struct(base, steps);
                 let call_returns_struct =
                     if !is_struct_result && matches!(steps.last(), Some(AccessStep::Call(_))) {
@@ -1813,15 +1803,15 @@ impl CodeGen {
 
     fn expr_is_float(&self, node: &ParseNode) -> bool {
         match node {
-            ParseNode::FloatLit(_) => true,
-            ParseNode::AccessChain { base, steps } if steps.is_empty() => matches!(
+            ParseNode::FloatLit(_, _) => true,
+            ParseNode::AccessChain { base, steps, .. } if steps.is_empty() => matches!(
                 self.var_types
                     .get(base.as_str())
                     .or_else(|| self.local_var_types.get(base.as_str())),
                 Some(SemType::Float)
             ),
             ParseNode::Cast { target_type, .. } => {
-                matches!(target_type.as_ref(), ParseNode::TypeFloat)
+                matches!(target_type.as_ref(), ParseNode::TypeFloat(_))
             }
             ParseNode::Add { left, right, .. } => {
                 self.expr_is_float(left) || self.expr_is_float(right)
@@ -1836,19 +1826,19 @@ impl CodeGen {
 
     fn parse_node_to_sem_type(&self, node: &ParseNode) -> SemType {
         match node {
-            ParseNode::TypeInt => SemType::Int,
-            ParseNode::TypeFloat => SemType::Float,
-            ParseNode::TypeChar => SemType::Char,
-            ParseNode::TypeBoolean => SemType::Boolean,
-            ParseNode::TypeVoid => SemType::Void,
-            ParseNode::TypeArray { elem, size } => SemType::Array {
+            ParseNode::TypeInt(_) => SemType::Int,
+            ParseNode::TypeFloat(_) => SemType::Float,
+            ParseNode::TypeChar(_) => SemType::Char,
+            ParseNode::TypeBoolean(_) => SemType::Boolean,
+            ParseNode::TypeVoid(_) => SemType::Void,
+            ParseNode::TypeArray { elem, size, .. } => SemType::Array {
                 elem: Box::new(self.parse_node_to_sem_type(elem)),
                 size: *size,
             },
-            ParseNode::TypeList { elem } => SemType::List {
+            ParseNode::TypeList { elem, .. } => SemType::List {
                 elem: Box::new(self.parse_node_to_sem_type(elem)),
             },
-            ParseNode::TypeStruct { name } => SemType::Struct(name.clone()),
+            ParseNode::TypeStruct { name, .. } => SemType::Struct(name.clone()),
             _ => SemType::Unknown,
         }
     }
@@ -1892,23 +1882,23 @@ impl CodeGen {
 
     fn gen_expr(&mut self, node: &ParseNode) -> String {
         match node {
-            ParseNode::IntLit(v) => format!("{}_i64", v),
-            ParseNode::FloatLit(v) => format!("{:?}_f64", v),
-            ParseNode::CharLit(c) => format!("'{}'", escape_char(*c)),
-            ParseNode::StringLit(s) => {
+            ParseNode::IntLit(v, _) => format!("{}_i64", v),
+            ParseNode::FloatLit(v, _) => format!("{:?}_f64", v),
+            ParseNode::CharLit(c, _) => format!("'{}'", escape_char(*c)),
+            ParseNode::StringLit(s, _) => {
                 let escaped: String = s.chars().map(|c| escape_char(c)).collect();
                 format!("\"{}\".to_string()", escaped)
             }
-            ParseNode::BoolLit(b) => {
+            ParseNode::BoolLit(b, _) => {
                 if *b {
                     "true".into()
                 } else {
                     "false".into()
                 }
             }
-            ParseNode::Null => "None".into(),
-            ParseNode::AccessChain { base, steps } => self.emit_access_chain(base, steps),
-            ParseNode::ArrayLit(elems) => {
+            ParseNode::Null(_) => "None".into(),
+            ParseNode::AccessChain { base, steps, .. } => self.emit_access_chain(base, steps),
+            ParseNode::ArrayLit(elems, _) => {
                 if elems.is_empty() {
                     "Vec::new()".into()
                 } else {
@@ -1916,11 +1906,11 @@ impl CodeGen {
                     format!("[{}]", parts.join(", "))
                 }
             }
-            ParseNode::StructLit(fields) => {
+            ParseNode::StructLit(fields, _) => {
                 let parts: Vec<_> = fields
                     .iter()
                     .map(|(fname, fexpr)| {
-                        let val = if matches!(fexpr, ParseNode::Null) {
+                        let val = if matches!(fexpr, ParseNode::Null(_)) {
                             "None".to_string()
                         } else {
                             format!("Some({})", self.gen_expr(fexpr))
@@ -1930,14 +1920,16 @@ impl CodeGen {
                     .collect();
                 format!("/* StructName */ {{ {} }}", parts.join(", "))
             }
-            ParseNode::LogOr { left, right } => {
+            ParseNode::LogOr { left, right, .. } => {
                 format!("({} || {})", self.gen_expr(left), self.gen_expr(right))
             }
-            ParseNode::LogAnd { left, right } => {
+            ParseNode::LogAnd { left, right, .. } => {
                 format!("({} && {})", self.gen_expr(left), self.gen_expr(right))
             }
-            ParseNode::LogNot { operand } => format!("(!{})", self.gen_expr(operand)),
-            ParseNode::Cmp { left, op, right } => {
+            ParseNode::LogNot { operand, .. } => format!("(!{})", self.gen_expr(operand)),
+            ParseNode::Cmp {
+                left, op, right, ..
+            } => {
                 let op_s = match op {
                     CmpOp::Gt => ">",
                     CmpOp::Lt => "<",
@@ -1953,16 +1945,18 @@ impl CodeGen {
                     self.gen_expr(right)
                 )
             }
-            ParseNode::BitOr { left, right } => {
+            ParseNode::BitOr { left, right, .. } => {
                 format!("({} | {})", self.gen_expr(left), self.gen_expr(right))
             }
-            ParseNode::BitXor { left, right } => {
+            ParseNode::BitXor { left, right, .. } => {
                 format!("({} ^ {})", self.gen_expr(left), self.gen_expr(right))
             }
-            ParseNode::BitAnd { left, right } => {
+            ParseNode::BitAnd { left, right, .. } => {
                 format!("({} & {})", self.gen_expr(left), self.gen_expr(right))
             }
-            ParseNode::BitShift { left, op, right } => {
+            ParseNode::BitShift {
+                left, op, right, ..
+            } => {
                 let op_s = match op {
                     ShiftOp::Left => "<<",
                     ShiftOp::Right => ">>",
@@ -1974,7 +1968,9 @@ impl CodeGen {
                     self.gen_expr(right)
                 )
             }
-            ParseNode::Add { left, op, right } => {
+            ParseNode::Add {
+                left, op, right, ..
+            } => {
                 let op_s = match op {
                     AddOp::Add => "+",
                     AddOp::Sub => "-",
@@ -1986,7 +1982,9 @@ impl CodeGen {
                     self.gen_expr(right)
                 )
             }
-            ParseNode::Mul { left, op, right } => {
+            ParseNode::Mul {
+                left, op, right, ..
+            } => {
                 let op_s = match op {
                     MulOp::Mul => "*",
                     MulOp::Div => "/",
@@ -1999,17 +1997,19 @@ impl CodeGen {
                     self.gen_expr(right)
                 )
             }
-            ParseNode::Unary { op, operand } => match op {
+            ParseNode::Unary { op, operand, .. } => match op {
                 UnOp::Neg => format!("(-{})", self.gen_expr(operand)),
                 UnOp::BitNot => format!("(!({}) as u64 as i64)", self.gen_expr(operand)),
             },
-            ParseNode::Cast { target_type, expr } => {
+            ParseNode::Cast {
+                target_type, expr, ..
+            } => {
                 let e = self.gen_expr(expr);
                 match target_type.as_ref() {
-                    ParseNode::TypeChar => {
+                    ParseNode::TypeChar(_) => {
                         format!("(char::from_u32({} as u32).unwrap())", e)
                     }
-                    ParseNode::TypeBoolean => {
+                    ParseNode::TypeBoolean(_) => {
                         let e = self.gen_expr(expr);
                         if self.expr_is_float(expr) {
                             format!("({} != 0.0_f64)", e)
@@ -2017,9 +2017,9 @@ impl CodeGen {
                             format!("({} != 0_i64)", e)
                         }
                     }
-                    ParseNode::TypeFloat => match expr.as_ref() {
-                        ParseNode::BoolLit(_) => format!("(({} as i64) as f64)", e),
-                        ParseNode::AccessChain { base: n, steps }
+                    ParseNode::TypeFloat(_) => match expr.as_ref() {
+                        ParseNode::BoolLit(_, _) => format!("(({} as i64) as f64)", e),
+                        ParseNode::AccessChain { base: n, steps, .. }
                             if steps.is_empty()
                                 && (matches!(
                                     self.var_types
@@ -2033,12 +2033,12 @@ impl CodeGen {
                         ParseNode::Cast {
                             target_type: inner_ty,
                             ..
-                        } if matches!(inner_ty.as_ref(), ParseNode::TypeBoolean) => {
+                        } if matches!(inner_ty.as_ref(), ParseNode::TypeBoolean(_)) => {
                             format!("(({} as i64) as f64)", e)
                         }
                         _ => format!("({} as f64)", e),
                     },
-                    ParseNode::TypeInt => format!("({} as i64)", e),
+                    ParseNode::TypeInt(_) => format!("({} as i64)", e),
                     _ => {
                         let ty = self.type_str(target_type);
                         format!("({} as {})", e, ty)
@@ -2250,7 +2250,7 @@ impl CodeGen {
         match (name, n) {
             ("print", 0) => Some("{ print!(); io::stdout().flush().unwrap(); }".into()),
             ("print", 1) => {
-                if let ParseNode::StringLit(s) = &args[0] {
+                if let ParseNode::StringLit(s, _) = &args[0] {
                     let escaped: String = s.chars().map(|c| escape_char(c)).collect();
                     Some(format!(
                         "{{ print!(\"{escaped}\"); io::stdout().flush().unwrap(); }}"
@@ -2271,7 +2271,7 @@ impl CodeGen {
                 }
             }
             ("print", _) => {
-                let fmt_lit = if let ParseNode::StringLit(s) = &args[0] {
+                let fmt_lit = if let ParseNode::StringLit(s, _) = &args[0] {
                     let escaped: String = s.chars().map(|c| escape_char(c)).collect();
                     format!("\"{}\"", escaped)
                 } else {
@@ -2310,7 +2310,7 @@ impl CodeGen {
                 );
                 for var_node in vars {
                     let (var_name, var_type) =
-                        if let ParseNode::AccessChain { base, steps } = var_node {
+                        if let ParseNode::AccessChain { base, steps, .. } = var_node {
                             if steps.is_empty() {
                                 let ty = self
                                     .var_types
@@ -2443,15 +2443,11 @@ impl CodeGen {
         );
         self.blank();
 
-        // Each stack frame is (display_name, vars_json_string).
-        // - The BOTTOM frame is always "<main>" seeded with "[]".
-        // - When a function is called it pushes its own frame with initial param vars.
-        // - At every snapshot the TOP frame's vars string is overwritten with the
-        //   current live vars.  Frames below are frozen at call-time so clicking a
-        //   caller in the UI shows its state when it made the call.
         self.line("thread_local! {");
         self.line("    static __FRACTAL_CALL_STACK: std::cell::RefCell<Vec<(String, String)>> =");
-        self.line("        std::cell::RefCell::new(vec![(\"<main>\".to_string(), \"[]\".to_string())]);");
+        self.line(
+            "        std::cell::RefCell::new(vec![(\"<main>\".to_string(), \"[]\".to_string())]);",
+        );
         self.line("}");
         self.blank();
 
@@ -2532,36 +2528,23 @@ impl CodeGen {
         self.line("}");
         self.blank();
 
-        // The macro:
-        //  1. Builds the current frame's live vars JSON from $var_str arguments.
-        //  2. Updates the TOP frame in __FRACTAL_CALL_STACK with those vars
-        //     (callers below are frozen — they already have their call-time state).
-        //  3. Serialises ALL frames into "stack" (name array, bottom→top) and
-        //     "scopes" (one scope per frame, TOP FIRST so index-0 is the active
-        //     function and the UI can default-select it).
         self.raw("macro_rules! __fractal_debug_snapshot {\n");
         self.raw("    ($label:expr, $func:expr, $line:expr, [$($var_str:expr),* $(,)?], $finished:expr, $error:expr) => {{\n");
         self.raw("        let __dbg_step = __FRACTAL_DBG_STEP.fetch_add(1, std::sync::atomic::Ordering::SeqCst);\n");
         self.raw("        let mut __dbg_g = __FRACTAL_DBG_FILE.lock().unwrap();\n");
         self.raw("        if let Some(ref mut __dbg_w) = *__dbg_g {\n");
-        // 1. Build the live vars JSON for the current (top) frame
         self.raw("            let __dbg_vars: Vec<String> = vec![$($var_str),*];\n");
         self.raw("            let __dbg_vars_json = format!(\"[{}]\", __dbg_vars.join(\",\"));\n");
-        // 2. Update only the TOP frame's vars — callers stay frozen
         self.raw("            __FRACTAL_CALL_STACK.with(|__stk| {\n");
         self.raw("                if let Some(__top) = __stk.borrow_mut().last_mut() {\n");
         self.raw("                    __top.1 = __dbg_vars_json.clone();\n");
         self.raw("                }\n");
         self.raw("            });\n");
-        // 3. Read all frames; emit stack bottom→top, scopes TOP→bottom (active first)
         self.raw("            let (__dbg_stack_json, __dbg_scopes_json) = __FRACTAL_CALL_STACK.with(|__stk| {\n");
         self.raw("                let __frames = __stk.borrow();\n");
-        // stack array: bottom → top (oldest call first, matches typical debugger display)
         self.raw("                let __stack_parts: Vec<String> = __frames.iter()\n");
         self.raw("                    .map(|(__name, _)| format!(\"\\\"{}\\\"\" , __fractal_debug_json_escape(__name)))\n");
         self.raw("                    .collect();\n");
-        // scopes array: TOP frame first (index 0 = currently executing function)
-        // var_view iterates with .rev() so index-0 ends up on top of the panel.
         self.raw("                let __scope_parts: Vec<String> = __frames.iter().rev()\n");
         self.raw("                    .map(|(__name, __vars)| {\n");
         self.raw("                        let mut __sc = String::from(\"{\\\"label\\\":\\\"\");\n");
@@ -2590,7 +2573,9 @@ impl CodeGen {
         self.raw("                __ln.push_str(&__dbg_stack_json);\n");
         self.raw("                __ln.push_str(\",\\\"scopes\\\":\");\n");
         self.raw("                __ln.push_str(&__dbg_scopes_json);\n");
-        self.raw("                __ln.push_str(\",\\\"output\\\":\\\"\\\",\\\"finished\\\":\");\n");
+        self.raw(
+            "                __ln.push_str(\",\\\"output\\\":\\\"\\\",\\\"finished\\\":\");\n",
+        );
         self.raw("                __ln.push_str(if $finished { \"true\" } else { \"false\" });\n");
         self.raw("                __ln.push_str(\",\\\"error\\\":\");\n");
         self.raw("                __ln.push_str(&__dbg_err);\n");
@@ -2625,10 +2610,6 @@ fn escape_char(c: char) -> String {
     }
 }
 
-// FIX 1: ExprStmt now extracts the actual function name from the call chain
-// so the debug label becomes "Call bubble" or "Call math::sort" instead of
-// the useless "ExprStmt" — giving the UI a meaningful label to match against
-// source lines and highlight correctly.
 fn stmt_debug_label(node: &ParseNode) -> String {
     match node {
         ParseNode::Decl {
@@ -2656,28 +2637,22 @@ fn stmt_debug_label(node: &ParseNode) -> String {
         ParseNode::Return { .. } => "Return".into(),
         ParseNode::Exit { .. } => "Exit".into(),
 
-        // FIX 1: Extract a real label from function-call expression statements.
         ParseNode::ExprStmt(e, _) => match e.as_ref() {
-            ParseNode::AccessChain { base, steps } => {
-                // Simple call:  foo(args)  → steps = [Call(...)]
+            ParseNode::AccessChain { base, steps, .. } => {
                 if steps.len() == 1 {
                     if let AccessStep::Call(_) = &steps[0] {
                         return format!("Call {}", base);
                     }
                 }
-                // Module / method call:  mod::func(args)
-                //   steps = [Field("func"), Call(...)]
-                //   e.g. bubblesort::bubble(b) → base="bubblesort", steps=[Field("bubble"), Call([b])]
                 if steps.len() == 2 {
-                    if let (AccessStep::Field(fname), AccessStep::Call(_)) =
-                        (&steps[0], &steps[1])
+                    if let (AccessStep::Field(fname), AccessStep::Call(_)) = (&steps[0], &steps[1])
                     {
                         return format!("Call {}::{}", base, fname);
                     }
                 }
-                // Deeper chain still has a final Call — best-effort label
                 if let Some(AccessStep::Call(_)) = steps.last() {
-                    if let Some(AccessStep::Field(fname)) = steps.get(steps.len().saturating_sub(2)) {
+                    if let Some(AccessStep::Field(fname)) = steps.get(steps.len().saturating_sub(2))
+                    {
                         return format!("Call {}::{}", base, fname);
                     }
                     return format!("Call {}", base);
@@ -2710,14 +2685,14 @@ fn stmt_source_line(node: &ParseNode) -> usize {
 
 fn parse_node_type_label(node: &ParseNode) -> String {
     match node {
-        ParseNode::TypeInt => ":int".into(),
-        ParseNode::TypeFloat => ":float".into(),
-        ParseNode::TypeChar => ":char".into(),
-        ParseNode::TypeBoolean => ":bool".into(),
-        ParseNode::TypeVoid => ":void".into(),
+        ParseNode::TypeInt(_) => ":int".into(),
+        ParseNode::TypeFloat(_) => ":float".into(),
+        ParseNode::TypeChar(_) => ":char".into(),
+        ParseNode::TypeBoolean(_) => ":bool".into(),
+        ParseNode::TypeVoid(_) => ":void".into(),
         ParseNode::TypeArray { .. } => ":array".into(),
         ParseNode::TypeList { .. } => ":list".into(),
-        ParseNode::TypeStruct { name } => format!(":struct<{}>", name),
+        ParseNode::TypeStruct { name, .. } => format!(":struct<{}>", name),
         _ => "?".into(),
     }
 }

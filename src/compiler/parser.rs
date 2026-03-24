@@ -95,91 +95,107 @@ pub enum ParseNode {
     AccessChain {
         base: String,
         steps: Vec<AccessStep>,
+        line: usize,
     },
 
     LogOr {
         left: Box<ParseNode>,
         right: Box<ParseNode>,
+        line: usize,
     },
     LogAnd {
         left: Box<ParseNode>,
         right: Box<ParseNode>,
+        line: usize,
     },
     LogNot {
         operand: Box<ParseNode>,
+        line: usize,
     },
 
     Cmp {
         left: Box<ParseNode>,
         op: CmpOp,
         right: Box<ParseNode>,
+        line: usize,
     },
 
     BitOr {
         left: Box<ParseNode>,
         right: Box<ParseNode>,
+        line: usize,
     },
     BitXor {
         left: Box<ParseNode>,
         right: Box<ParseNode>,
+        line: usize,
     },
     BitAnd {
         left: Box<ParseNode>,
         right: Box<ParseNode>,
+        line: usize,
     },
     BitShift {
         left: Box<ParseNode>,
         op: ShiftOp,
         right: Box<ParseNode>,
+        line: usize,
     },
 
     Add {
         left: Box<ParseNode>,
         op: AddOp,
         right: Box<ParseNode>,
+        line: usize,
     },
     Mul {
         left: Box<ParseNode>,
         op: MulOp,
         right: Box<ParseNode>,
+        line: usize,
     },
 
     Unary {
         op: UnOp,
         operand: Box<ParseNode>,
+        line: usize,
     },
 
     Cast {
         target_type: Box<ParseNode>,
         expr: Box<ParseNode>,
+        line: usize,
     },
 
-    ArrayLit(Vec<ParseNode>),
+    ArrayLit(Vec<ParseNode>, usize),
 
-    StructLit(Vec<(String, ParseNode)>),
+    StructLit(Vec<(String, ParseNode)>, usize),
 
-    Identifier(String),
-    IntLit(i64),
-    FloatLit(f64),
-    CharLit(char),
-    StringLit(String),
-    BoolLit(bool),
-    Null,
+    Identifier(String, usize),
+    IntLit(i64, usize),
+    FloatLit(f64, usize),
+    CharLit(char, usize),
+    StringLit(String, usize),
+    BoolLit(bool, usize),
+    Null(usize),
 
-    TypeInt,
-    TypeFloat,
-    TypeChar,
-    TypeBoolean,
-    TypeVoid,
+    TypeInt(usize),
+    TypeFloat(usize),
+    TypeChar(usize),
+    TypeBoolean(usize),
+    TypeVoid(usize),
     TypeArray {
         elem: Box<ParseNode>,
         size: i64,
+        line: usize,
     },
     TypeList {
         elem: Box<ParseNode>,
+        line: usize,
     },
     TypeStruct {
         name: String,
+        line: usize,
     },
 }
 
@@ -786,26 +802,25 @@ impl Parser {
         let field_name = self.expect_identifier()?;
         self.expect(&TokenType::EndL)?;
         Ok(ParseNode::Field {
-            data_type: Box::new(ParseNode::TypeStruct { name: type_name }),
+            data_type: Box::new(ParseNode::TypeStruct {
+                name: type_name,
+                line: 0,
+            }),
             name: field_name,
         })
     }
 
-    fn parse_struct_lit(&mut self) -> PResult<ParseNode> {
-        self.expect(&TokenType::LBrace)?;
-        let mut fields: Vec<(String, ParseNode)> = Vec::new();
-
+    fn parse_struct_lit_fields(&mut self) -> PResult<Vec<(String, ParseNode)>> {
+        let mut fields = Vec::new();
         if matches!(self.peek(), Some(TokenType::RBrace)) {
             self.advance();
-            return Ok(ParseNode::StructLit(fields));
+            return Ok(fields);
         }
-
         loop {
             let name = self.expect_identifier()?;
             self.expect(&TokenType::Equals)?;
             let val = self.parse_expression()?;
             fields.push((name, val));
-
             match self.peek().cloned() {
                 Some(TokenType::Comma) => {
                     self.advance();
@@ -822,7 +837,7 @@ impl Parser {
             }
         }
         self.expect(&TokenType::RBrace)?;
-        Ok(ParseNode::StructLit(fields))
+        Ok(fields)
     }
 
     fn parse_block(&mut self) -> PResult<Vec<ParseNode>> {
@@ -845,7 +860,6 @@ impl Parser {
 
     fn parse_stmt_with_endl(&mut self) -> PResult<ParseNode> {
         let stmt = self.parse_stmt()?;
-
         if !matches!(
             stmt,
             ParseNode::If { .. }
@@ -922,7 +936,7 @@ impl Parser {
                     (vt, vn)
                 } else {
                     let vn = self.expect_identifier()?;
-                    (ParseNode::TypeVoid, vn)
+                    (ParseNode::TypeVoid(0), vn)
                 };
                 self.expect(&TokenType::Comma)?;
                 let start = self.parse_expression()?;
@@ -1154,7 +1168,11 @@ impl Parser {
             ));
         }
 
-        Ok(ParseNode::AccessChain { base: name, steps })
+        Ok(ParseNode::AccessChain {
+            base: name,
+            steps,
+            line: 0,
+        })
     }
 
     fn parse_postfix_steps(&mut self) -> PResult<Vec<AccessStep>> {
@@ -1215,27 +1233,33 @@ impl Parser {
     fn parse_datatype(&mut self) -> PResult<ParseNode> {
         match self.peek().cloned() {
             Some(TokenType::TypeInt) => {
+                let line = self.cur_line();
                 self.advance();
-                Ok(ParseNode::TypeInt)
+                Ok(ParseNode::TypeInt(line))
             }
             Some(TokenType::TypeFloat) => {
+                let line = self.cur_line();
                 self.advance();
-                Ok(ParseNode::TypeFloat)
+                Ok(ParseNode::TypeFloat(line))
             }
             Some(TokenType::TypeChar) => {
+                let line = self.cur_line();
                 self.advance();
-                Ok(ParseNode::TypeChar)
+                Ok(ParseNode::TypeChar(line))
             }
             Some(TokenType::TypeBoolean) => {
+                let line = self.cur_line();
                 self.advance();
-                Ok(ParseNode::TypeBoolean)
+                Ok(ParseNode::TypeBoolean(line))
             }
             Some(TokenType::TypeVoid) => {
+                let line = self.cur_line();
                 self.advance();
-                Ok(ParseNode::TypeVoid)
+                Ok(ParseNode::TypeVoid(line))
             }
 
             Some(TokenType::TypeArray) => {
+                let line = self.cur_line();
                 self.advance();
                 self.expect(&TokenType::Less)?;
                 let elem = self.parse_datatype()?;
@@ -1256,25 +1280,29 @@ impl Parser {
                 Ok(ParseNode::TypeArray {
                     elem: Box::new(elem),
                     size,
+                    line,
                 })
             }
 
             Some(TokenType::TypeList) => {
+                let line = self.cur_line();
                 self.advance();
                 self.expect(&TokenType::Less)?;
                 let elem = self.parse_datatype()?;
                 self.expect(&TokenType::Greater)?;
                 Ok(ParseNode::TypeList {
                     elem: Box::new(elem),
+                    line,
                 })
             }
 
             Some(TokenType::TypeStruct) => {
+                let line = self.cur_line();
                 self.advance();
                 self.expect(&TokenType::Less)?;
                 let name = self.parse_struct_type_name()?;
                 self.expect(&TokenType::Greater)?;
-                Ok(ParseNode::TypeStruct { name })
+                Ok(ParseNode::TypeStruct { name, line })
             }
 
             other => Err(self.err(format!(
@@ -1293,11 +1321,13 @@ impl Parser {
     fn parse_logor(&mut self) -> PResult<ParseNode> {
         let mut left = self.parse_logand()?;
         while matches!(self.peek(), Some(TokenType::Or)) {
+            let line = self.cur_line();
             self.advance();
             let right = self.parse_logand()?;
             left = ParseNode::LogOr {
                 left: Box::new(left),
                 right: Box::new(right),
+                line,
             };
         }
         Ok(left)
@@ -1306,11 +1336,13 @@ impl Parser {
     fn parse_logand(&mut self) -> PResult<ParseNode> {
         let mut left = self.parse_lognot()?;
         while matches!(self.peek(), Some(TokenType::And)) {
+            let line = self.cur_line();
             self.advance();
             let right = self.parse_lognot()?;
             left = ParseNode::LogAnd {
                 left: Box::new(left),
                 right: Box::new(right),
+                line,
             };
         }
         Ok(left)
@@ -1318,10 +1350,12 @@ impl Parser {
 
     fn parse_lognot(&mut self) -> PResult<ParseNode> {
         if matches!(self.peek(), Some(TokenType::Not)) {
+            let line = self.cur_line();
             self.advance();
             let operand = self.parse_lognot()?;
             return Ok(ParseNode::LogNot {
                 operand: Box::new(operand),
+                line,
             });
         }
         self.parse_cmp()
@@ -1338,23 +1372,27 @@ impl Parser {
             Some(TokenType::TildeEquals) => CmpOp::Ne,
             _ => return Ok(left),
         };
+        let line = self.cur_line();
         self.advance();
         let right = self.parse_bitor()?;
         Ok(ParseNode::Cmp {
             left: Box::new(left),
             op,
             right: Box::new(right),
+            line,
         })
     }
 
     fn parse_bitor(&mut self) -> PResult<ParseNode> {
         let mut left = self.parse_bitxor()?;
         while matches!(self.peek(), Some(TokenType::Pipe)) {
+            let line = self.cur_line();
             self.advance();
             let right = self.parse_bitxor()?;
             left = ParseNode::BitOr {
                 left: Box::new(left),
                 right: Box::new(right),
+                line,
             };
         }
         Ok(left)
@@ -1363,11 +1401,13 @@ impl Parser {
     fn parse_bitxor(&mut self) -> PResult<ParseNode> {
         let mut left = self.parse_bitand()?;
         while matches!(self.peek(), Some(TokenType::Caret)) {
+            let line = self.cur_line();
             self.advance();
             let right = self.parse_bitand()?;
             left = ParseNode::BitXor {
                 left: Box::new(left),
                 right: Box::new(right),
+                line,
             };
         }
         Ok(left)
@@ -1376,11 +1416,13 @@ impl Parser {
     fn parse_bitand(&mut self) -> PResult<ParseNode> {
         let mut left = self.parse_shift()?;
         while matches!(self.peek(), Some(TokenType::Ampersand)) {
+            let line = self.cur_line();
             self.advance();
             let right = self.parse_shift()?;
             left = ParseNode::BitAnd {
                 left: Box::new(left),
                 right: Box::new(right),
+                line,
             };
         }
         Ok(left)
@@ -1397,6 +1439,7 @@ impl Parser {
                 (Some(TokenType::Greater), Some(TokenType::Greater)) => ShiftOp::Right,
                 _ => break,
             };
+            let line = self.cur_line();
             self.advance();
             self.advance();
             let right = self.parse_add()?;
@@ -1404,6 +1447,7 @@ impl Parser {
                 left: Box::new(left),
                 op,
                 right: Box::new(right),
+                line,
             };
         }
         Ok(left)
@@ -1417,12 +1461,14 @@ impl Parser {
                 Some(TokenType::Minus) => AddOp::Sub,
                 _ => break,
             };
+            let line = self.cur_line();
             self.advance();
             let right = self.parse_mul()?;
             left = ParseNode::Add {
                 left: Box::new(left),
                 op,
                 right: Box::new(right),
+                line,
             };
         }
         Ok(left)
@@ -1437,12 +1483,14 @@ impl Parser {
                 Some(TokenType::Percent) => MulOp::Mod,
                 _ => break,
             };
+            let line = self.cur_line();
             self.advance();
             let right = self.parse_unary()?;
             left = ParseNode::Mul {
                 left: Box::new(left),
                 op,
                 right: Box::new(right),
+                line,
             };
         }
         Ok(left)
@@ -1459,11 +1507,13 @@ impl Parser {
             _ => None,
         };
         if let Some(op) = op {
+            let line = self.cur_line();
             self.advance();
             let operand = self.parse_unary()?;
             return Ok(ParseNode::Unary {
                 op,
                 operand: Box::new(operand),
+                line,
             });
         }
 
@@ -1503,12 +1553,14 @@ impl Parser {
             self.pos = saved;
             return Ok(None);
         }
+        let line = self.cur_line();
         self.advance();
         let expr = self.parse_expression()?;
         self.expect(&TokenType::RParen)?;
         Ok(Some(ParseNode::Cast {
             target_type: Box::new(dt),
             expr: Box::new(expr),
+            line,
         }))
     }
 
@@ -1522,43 +1574,60 @@ impl Parser {
             }
 
             Some(TokenType::LBracket) => {
+                let line = self.cur_line();
                 self.advance();
                 let elems = self.parse_args()?;
                 self.expect(&TokenType::RBracket)?;
-                Ok(ParseNode::ArrayLit(elems))
+                Ok(ParseNode::ArrayLit(elems, line))
             }
 
-            Some(TokenType::LBrace) => self.parse_struct_lit(),
+            Some(TokenType::LBrace) => {
+                let line = self.cur_line();
+                self.advance();
+                let fields = self.parse_struct_lit_fields()?;
+                Ok(ParseNode::StructLit(fields, line))
+            }
 
             Some(TokenType::Identifier(name)) => {
+                let line = self.cur_line();
                 self.advance();
                 let steps = self.parse_postfix_steps()?;
-                Ok(ParseNode::AccessChain { base: name, steps })
+                Ok(ParseNode::AccessChain {
+                    base: name,
+                    steps,
+                    line,
+                })
             }
 
             Some(TokenType::SIntLit(n)) => {
+                let line = self.cur_line();
                 self.advance();
-                Ok(ParseNode::IntLit(n))
+                Ok(ParseNode::IntLit(n, line))
             }
             Some(TokenType::FloatLit(f)) => {
+                let line = self.cur_line();
                 self.advance();
-                Ok(ParseNode::FloatLit(f))
+                Ok(ParseNode::FloatLit(f, line))
             }
             Some(TokenType::CharLit(c)) => {
+                let line = self.cur_line();
                 self.advance();
-                Ok(ParseNode::CharLit(c))
+                Ok(ParseNode::CharLit(c, line))
             }
             Some(TokenType::StringLit(s)) => {
+                let line = self.cur_line();
                 self.advance();
-                Ok(ParseNode::StringLit(s))
+                Ok(ParseNode::StringLit(s, line))
             }
             Some(TokenType::BoolLit(b)) => {
+                let line = self.cur_line();
                 self.advance();
-                Ok(ParseNode::BoolLit(b))
+                Ok(ParseNode::BoolLit(b, line))
             }
             Some(TokenType::Null) => {
+                let line = self.cur_line();
                 self.advance();
-                Ok(ParseNode::Null)
+                Ok(ParseNode::Null(line))
             }
 
             other => {
@@ -1666,7 +1735,7 @@ fn node_label(node: &ParseNode) -> String {
         ParseNode::Break { .. } => "\x1b[35mBreak\x1b[0m".into(),
         ParseNode::Continue { .. } => "\x1b[35mContinue\x1b[0m".into(),
         ParseNode::ExprStmt(_, _) => "ExprStmt".into(),
-        ParseNode::AccessChain { base, steps } => {
+        ParseNode::AccessChain { base, steps, .. } => {
             let chain: String = steps
                 .iter()
                 .map(|s| match s {
@@ -1689,8 +1758,8 @@ fn node_label(node: &ParseNode) -> String {
         ParseNode::Mul { op, .. } => format!("Mul  \x1b[35m{:?}\x1b[0m", op),
         ParseNode::Unary { op, .. } => format!("Unary  \x1b[35m{:?}\x1b[0m", op),
         ParseNode::Cast { target_type, .. } => format!("Cast  → {}", type_str(target_type)),
-        ParseNode::ArrayLit(elems) => format!("ArrayLit  [{}]", elems.len()),
-        ParseNode::StructLit(fields) => format!(
+        ParseNode::ArrayLit(elems, _) => format!("ArrayLit  [{}]", elems.len()),
+        ParseNode::StructLit(fields, _) => format!(
             "StructLit  {{{}}}",
             fields
                 .iter()
@@ -1698,34 +1767,36 @@ fn node_label(node: &ParseNode) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        ParseNode::Identifier(s) => format!("Identifier  \x1b[32m{}\x1b[0m", s),
-        ParseNode::IntLit(n) => format!("IntLit  \x1b[32m{}\x1b[0m", n),
-        ParseNode::FloatLit(f) => format!("FloatLit  \x1b[32m{}\x1b[0m", f),
-        ParseNode::CharLit(c) => format!("CharLit  \x1b[32m{:?}\x1b[0m", c),
-        ParseNode::StringLit(s) => format!("StringLit  \x1b[32m{:?}\x1b[0m", s),
-        ParseNode::BoolLit(b) => format!("BoolLit  \x1b[32m{}\x1b[0m", b),
-        ParseNode::Null => "\x1b[32mNull\x1b[0m".into(),
-        ParseNode::TypeInt => "TypeInt".into(),
-        ParseNode::TypeFloat => "TypeFloat".into(),
-        ParseNode::TypeChar => "TypeChar".into(),
-        ParseNode::TypeBoolean => "TypeBoolean".into(),
-        ParseNode::TypeVoid => "TypeVoid".into(),
-        ParseNode::TypeArray { elem, size } => format!("TypeArray<{},{}>", type_str(elem), size),
-        ParseNode::TypeList { elem } => format!("TypeList<{}>", type_str(elem)),
-        ParseNode::TypeStruct { name } => format!("TypeStruct<{}>", name),
+        ParseNode::Identifier(s, _) => format!("Identifier  \x1b[32m{}\x1b[0m", s),
+        ParseNode::IntLit(n, _) => format!("IntLit  \x1b[32m{}\x1b[0m", n),
+        ParseNode::FloatLit(f, _) => format!("FloatLit  \x1b[32m{}\x1b[0m", f),
+        ParseNode::CharLit(c, _) => format!("CharLit  \x1b[32m{:?}\x1b[0m", c),
+        ParseNode::StringLit(s, _) => format!("StringLit  \x1b[32m{:?}\x1b[0m", s),
+        ParseNode::BoolLit(b, _) => format!("BoolLit  \x1b[32m{}\x1b[0m", b),
+        ParseNode::Null(_) => "\x1b[32mNull\x1b[0m".into(),
+        ParseNode::TypeInt(_) => "TypeInt".into(),
+        ParseNode::TypeFloat(_) => "TypeFloat".into(),
+        ParseNode::TypeChar(_) => "TypeChar".into(),
+        ParseNode::TypeBoolean(_) => "TypeBoolean".into(),
+        ParseNode::TypeVoid(_) => "TypeVoid".into(),
+        ParseNode::TypeArray { elem, size, .. } => {
+            format!("TypeArray<{},{}>", type_str(elem), size)
+        }
+        ParseNode::TypeList { elem, .. } => format!("TypeList<{}>", type_str(elem)),
+        ParseNode::TypeStruct { name, .. } => format!("TypeStruct<{}>", name),
     }
 }
 
 fn type_str(node: &ParseNode) -> String {
     match node {
-        ParseNode::TypeInt => "int".into(),
-        ParseNode::TypeFloat => "float".into(),
-        ParseNode::TypeChar => "char".into(),
-        ParseNode::TypeBoolean => "bool".into(),
-        ParseNode::TypeVoid => "void".into(),
-        ParseNode::TypeArray { elem, size } => format!("array<{},{}>", type_str(elem), size),
-        ParseNode::TypeList { elem } => format!("list<{}>", type_str(elem)),
-        ParseNode::TypeStruct { name } => format!("struct<{}>", name),
+        ParseNode::TypeInt(_) => "int".into(),
+        ParseNode::TypeFloat(_) => "float".into(),
+        ParseNode::TypeChar(_) => "char".into(),
+        ParseNode::TypeBoolean(_) => "bool".into(),
+        ParseNode::TypeVoid(_) => "void".into(),
+        ParseNode::TypeArray { elem, size, .. } => format!("array<{},{}>", type_str(elem), size),
+        ParseNode::TypeList { elem, .. } => format!("list<{}>", type_str(elem)),
+        ParseNode::TypeStruct { name, .. } => format!("struct<{}>", name),
         other => format!("{:?}", other),
     }
 }
@@ -1860,11 +1931,11 @@ fn print_node_children(node: &ParseNode, prefix: &str) {
                 }
             }
         }
-        ParseNode::LogOr { left, right }
-        | ParseNode::LogAnd { left, right }
-        | ParseNode::BitOr { left, right }
-        | ParseNode::BitXor { left, right }
-        | ParseNode::BitAnd { left, right } => {
+        ParseNode::LogOr { left, right, .. }
+        | ParseNode::LogAnd { left, right, .. }
+        | ParseNode::BitOr { left, right, .. }
+        | ParseNode::BitXor { left, right, .. }
+        | ParseNode::BitAnd { left, right, .. } => {
             print_node(left, prefix, false);
             print_node(right, prefix, true);
         }
@@ -1872,7 +1943,7 @@ fn print_node_children(node: &ParseNode, prefix: &str) {
             print_node(left, prefix, false);
             print_node(right, prefix, true);
         }
-        ParseNode::LogNot { operand } => {
+        ParseNode::LogNot { operand, .. } => {
             print_node(operand, prefix, true);
         }
         ParseNode::Cmp { left, right, .. }
@@ -1887,10 +1958,10 @@ fn print_node_children(node: &ParseNode, prefix: &str) {
         ParseNode::Cast { expr, .. } => {
             print_node(expr, prefix, true);
         }
-        ParseNode::ArrayLit(elems) => {
+        ParseNode::ArrayLit(elems, _) => {
             print_node_list(elems, prefix);
         }
-        ParseNode::StructLit(fields) => {
+        ParseNode::StructLit(fields, _) => {
             let n = fields.len();
             for (i, (name, val)) in fields.iter().enumerate() {
                 let is_last = i == n - 1;

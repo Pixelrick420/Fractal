@@ -148,18 +148,21 @@ fn children_of(n: &ParseNode) -> Vec<&ParseNode> {
         }
         ParseNode::Return { expr, .. } | ParseNode::Exit { expr, .. } => vec![expr.as_ref()],
         ParseNode::ExprStmt(e, _) => vec![e.as_ref()],
-        ParseNode::LogOr { left, right }
-        | ParseNode::LogAnd { left, right }
-        | ParseNode::BitOr { left, right }
-        | ParseNode::BitXor { left, right }
-        | ParseNode::BitAnd { left, right }
+        ParseNode::LogOr { left, right, .. }
+        | ParseNode::LogAnd { left, right, .. }
+        | ParseNode::BitOr { left, right, .. }
+        | ParseNode::BitXor { left, right, .. }
+        | ParseNode::BitAnd { left, right, .. }
         | ParseNode::BitShift { left, right, .. }
         | ParseNode::Add { left, right, .. }
         | ParseNode::Mul { left, right, .. }
         | ParseNode::Cmp { left, right, .. } => vec![left.as_ref(), right.as_ref()],
-        ParseNode::LogNot { operand } | ParseNode::Unary { operand, .. } => vec![operand.as_ref()],
+        ParseNode::LogNot { operand, .. } | ParseNode::Unary { operand, .. } => {
+            vec![operand.as_ref()]
+        }
         ParseNode::Cast { expr, .. } => vec![expr.as_ref()],
-        ParseNode::ArrayLit(elems) => elems.iter().collect(),
+        ParseNode::ArrayLit(elems, _) => elems.iter().collect(),
+        ParseNode::StructLit(fields, _) => fields.iter().map(|(_, v)| v).collect(),
         ParseNode::AccessChain { steps, .. } => steps
             .iter()
             .flat_map(|s| match s {
@@ -205,7 +208,7 @@ fn node_label(n: &ParseNode) -> String {
         ParseNode::Break { .. } => "Break".into(),
         ParseNode::Continue { .. } => "Continue".into(),
         ParseNode::ExprStmt(_, _) => "ExprStmt".into(),
-        ParseNode::AccessChain { base, steps } => {
+        ParseNode::AccessChain { base, steps, .. } => {
             let chain: String = steps
                 .iter()
                 .map(|s| match s {
@@ -228,37 +231,37 @@ fn node_label(n: &ParseNode) -> String {
         ParseNode::Mul { op, .. } => format!("Mul {:?}", op),
         ParseNode::Unary { op, .. } => format!("Unary {:?}", op),
         ParseNode::Cast { target_type, .. } => format!("Cast → {}", type_str(target_type)),
-        ParseNode::ArrayLit(e) => format!("ArrayLit [{}]", e.len()),
-        ParseNode::StructLit(_) => "StructLit".into(),
-        ParseNode::Identifier(s) => format!("Ident {}", s),
-        ParseNode::IntLit(n) => format!("Int {}", n),
-        ParseNode::FloatLit(f) => format!("Float {}", f),
-        ParseNode::CharLit(c) => format!("Char '{}'", c),
-        ParseNode::StringLit(s) => format!("Str \"{}\"", &s[..s.len().min(20)]),
-        ParseNode::BoolLit(b) => format!("Bool {}", b),
-        ParseNode::Null => "Null".into(),
-        ParseNode::TypeInt => ":int".into(),
-        ParseNode::TypeFloat => ":float".into(),
-        ParseNode::TypeChar => ":char".into(),
-        ParseNode::TypeBoolean => ":bool".into(),
-        ParseNode::TypeVoid => ":void".into(),
-        ParseNode::TypeArray { elem, size } => format!(":array<{},{}>", type_str(elem), size),
-        ParseNode::TypeList { elem } => format!(":list<{}>", type_str(elem)),
-        ParseNode::TypeStruct { name } => format!(":struct<{}>", name),
+        ParseNode::ArrayLit(elems, _) => format!("ArrayLit [{}]", elems.len()),
+        ParseNode::StructLit(fields, _) => format!("StructLit ({} fields)", fields.len()),
+        ParseNode::Identifier(s, _) => format!("Ident {}", s),
+        ParseNode::IntLit(n, _) => format!("Int {}", n),
+        ParseNode::FloatLit(f, _) => format!("Float {}", f),
+        ParseNode::CharLit(c, _) => format!("Char '{}'", c),
+        ParseNode::StringLit(s, _) => format!("Str \"{}\"", &s[..s.len().min(20)]),
+        ParseNode::BoolLit(b, _) => format!("Bool {}", b),
+        ParseNode::Null(_) => "Null".into(),
+        ParseNode::TypeInt(_) => ":int".into(),
+        ParseNode::TypeFloat(_) => ":float".into(),
+        ParseNode::TypeChar(_) => ":char".into(),
+        ParseNode::TypeBoolean(_) => ":bool".into(),
+        ParseNode::TypeVoid(_) => ":void".into(),
+        ParseNode::TypeArray { elem, size, .. } => format!(":array<{},{}>", type_str(elem), size),
+        ParseNode::TypeList { elem, .. } => format!(":list<{}>", type_str(elem)),
+        ParseNode::TypeStruct { name, .. } => format!(":struct<{}>", name),
         _ => "Node".into(),
     }
 }
 
 fn type_str(n: &ParseNode) -> String {
     match n {
-        ParseNode::TypeInt => ":int".into(),
-        ParseNode::TypeFloat => ":float".into(),
-        ParseNode::TypeChar => ":char".into(),
-        ParseNode::TypeBoolean => ":bool".into(),
-        ParseNode::TypeVoid => ":void".into(),
-        ParseNode::TypeArray { elem, size } => format!(":array<{},{}>", type_str(elem), size),
-        ParseNode::TypeList { elem } => format!(":list<{}>", type_str(elem)),
-        ParseNode::TypeStruct { name } => format!(":struct<{}>", name),
+        ParseNode::TypeInt(_) => ":int".into(),
+        ParseNode::TypeFloat(_) => ":float".into(),
+        ParseNode::TypeChar(_) => ":char".into(),
+        ParseNode::TypeBoolean(_) => ":bool".into(),
+        ParseNode::TypeVoid(_) => ":void".into(),
+        ParseNode::TypeArray { elem, size, .. } => format!(":array<{},{}>", type_str(elem), size),
+        ParseNode::TypeList { elem, .. } => format!(":list<{}>", type_str(elem)),
+        ParseNode::TypeStruct { name, .. } => format!(":struct<{}>", name),
         _ => "?".into(),
     }
 }

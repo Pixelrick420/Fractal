@@ -2,139 +2,146 @@
     a) simple
         1. int : 64 bit signed integer
         2. float : 64 bit IEEE floating point
-        3. char : 32 bit character (UTF 32 encoding)
-        4. boolean : true or false (1 bit)
-        5. void : the null type, !null is its only value
+        3. char : 32 bit character (UTF-32 encoding)
+        4. boolean : true or false
+        5. void : the null type; !null is its only value, and :void is only
+           valid as a function return type — it cannot be used for variables,
+           parameters, array/list element types, or struct fields
 
     b) iterable
-        1. array : fixed size array that can store any single simple data type
-        2. list : variable size array that can store any single simple data type
-        (strings are basically char arrays or char lists)
+        1. array : fixed-size collection that stores a single element type
+        2. list  : variable-size collection that stores a single element type
+        (strings are :array<:char, N> or :list<:char>)
 
     c) complex
-        1. user defined structure : has to be fixed size
+        1. user-defined structure : fixed size, declared with :struct<Name>
 
 
 # LITERALS
     a) int
         1. 0b1001 -> binary
-        2. 0xA -> hexadecimal
-        3. 0o24 -> octal
+        2. 0xA    -> hexadecimal
+        3. 0o24   -> octal
         4. 0d12 or 12 -> decimal
 
     b) float
-        1. 1.2 -> float without exp
-        2. 1.5e6 -> float with exp
+        1. 1.2   -> float without exponent
+        2. 1.5e6 -> float with exponent
 
     c) char
-        1. 'a' -> single quoted char
-        2. '\n' -> special char
+        1. 'a'  -> single-quoted char
+        2. '\n' -> escape sequence
 
     d) boolean
-        1. true  -> boolean true  (bare literal, NOT a keyword; no ! prefix)
-        2. false -> boolean false (bare literal, NOT a keyword; no ! prefix)
+        1. true  -> boolean true  (bare literal — NO ! prefix)
+        2. false -> boolean false (bare literal — NO ! prefix)
+        Note: !true / !false are parse errors; the lexer explicitly rejects them
+        and emits an error directing the user to write true / false directly.
 
-    e) array
-        1. [1, 2, 3, 4, 5] -> int array
-        2. ['a', 'b', 'c'] or "abcd" -> char array (double quote if no [])
+    e) array / list
+        1. [1, 2, 3]      -> integer array or list literal
+        2. ['a','b','c'] or "abc" -> char array or list literal
+        Note: an empty literal [] is valid only for :array and :list types.
 
-    f) list
-        1. same as array but declared as :list
+    f) null
+        1. !null -> the only value of :void; can be assigned to or returned
+           from struct-typed variables/functions to represent "no value".
+           !null cannot be used with any non-struct, non-void type.
 
 
 # RULES
-    1. no implicit type casting. if user does not convert int to float before
-       calculation, then an error occurs.
-        2 / 1.0 -> type error: operands do not match
-        :float(2) / 1.0 -> ok
+    1. No implicit type casting. If the user does not convert before a
+       calculation, a type error is raised.
+           2 / 1.0     -> type error: operands do not match
+           :float(2) / 1.0 -> ok
 
-        :int a = 1.0 -> type error
-        :int a = :int(1.0) -> ok
+           :int a = 1.0       -> type error
+           :int a = :int(1.0) -> ok
 
-    2. static + strong typing. all datatypes must be declared and cannot be changed.
+    2. Static + strong typing. All types must be declared and cannot change.
 
-    3. all keywords start with !
-        for -> error
-        !for -> keyword signifying a for loop
+    3. All keywords start with !
+           for  -> error (unrecognised identifier)
+           !for -> the for-loop keyword
+       The lexer catches bare keywords without ! and suggests the correct form.
 
-    4. all datatypes start with :
-        :int -> integer datatype
-        int -> error
+    4. All type names start with :
+           :int -> integer type
+           int  -> error (unrecognised identifier)
 
-    5. indentation + curly brackets.
-        !if (a > b){
-        print(a);
-        }
-        warning: indentation error
+    5. Indentation + curly brackets.
+       The opening curly brace must be on the same line as the statement header:
+           !if (a > b) {   <- ok
+               print(a);
+           }
 
-        !if (a > b) {
-            print(a);
-        }
-        ok
+           !if (a > b)
+           {               <- parse error: expected `{` on the same line
+               print(a);
+           }
+       Note: indentation style is NOT enforced by the compiler (no warnings
+       are issued for misaligned indentation — this was listed in earlier docs
+       but is not implemented).
 
-        the opening curly brace must be on the same line as the condition:
-        !if (a > b)
-        {
-            print(a);
-        }
-        warning: improper use of {
+    6. !start and !end are required. Only code between them is compiled.
 
-    6. !start and !end must be used. only lines of code between those will
-       be considered.
+    7. All variables are block-scoped to the nearest { }.
+       Variables declared at the top level (directly inside !start…!end with
+       no extra nesting) are global.
 
-    7. all variables are local, i.e. they can only be accessed within the
-       nearest { }.
-        !if (condition) {
-            :int a = 0;
-        }
-        # a is not accessible here
+    8. The !for loop variable must not shadow any variable in any enclosing
+       scope. This is a compile error.
+           :int i = 0;
+           !for (:int i, 0, 10, 1) { }   # error: `i` already declared
+           !for (:int j, 0, 10, 1) { }   # ok
+       A pre-declared loop variable can be reused by omitting the type:
+           :int i = 0;
+           !for (i, 0, 10, 1) { }        # ok — reuses existing `i`
 
-        variables declared after !start with no nesting are global.
-        the compiler treats !start as { and !end as }.
+    9. !func definitions must appear at the top level, outside any !if, !for,
+       !while, or other !func body. Nesting a !func inside a block is a parse
+       error.
 
-    8. the !for loop variable must not shadow any variable in any enclosing scope.
-       this is a compile error, not a warning.
-        :int i = 0;
-        !for (:int i, 0, 10, 1) { }   # error: loop variable `i` shadows enclosing `i`
-        !for (:int j, 0, 10, 1) { }   # ok
-
-    9. !func definitions must appear at the top level of the program, outside
-       any !if, !for, !while, or !func body.
-        !if (condition) {
-            !func foo() -> :int { ... }   # error: func inside a block
-        }
-        !func foo() -> :int { ... }       # ok
-
-    10. simple type variables declared without an initialiser receive a default value:
-            :int    -> 0
-            :float  -> 0.0
-            :char   -> '\0'
+    10. Simple-type variables declared without an initialiser receive a
+        default value at runtime (generated by codegen):
+            :int     -> 0
+            :float   -> 0.0
+            :char    -> '\0'
             :boolean -> false
-        arrays, lists, and structs have no default — a warning is issued if
-        they are declared without an initialiser.
+        Arrays, lists, and structs declared without an initialiser produce a
+        compiler warning (not an error) suggesting an explicit initialiser.
 
     11. !exit terminates the program immediately with an integer exit code.
-        it can appear anywhere in the program, inside or outside functions.
-            !exit 0;    # ok
-            !exit 1;    # ok
+        It can appear anywhere — inside or outside functions.
+            !exit 0;   # ok
+            !exit 1;   # ok
 
-    12. the !for loop variable must be of type :int.
-            !for (:int i, 0, 10, 1) { }    # ok
-            !for (:float f, 0, 10, 1) { }  # error
+    12. The !for loop variable must be of type :int. The start, stop, and step
+        expressions must also all be :int. A step of 0 is a compile error.
+            !for (:int i, 0, 10, 1)   { }   # ok
+            !for (:float f, 0, 10, 1) { }   # error: loop variable must be :int
+
+    13. Trailing commas in argument lists are a parse error.
+            func(a, b, c)   # ok
+            func(a, b, c,)  # error
+
+    14. Bare !return; (with no expression) is a parse error. Void functions
+        must use !return !null;
 
 
 # COMMENTS
-    1. single line: # <comment here>
-    2. multiline:
-    ###
-        comment
-        here
-    ###
+    1. Single line:  # comment here
+    2. Multi-line:
+       ###
+           comment
+           here
+       ###
+    Note: // is NOT a valid comment delimiter; the lexer will emit an error.
 
 
 # OPERATORS
     a) arithmetic unary
-        1. + (no-op)
+        1. + (no-op, silently consumed by parser)
         2. - (negate)
 
     b) arithmetic binary
@@ -148,11 +155,11 @@
         1. ~ (bitwise NOT)
 
     d) bitwise binary (int only)
-        1. & (bitwise AND)
-        2. | (bitwise OR)
-        3. ^ (bitwise XOR)
-        4. << (left shift)
-        5. >> (right shift)
+        1. &  (bitwise AND)
+        2. |  (bitwise OR)
+        3. ^  (bitwise XOR)
+        4. << (left shift  — parsed as two consecutive < tokens)
+        5. >> (right shift — parsed as two consecutive > tokens)
 
     e) logical unary (boolean only)
         1. !not
@@ -172,53 +179,93 @@
         8. |=  (int only)
         9. ^=  (int only)
 
-    h) comparison
+    h) comparison (all numeric/char/boolean types)
         1. >
         2. <
         3. >=
         4. <=
         5. ==
-        6. ~=  (not-equal, all types)
+        6. ~=  (not-equal)
 
     i) other
-        1. :   signifies type
-        2. !   signifies keyword
-        3. ->  return type
+        1. :   signifies a type
+        2. !   signifies a keyword
+        3. ->  return type separator in !func
         4. ::  struct member access
-        5. ,   separation in arrays, lists, function params etc
+        5. ,   separator in arrays, lists, function params, for-loop header
         6. '   char literal delimiter
         7. "   string literal delimiter
+        8. .   reserved token (tokenised but not used in any grammar production)
 
-    j) parentheses
-        1. ()  functions, priority, and type casting
-        2. []  arrays and lists
-        3. {}  scope
-        4. <>  type parameters
+    j) grouping
+        1. ()  functions, priority grouping, and type casts
+        2. []  array/list literals and index access
+        3. {}  block scope and struct literals
+        4. <>  type parameters (:array<:int, 5>, :list<:char>, :struct<Name>)
+
+    Operator precedence (highest to lowest):
+        unary -  ~  (right-assoc)
+        *  /  %
+        +  -
+        << >>
+        &
+        ^
+        |
+        >  <  >=  <=  ==  ~=   (non-associative: only one comparison per expr)
+        !not                    (right-assoc)
+        !and
+        !or
+
+
+# EXPLICIT CASTS (no others are allowed)
+    :int     <-> :float
+    :int     <-> :char      (codepoint conversion)
+    :int     <-> :boolean   (0 = false, non-zero = true)
+    :float   <-> :boolean   (0.0 = false, non-zero = true)
+    Identity casts (e.g. :int(:int x)) are legal but redundant.
 
 
 # STANDARD LIBRARY FUNCTIONS
-    a) io
-        1. print(string with placeholders, ...variables) -> prints formatted
-           string to console
-        2. input(string with placeholders, ...variables) -> takes user input,
-           matches against the format string, fills placeholder variables.
-           error if types don't match.
+    a) I/O
+        1. print(format_string, ...vars) -> :void
+           Prints a formatted string to stdout. Uses {} as a placeholder.
+        2. input(format_string, ...vars) -> :void
+           Reads user input, matches against the format string, fills
+           placeholder variables. Type mismatch is a runtime error.
 
     b) array methods
-        1. find
+        1. find(arr, value) -> :int
+           Returns the index of the first occurrence of value, or -1.
 
     c) list methods
-        1. append
-        2. pop
-        3. insert
-        4. find
-        5. delete
+        1. append(list, value) -> :void
+        2. pop(list)           -> element type
+        3. insert(list, value, :int index) -> :void
+        4. find(list, value)   -> :int
+        5. delete(list, :int index) -> :void
 
-# EXPLICIT CASTS: (no others allowed)
-    :int ↔ :float (numeric)
-    :int ↔ :char (codepoint)
-    :int ↔ :boolean (0/nonzero)
-    :float ↔ :boolean (0.0/nonzero — needed by 0.fr)
+    d) math
+        1. abs(x)              -> same type as x
+        2. sqrt(:float x)      -> :float
+        3. pow(:float x, :float y) -> :float
+        4. floor(:float x)     -> :int
+        5. ceil(:float x)      -> :int
+        6. min(a, b)           -> same type as a/b
+        7. max(a, b)           -> same type as a/b
+
+    e) conversion
+        1. to_int(x)   -> :int
+        2. to_float(x) -> :float
+        3. to_str(x)   -> :list<:char>
+
+
+# IMPORT SYSTEM
+    !import "filename";
+    Imports a .fr source file relative to the importing file's directory.
+    The .fr extension is added automatically if omitted.
+    Circular imports are detected and reported as errors.
+    Imports are resolved and inlined by the preprocessor before lexing.
+
 
 # SAMPLE PROGRAM
 

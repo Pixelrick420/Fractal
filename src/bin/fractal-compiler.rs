@@ -25,10 +25,6 @@ fn section(title: &str) {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    // Accept any of:
-    //   fractal-compiler file.fr
-    //   fractal-compiler --debug file.fr
-    //   fractal-compiler debug file.fr      ← new subcommand form
     let (debug_mode, source_file_str) = match args.as_slice() {
         [_, f] => (false, f.clone()),
         [_, flag, f] if flag == "--debug" => (true, f.clone()),
@@ -40,7 +36,10 @@ fn main() {
             ));
             eprintln!();
             eprintln!("  {}  file.fr          compile normally", &args[0]);
-            eprintln!("  {}  debug file.fr    compile with debugger instrumentation", &args[0]);
+            eprintln!(
+                "  {}  debug file.fr    compile with debugger instrumentation",
+                &args[0]
+            );
             eprintln!("  {}  --debug file.fr  same as above (flag form)", &args[0]);
             process::exit(1);
         }
@@ -151,22 +150,17 @@ fn main() {
                 .arg("warnings")
                 .status();
 
-            if DELETE {
-                let _ = fs::remove_file(&out_path);
-            }
-
             match rustc_status {
                 Ok(status) if status.success() => {
+                    if DELETE {
+                        let _ = fs::remove_file(&out_path);
+                    }
                     let display = bin_path
                         .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("<binary>");
                     eprintln!("\x1b[1;32m compiled:\x1b[0m `{}`", display);
                     if debug_mode {
-                        // Write the sidecar file so the editor knows where
-                        // to find the .debug.jsonl that the binary will write
-                        // at runtime. The file must NOT be deleted here —
-                        // the running binary will create and grow it.
                         let meta_path = Path::new(source_file).with_extension("debug-meta");
                         let _ = fs::write(&meta_path, &debug_jsonl_path);
                         eprintln!(
@@ -176,18 +170,30 @@ fn main() {
                     }
                 }
                 Ok(_) => {
-                    print_error("rustc reported errors — compilation failed");
-                    if DEBUG && !DELETE {
-                        eprintln!(
-                            "\x1b[1;33m[debug] the .rs file has been kept at {} for inspection\x1b[0m",
-                            out_path.display()
-                        );
-                    }
+                    print_error("rustc reported errors — this is likely a compiler bug");
+                    eprintln!(
+                        " \x1b[1;34m  =\x1b[0m \x1b[1;36mnote\x1b[0m: the generated Rust source has been kept at `{}` for inspection",
+                        out_path.display()
+                    );
+                    eprintln!(
+                        " \x1b[1;34m  =\x1b[0m \x1b[1;32mhint\x1b[0m: run `rustc {}` manually to see the full rustc error output",
+                        out_path.display()
+                    );
+                    eprintln!(
+                        " \x1b[1;34m  =\x1b[0m \x1b[1;32mhint\x1b[0m: if this is reproducible, please report it as a compiler bug"
+                    );
+                    eprintln!();
                     process::exit(1);
                 }
                 Err(e) => {
                     print_error(&format!("could not run `rustc`: {e}"));
-                    print_error("make sure `rustc` is installed and on your PATH");
+                    eprintln!(
+                        " \x1b[1;34m  =\x1b[0m \x1b[1;32mhint\x1b[0m: make sure `rustc` is installed and available on your PATH"
+                    );
+                    eprintln!(
+                        " \x1b[1;34m  =\x1b[0m \x1b[1;32mhint\x1b[0m: install Rust from https://rustup.rs if it is not already installed"
+                    );
+                    eprintln!();
                     process::exit(1);
                 }
             }

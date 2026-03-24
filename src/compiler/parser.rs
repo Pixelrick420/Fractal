@@ -323,7 +323,17 @@ impl ParseError {
         );
         eprintln!(" \x1b[1;34m{pad} |\x1b[0m");
         eprintln!(" \x1b[1;34m{line_str} |\x1b[0m {src_line}");
-        eprintln!(" \x1b[1;34m{pad} |\x1b[0m \x1b[1;31m{caret_pad}^ here\x1b[0m");
+
+        let token_len = src_line
+            .get(self.col.saturating_sub(1)..)
+            .map(|s| {
+                s.find(|c: char| c.is_whitespace() || "(){}[];,".contains(c))
+                    .filter(|&n| n > 0)
+                    .unwrap_or_else(|| s.len().max(1))
+            })
+            .unwrap_or(1);
+        let underline = "^".repeat(token_len);
+        eprintln!(" \x1b[1;34m{pad} |\x1b[0m \x1b[1;31m{caret_pad}{underline} unexpected token here\x1b[0m");
         format_notes(rest);
         eprintln!();
     }
@@ -953,11 +963,23 @@ impl Parser {
 
             Some(TokenType::Return) => {
                 let line = self.cur_line();
+                let col = self.cur_col();
                 self.advance();
 
+                if self.func_depth == 0 {
+                    return Err(ParseError::new_at(
+                        "`!return` used outside of a function\n   \
+                         note: `!return` can only appear inside a `!func` body\n   \
+                         hint: did you accidentally place it at the top level?",
+                        line,
+                        col,
+                        &self.source_file,
+                    ));
+                }
                 if matches!(self.peek(), Some(TokenType::EndL)) {
                     return Err(self.err(
-                        "bare `!return;` is not valid\n   \
+                        "bare `!return;` is not valid — a return value is required\n   \
+                         note: every non-`:void` function must return a value: `!return <expr>;`\n   \
                          note: to return from a `:void` function use `!return !null;`",
                     ));
                 }
@@ -982,6 +1004,16 @@ impl Parser {
 
             Some(TokenType::Break) => {
                 let line = self.cur_line();
+                let col = self.cur_col();
+                if self.loop_depth == 0 {
+                    return Err(ParseError::new_at(
+                        "`!break` used outside of a loop\n   \
+                         note: `!break` can only appear inside a `!for` or `!while` body",
+                        line,
+                        col,
+                        &self.source_file,
+                    ));
+                }
                 self.advance();
                 self.expect(&TokenType::EndL)?;
                 Ok(ParseNode::Break { line })
@@ -989,6 +1021,16 @@ impl Parser {
 
             Some(TokenType::Continue) => {
                 let line = self.cur_line();
+                let col = self.cur_col();
+                if self.loop_depth == 0 {
+                    return Err(ParseError::new_at(
+                        "`!continue` used outside of a loop\n   \
+                         note: `!continue` can only appear inside a `!for` or `!while` body",
+                        line,
+                        col,
+                        &self.source_file,
+                    ));
+                }
                 self.advance();
                 self.expect(&TokenType::EndL)?;
                 Ok(ParseNode::Continue { line })

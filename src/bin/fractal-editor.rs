@@ -616,7 +616,6 @@ impl FractalEditor {
                     Some("Waiting for program output… (is input expected?)".into());
             }
             Some(frame) => {
-                // Delete the lock file so the program can advance to the next statement.
                 if let Some(ref path) = self.debug_lock_path {
                     let _ = std::fs::remove_file(path);
                 }
@@ -631,7 +630,7 @@ impl FractalEditor {
                 if finished {
                     self.success_message = Some("Debug: program finished.".into());
                     self.debug_binary_running = false;
-                    // Clean up lock file if somehow still present
+
                     if let Some(ref path) = self.debug_lock_path {
                         let _ = std::fs::remove_file(path);
                     }
@@ -652,7 +651,7 @@ impl FractalEditor {
         if let Some(ref path) = self.debug_jsonl_path {
             let _ = fs::remove_file(path);
         }
-        // Unblock the waiting program so it can exit cleanly
+
         if let Some(ref path) = self.debug_lock_path {
             let _ = fs::remove_file(path);
         }
@@ -1128,7 +1127,40 @@ impl eframe::App for FractalEditor {
             if frame.source_line > 0 {
                 return Some(frame.source_line);
             }
+
             let code = self.tabs.get(self.active_tab).map(|t| t.code.as_str())?;
+
+            let inside_cross_file_callee = frame.source_line == 0
+                && frame.call_stack.len() > 1
+                && frame
+                    .call_stack
+                    .last()
+                    .map(|n| n != "<main>" && n != "main")
+                    .unwrap_or(false);
+
+            if inside_cross_file_callee {
+                if func_def_name(&frame.step_label).is_some() {
+                    let callee = frame.call_stack.last().unwrap();
+                    let qualified = format!("::{callee}(");
+                    if let Some(ln) = find_code_line_at(code, &qualified, frame.active_node_id) {
+                        return Some(ln);
+                    }
+                    let bare = format!("{callee}(");
+                    return find_code_line_at(code, &bare, frame.active_node_id);
+                }
+
+                return None;
+            }
+
+            if let Some(fn_name) = func_def_name(&frame.step_label) {
+                let func_decl_term = format!("!func {}", fn_name);
+                if let Some(ln) = find_code_line_at(code, &func_decl_term, frame.active_node_id) {
+                    return Some(ln);
+                }
+                let call_term = format!("{}(", fn_name);
+                return find_code_line_at(code, &call_term, frame.active_node_id);
+            }
+
             let term = debug_search_term(&frame.step_label);
             if !term.is_empty() {
                 return find_code_line_at(code, &term, frame.active_node_id);
@@ -1217,6 +1249,13 @@ fn apply_egui_style(ctx: &egui::Context, t: &Theme) {
     s.spacing.menu_margin = egui::Margin::same(4);
     s.visuals.override_text_color = Some(t.tab_active_fg);
     ctx.set_style(s);
+}
+
+fn func_def_name(label: &str) -> Option<String> {
+    let rest = label.strip_prefix("FuncDef ")?;
+
+    let name = rest.split_whitespace().next()?;
+    Some(name.to_string())
 }
 
 fn debug_search_term(label: &str) -> String {

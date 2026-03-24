@@ -176,6 +176,7 @@ impl DocsWindow {
 
                 draw_chapter_row(ui, row, selected, hovered, ch.label(), &t);
 
+                // --- BADGE FIX: higher opacity background + bright text for dark mode ---
                 let badge_str = format!("{hits}");
                 let badge_center = egui::pos2(row.right() - 18.0, row.center().y);
                 let badge_rect = egui::Rect::from_center_size(badge_center, egui::vec2(22.0, 16.0));
@@ -186,7 +187,7 @@ impl DocsWindow {
                         t.accent.r(),
                         t.accent.g(),
                         t.accent.b(),
-                        45,
+                        90, // was 45 — bumped for contrast in both themes
                     ),
                 );
                 ui.painter().text(
@@ -194,7 +195,7 @@ impl DocsWindow {
                     egui::Align2::CENTER_CENTER,
                     &badge_str,
                     egui::FontId::proportional(10.0),
-                    t.accent,
+                    t.tab_active_fg, // was t.accent — use bright fg colour instead
                 );
 
                 if resp.clicked() {
@@ -323,7 +324,9 @@ fn chapter_search_text(ch: Chapter) -> &'static str {
         Chapter::GettingStarted => {
             "getting started program structure !start !end comments # ### import \
             keyboard shortcuts run compile Ctrl+S Ctrl+O Ctrl+N Ctrl+D terminal !exit \
-            exit code greet hello world"
+            exit code greet hello world philosophy design goals strongly typed compiled \
+            compiler errors warnings integer overflow type mismatch sieve primes fibonacci \
+            GCD LCM math algorithm"
         }
         Chapter::TypesVariables => {
             "types variables int float char boolean void array list string declaration \
@@ -364,6 +367,10 @@ fn render_search_header(ui: &mut egui::Ui, t: &Theme, query: &str, chapter: Chap
         t,
     );
 }
+
+// ---------------------------------------------------------------------------
+// Layout helpers
+// ---------------------------------------------------------------------------
 
 fn h1(ui: &mut egui::Ui, text: &str, t: &Theme) {
     ui.label(
@@ -566,18 +573,54 @@ fn shortcuts_table(ui: &mut egui::Ui, id: &str, rows: &[(&str, &str)], t: &Theme
     ui.add_space(4.0);
 }
 
+// ---------------------------------------------------------------------------
+// Getting Started — expanded
+// ---------------------------------------------------------------------------
+
 fn render_getting_started(ui: &mut egui::Ui, t: &Theme) {
     h1(ui, "Getting Started", t);
     para(
         ui,
-        "Fractal is a statically-typed, strongly-typed language. Every program \
-        must begin with !start and end with !end. Only code between those markers \
-        is compiled and executed.",
+        "Welcome to Fractal — a statically-typed, strongly-typed language designed for \
+        clarity and correctness. Every program must begin with !start and end with !end. \
+        Only code between those markers is compiled and executed.",
         t,
     );
 
+    // ---- Why Fractal? ----
     rule(ui, t);
+    h2(ui, "Why Fractal?", t);
+    para(
+        ui,
+        "Fractal was built around three principles:",
+        t,
+    );
+    kv2(
+        ui,
+        "philosophy_table",
+        ["Principle", "What it means for you"],
+        &[
+            (
+                "No implicit casts",
+                "Every type conversion is written explicitly with :Type(expr). \
+                You always know exactly what your values are.",
+            ),
+            (
+                "Compile-time safety",
+                "Type mismatches, uninitialised struct access, and out-of-bounds \
+                literals are caught before your program ever runs.",
+            ),
+            (
+                "Minimal syntax",
+                "Keywords are prefixed with ! so they can never collide with \
+                variable names. The language is small enough to hold in your head.",
+            ),
+        ],
+        t,
+    );
 
+    // ---- Program Structure ----
+    rule(ui, t);
     h2(ui, "Program Structure", t);
     para(
         ui,
@@ -592,6 +635,7 @@ fn render_getting_started(ui: &mut egui::Ui, t: &Theme) {
         t,
     );
 
+    // ---- Comments ----
     h2(ui, "Comments", t);
     para(
         ui,
@@ -604,14 +648,18 @@ fn render_getting_started(ui: &mut egui::Ui, t: &Theme) {
         t,
     );
 
+    // ---- Importing ----
     h2(ui, "Importing", t);
     para(
         ui,
-        "Use !import to bring in another Fractal file or a standard module.",
+        "Use !import to bring in another Fractal file or a standard module. \
+        Imports must appear at the top level, before !start, or directly inside !start \
+        before any executable statements.",
         t,
     );
-    code(ui, "!import \"math\";", t);
+    code(ui, "!import \"math\";\n!import \"myutils\";", t);
 
+    // ---- Exiting ----
     h2(ui, "Exiting", t);
     para(
         ui,
@@ -621,6 +669,67 @@ fn render_getting_started(ui: &mut egui::Ui, t: &Theme) {
     );
     code(ui, "!exit 0;   # success\n!exit 1;   # failure", t);
 
+    // ---- Compiler Errors & Warnings ----
+    rule(ui, t);
+    h2(ui, "Compiler Errors & Warnings", t);
+    para(
+        ui,
+        "The Fractal compiler prints structured diagnostics. Errors stop compilation; \
+        warnings allow the build to proceed but flag potential problems.",
+        t,
+    );
+    kv2(
+        ui,
+        "diag_table",
+        ["Category", "Common causes"],
+        &[
+            (
+                "Type mismatch  [E]",
+                "Assigning a :float to a :int variable without an explicit cast.",
+            ),
+            (
+                "Uninitialised  [W]",
+                "Declaring a struct or array without an initialiser.",
+            ),
+            (
+                "Undeclared var [E]",
+                "Using a name before its :Type declaration in scope.",
+            ),
+            (
+                "Shadowed var   [E]",
+                "Declaring a !for loop variable with the same name as an outer variable.",
+            ),
+            (
+                "Misplaced func [E]",
+                "Writing a !func definition inside a loop or conditional block.",
+            ),
+            (
+                "Missing brace  [W]",
+                "Placing { on a new line after !if / !elif / !else.",
+            ),
+        ],
+        t,
+    );
+    para(
+        ui,
+        "Example — the compiler rejects this program because the result of :float \
+        division is assigned to a :int without an explicit cast:",
+        t,
+    );
+    code(
+        ui,
+        "!start\n    :int a = 10;\n    :int b = 3;\n\n    # ERROR — cannot assign :float result to :int\n    :int ratio = a / :float(b);\n\n    # CORRECT — cast the result back to :int\n    :int ratio2 = :int(a / :float(b));   # 3\n!end",
+        t,
+    );
+    note(
+        ui,
+        "When a type error occurs the compiler prints the file path, line number, \
+        and a short explanation. Fix all errors before warnings.",
+        t,
+    );
+
+    // ---- Keyboard Shortcuts ----
+    rule(ui, t);
     h2(ui, "Keyboard Shortcuts", t);
     shortcuts_table(
         ui,
@@ -644,7 +753,129 @@ fn render_getting_started(ui: &mut egui::Ui, t: &Theme) {
         The fractal-compiler binary must be on PATH or in the same directory as this editor.",
         t,
     );
+
+    // ---- Large Example Program ----
+    rule(ui, t);
+    h2(ui, "Example Program — Math Utilities", t);
+    para(
+        ui,
+        "The program below demonstrates functions, loops, conditionals, arrays, and \
+        type casting working together. It computes the GCD and LCM of two numbers, \
+        generates the first N Fibonacci numbers into a list, and uses a prime sieve \
+        to collect all primes below a given limit.",
+        t,
+    );
+    code(
+        ui,
+        r#"!start
+
+    ###
+        Math utilities: GCD, LCM, Fibonacci, Prime Sieve
+    ###
+
+    # --- Greatest Common Divisor (Euclidean algorithm) ---
+    !func gcd(:int a, :int b) -> :int {
+        !while (b ~= 0) {
+            :int tmp = b;
+            b = a % b;
+            a = tmp;
+        }
+        !return a;
+    }
+
+    # --- Least Common Multiple ---
+    !func lcm(:int a, :int b) -> :int {
+        !return (a / gcd(a, b)) * b;
+    }
+
+    # --- Absolute value for integers ---
+    !func abs_int(:int n) -> :int {
+        !if (n < 0) { !return 0 - n; }
+        !return n;
+    }
+
+    # --- Fibonacci: fill a list with the first n terms ---
+    !func fibonacci(:int n) -> :list<:int> {
+        :list<:int> seq = [0];
+        !if (n <= 0) { !return seq; }
+
+        append(seq, 1);
+        !for (:int i, 2, n, 1) {
+            :int prev2 = seq[i - 2];
+            :int prev1 = seq[i - 1];
+            append(seq, prev2 + prev1);
+        }
+        !return seq;
+    }
+
+    # --- Sieve of Eratosthenes: primes below limit ---
+    !func sieve(:int limit) -> :list<:int> {
+        :list<:int> primes = [];
+
+        # boolean flags: is_composite[i] == true means i is not prime
+        :array<:boolean, 1000> is_composite;
+        !for (:int k, 0, limit, 1) {
+            is_composite[k] = false;
+        }
+        is_composite[0] = true;
+        is_composite[1] = true;
+
+        !for (:int i, 2, limit, 1) {
+            !if (!not is_composite[i]) {
+                append(primes, i);
+                # mark all multiples of i as composite
+                :int mul = i * 2;
+                !while (mul < limit) {
+                    is_composite[mul] = true;
+                    mul += i;
+                }
+            }
+        }
+        append(primes,-1);
+        !return primes;
+    }
+
+    # ---- main ----
+
+    :int x = 48;
+    :int y = 36;
+
+    print("GCD({}, {}) = {}\n", x, y, gcd(x, y));   # 12
+    print("LCM({}, {}) = {}\n", x, y, lcm(x, y));   # 144
+
+    # First 10 Fibonacci numbers
+    :list<:int> fibs = fibonacci(10);
+    print("Fibonacci(10): ");
+    !for (:int i, 0, 10, 1) {
+        print("{} ", fibs[i]);
+    }
+    print("\n");   # 0 1 1 2 3 5 8 13 21 34
+
+    # Primes below 50
+    :list<:int> p = sieve(50);
+    :int count = 0;
+    !while (p[count] ~= -1) {
+        print("{} ", p[count]);
+        count += 1;
+    }
+    print("\n");   # 2 3 5 7 11 13 17 19 23 29 31 37 41 43 47
+
+!end"#,
+        t,
+    );
+
+    note(
+        ui,
+        "The sieve function uses an :array<:boolean, 1000> with a hard upper bound. \
+        Adjust the array size if you need to sieve beyond 1000. \
+        For dynamic upper bounds, use a :list<:boolean> instead.",
+        t,
+    );
 }
+
+// ---------------------------------------------------------------------------
+// Remaining chapters — unchanged
+// ---------------------------------------------------------------------------
 
 fn render_types_variables(ui: &mut egui::Ui, t: &Theme) {
     h1(ui, "Types & Variables", t);

@@ -1,0 +1,103 @@
+!start
+    # code here
+
+    ###
+    Math utilities : GCD, LCM, Fibonacci, Prime Sieve
+    ###
+
+    # --- Greatest Common Divisor (Euclidean algorithm) ---
+    !func gcd(:int a, :int b) -> :int {
+        !while (b ~= 0) {
+            :int tmp = b;
+            b = a % b;
+            a = tmp;
+        }
+        !return a;
+    }
+
+    # --- Least Common Multiple ---
+    !func lcm(:int a, :int b) -> :int {
+        !return (a / gcd(a, b)) * b;
+    }
+
+    # --- Absolute value for integers ---
+    !func abs_int(:int n) -> :int {
+        !if (n < 0) {
+            !return 0 - n;
+        }
+        !return n;
+    }
+
+    # --- Fibonacci: fill a list with the first n terms ---
+    !func fibonacci(:int n) -> :list<:int> {
+        :list<:int> seq = [0];
+        !if (n <= 0) {
+            !return seq;
+        }
+
+        append(seq, 1);
+        !for (:int i, 2, n, 1) {
+            :int prev2 = seq[i - 2];
+            :int prev1 = seq[i - 1];
+            append(seq, prev2 + prev1);
+        }
+        !return seq;
+    }
+
+    # --- Sieve of Eratosthenes: primes below limit ---
+    !func sieve(:int limit) -> :list<:int> {
+        :list<:int> primes = [];
+
+        # boolean flags: is_composite[i] == true means i is not prime
+        :array<:boolean, 1000> is_composite;
+        !for (:int k, 0, limit, 1) {
+            is_composite[k] = false;
+        }
+        is_composite[0] = true;
+        is_composite[1] = true;
+        !for (:int i, 2, limit, 1) {
+            !if (!not is_composite[i]) {
+                append(primes, i);
+                # mark all multiples of i as composite
+                :int mul = i * 2;
+                !while (mul < limit) {
+                    is_composite[mul] = true;
+                    mul += i;
+                }
+            }
+        }
+        append(primes, -1);
+        !return primes;
+    }
+
+    # ---- main ----
+
+    :int x = 48;
+    :int y = 36;
+
+    print("GCD({}, {}) = {}\n", x, y, gcd(x, y));
+    # 12
+    print("LCM({}, {}) = {}\n", x, y, lcm(x, y));
+    # 144
+
+    # First 10 Fibonacci numbers
+    :list<:int> fibs = fibonacci(10);
+    print("Fibonacci(10): ");
+    !for (:int i, 0, 10, 1) {
+        print("{} ", fibs[i]);
+    }
+    print("\n");
+    # 0 1 1 2 3 5 8 13 21 34
+
+    # Primes below 50
+    :list<:int> p = sieve(50);
+    :int count = 0;
+
+    !while (p[count] ~= -1) {
+        print("{} ", p[count]);
+        count += 1;
+    }
+    print("\n");
+    # 2 3 5 7 11 13 17 19 23 29 31 37 41 43 47
+
+!end

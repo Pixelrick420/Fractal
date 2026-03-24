@@ -44,6 +44,7 @@ pub fn show_menu_bar(
     theme: &Theme,
     recent_files: &[PathBuf],
     search_bar_visible: bool,
+    logo_texture: Option<&egui::TextureHandle>,
 ) -> MenuAction {
     let mut action = MenuAction::None;
 
@@ -112,9 +113,16 @@ pub fn show_menu_bar(
 
             ui.set_min_height(44.0);
             ui.horizontal_centered(|ui| {
-                ui.label(egui::RichText::new(ic::APP_LOGO).size(17.0).color(t.accent));
-                ui.add_space(10.0);
-
+                if let Some(tex) = logo_texture {
+    let h = 22.0;
+    let aspect = tex.size()[0] as f32 / tex.size()[1] as f32;
+    ui.add_space(4.0);
+    ui.image((tex.id(), egui::vec2(h * aspect, h)));
+    ui.add_space(6.0);
+} else {
+    ui.label(egui::RichText::new(ic::APP_LOGO).size(17.0).color(t.accent));
+    ui.add_space(10.0);
+}
                 let (div_rect, _) =
                     ui.allocate_exact_size(egui::vec2(1.0, 18.0), egui::Sense::hover());
                 ui.painter()

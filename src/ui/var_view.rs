@@ -6,15 +6,11 @@ pub struct VarViewWindow {
     pub open: bool,
     pub title: String,
     output_history: String,
-    /// Index into frame.scopes the user has clicked.
-    /// scopes[0] = active (top) frame; scopes[last] = <main>.
-    /// None = always follow the active frame (index 0).
-    /// Sticky: only resets when the user explicitly clicks the top frame,
-    /// or when the stack depth changes (callee returns / new call entered).
+
     selected_scope: Option<usize>,
-    /// Previous stack depth — used to detect call/return and reset selection.
+
     prev_stack_depth: usize,
-    /// Whether the call-stack section is expanded or collapsed.
+
     stack_expanded: bool,
 }
 
@@ -47,8 +43,6 @@ impl VarViewWindow {
             return;
         }
 
-        // Reset scope selection when the call stack depth changes (call/return).
-        // This means entering bubble auto-selects bubble; returning auto-selects caller.
         let cur_depth = frame.call_stack.len();
         if cur_depth != self.prev_stack_depth {
             self.selected_scope = None;
@@ -84,10 +78,6 @@ impl VarViewWindow {
         let accent_bg =
             egui::Color32::from_rgba_premultiplied(t.accent.r(), t.accent.g(), t.accent.b(), 22);
 
-        // scopes[0] = TOP (active callee), scopes[last] = <main>.
-        // call_stack is bottom→top, so call_stack[last] = active name.
-        // Clicking call_stack entry at visual position V (0 = top of display)
-        // maps to scopes[V].
         let num_scopes = frame.scopes.len();
         let effective_scope = self
             .selected_scope
@@ -113,7 +103,6 @@ impl VarViewWindow {
             .show(ctx, |ui| {
                 ui.set_min_width(240.0);
 
-                // ── Header bar ──────────────────────────────────────────────
                 egui::Frame::new()
                     .fill(accent_bg)
                     .inner_margin(egui::Margin::symmetric(12, 6))
@@ -160,9 +149,7 @@ impl VarViewWindow {
                     .show(ui, |ui| {
                         ui.add_space(8.0);
 
-                        // ── Call-stack section with show/hide toggle ──────────
                         if !frame.call_stack.is_empty() {
-                            // Section header row with toggle
                             let (hdr_rect, hdr_resp) = ui.allocate_exact_size(
                                 egui::vec2(ui.available_width(), 20.0),
                                 egui::Sense::click(),
@@ -175,7 +162,10 @@ impl VarViewWindow {
                                     hdr_rect,
                                     egui::CornerRadius::ZERO,
                                     egui::Color32::from_rgba_premultiplied(
-                                        t.accent.r(), t.accent.g(), t.accent.b(), 8,
+                                        t.accent.r(),
+                                        t.accent.g(),
+                                        t.accent.b(),
+                                        8,
                                     ),
                                 );
                             }
@@ -194,7 +184,7 @@ impl VarViewWindow {
                                 egui::FontId::proportional(10.0),
                                 muted_text,
                             );
-                            // Show depth badge
+
                             let badge = format!("{}", frame.call_stack.len());
                             ui.painter().text(
                                 egui::pos2(hdr_rect.right() - 10.0, hdr_rect.center().y),
@@ -207,18 +197,13 @@ impl VarViewWindow {
                             if new_stack_expanded {
                                 ui.add_space(2.0);
 
-                                // call_stack is bottom→top; we display top→bottom.
-                                // scopes[0] = top (active), scopes[N-1] = <main>.
-                                // visual_idx 0 = top of display = scopes[0].
                                 let stack = &frame.call_stack;
                                 let stack_len = stack.len();
 
                                 for visual_idx in 0..stack_len {
-                                    // visual_idx 0 = active (top of stack)
-                                    // stack stored bottom→top so active = stack[last]
                                     let stack_arr_idx = stack_len - 1 - visual_idx;
                                     let name = &stack[stack_arr_idx];
-                                    // scopes[0] = active, scopes[visual_idx] = this frame
+
                                     let scope_idx = visual_idx;
                                     let is_selected = scope_idx == effective_scope;
 
@@ -231,7 +216,6 @@ impl VarViewWindow {
                                         new_selected = Some(scope_idx);
                                     }
 
-                                    // Background
                                     if is_selected {
                                         ui.painter().rect_filled(
                                             row_rect,
@@ -243,13 +227,16 @@ impl VarViewWindow {
                                             row_rect,
                                             egui::CornerRadius::ZERO,
                                             egui::Color32::from_rgba_premultiplied(
-                                                t.accent.r(), t.accent.g(), t.accent.b(), 10,
+                                                t.accent.r(),
+                                                t.accent.g(),
+                                                t.accent.b(),
+                                                10,
                                             ),
                                         );
                                     }
 
                                     let col = if is_selected { t.accent } else { muted_text };
-                                    // Indent callers slightly
+
                                     let depth_indent = visual_idx as f32 * 8.0;
                                     let arrow = if is_selected { "▶ " } else { "  " };
 
@@ -267,7 +254,6 @@ impl VarViewWindow {
                                 ui.add_space(4.0);
                             }
 
-                            // Separator below call stack
                             let (cs_sep, _) = ui.allocate_exact_size(
                                 egui::vec2(ui.available_width(), 1.0),
                                 egui::Sense::hover(),
@@ -277,7 +263,6 @@ impl VarViewWindow {
                             ui.add_space(6.0);
                         }
 
-                        // ── Variable table for the selected scope ────────────
                         if frame.scopes.is_empty() {
                             ui.horizontal(|ui| {
                                 ui.add_space(12.0);
@@ -291,17 +276,15 @@ impl VarViewWindow {
                         } else {
                             let scope = &frame.scopes[effective_scope];
 
-                            // Scope label
                             ui.horizontal(|ui| {
                                 ui.add_space(10.0);
-                                let hdr_text = if scope.label == "global"
-                                    || scope.label == "<main>"
+                                let hdr_text = if scope.label == "global" || scope.label == "<main>"
                                 {
                                     "global scope".into()
                                 } else {
                                     format!("fn: {}", scope.label)
                                 };
-                                // Dim label if viewing a non-active frame
+
                                 let label_col = if effective_scope == 0 {
                                     t.accent
                                 } else {
@@ -322,6 +305,39 @@ impl VarViewWindow {
                                     );
                                 }
                             });
+
+                            if frame.scopes.len() > 1 {
+                                let other_names: std::collections::HashSet<&str> = frame
+                                    .scopes
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(idx, _)| *idx != effective_scope)
+                                    .flat_map(|(_, s)| s.vars.iter().map(|v| v.name.as_str()))
+                                    .collect();
+
+                                let shadowed: Vec<&str> = scope
+                                    .vars
+                                    .iter()
+                                    .filter(|v| other_names.contains(v.name.as_str()))
+                                    .map(|v| v.name.as_str())
+                                    .collect();
+
+                                if !shadowed.is_empty() {
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(10.0);
+                                        let names = shadowed.join(", ");
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "⚠ shadows outer: {}",
+                                                names
+                                            ))
+                                            .size(9.5)
+                                            .color(t.tab_dirty_dot)
+                                            .italics(),
+                                        );
+                                    });
+                                }
+                            }
                             ui.add_space(4.0);
 
                             if scope.vars.is_empty() {
@@ -360,7 +376,6 @@ impl VarViewWindow {
                             }
                         }
 
-                        // ── Error banner ─────────────────────────────────────
                         if let Some(err) = &frame.error {
                             ui.add_space(8.0);
                             egui::Frame::new()
@@ -382,7 +397,6 @@ impl VarViewWindow {
                                 });
                         }
 
-                        // ── Output so far ────────────────────────────────────
                         if !output.is_empty() {
                             ui.add_space(8.0);
                             let (o_sep, _) = ui.allocate_exact_size(
@@ -424,8 +438,6 @@ impl VarViewWindow {
                     });
             });
 
-        // Commit UI decisions back to state (done outside the closure to
-        // satisfy the borrow checker)
         self.selected_scope = new_selected;
         self.stack_expanded = new_stack_expanded;
         self.open = open;
@@ -444,8 +456,7 @@ fn draw_var_table(
     alt_row: egui::Color32,
     type_col: egui::Color32,
     border_col: egui::Color32,
-    // When viewing a paused (non-active) frame, dim the changed highlights
-    // since "changed" markers are meaningless for frozen caller state.
+
     is_paused_frame: bool,
 ) {
     let available_w = ui.available_width().max(160.0);
@@ -458,9 +469,7 @@ fn draw_var_table(
     ui.painter().rect_filled(
         hdr_rect,
         egui::CornerRadius::same(3),
-        egui::Color32::from_rgba_premultiplied(
-            border_col.r(), border_col.g(), border_col.b(), 130,
-        ),
+        egui::Color32::from_rgba_premultiplied(border_col.r(), border_col.g(), border_col.b(), 130),
     );
     let hfont = egui::FontId::proportional(9.5);
     for (x, lbl) in [
@@ -483,7 +492,6 @@ fn draw_var_table(
         let (row_rect, _) =
             ui.allocate_exact_size(egui::vec2(available_w, row_h), egui::Sense::hover());
 
-        // Don't show "changed" highlights on paused/frozen frames
         let show_changed = row.changed && !is_paused_frame;
 
         if show_changed {
@@ -494,7 +502,6 @@ fn draw_var_table(
                 .rect_filled(row_rect, egui::CornerRadius::ZERO, alt_row);
         }
 
-        // Strip the fractal_ prefix for display
         let display_name = row.name.strip_prefix("fractal_").unwrap_or(&row.name);
 
         ui.painter().text(

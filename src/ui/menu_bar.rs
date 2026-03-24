@@ -44,7 +44,6 @@ pub fn show_menu_bar(
     theme: &Theme,
     recent_files: &[PathBuf],
     search_bar_visible: bool,
-    logo_texture: Option<&egui::TextureHandle>,
 ) -> MenuAction {
     let mut action = MenuAction::None;
 
@@ -113,20 +112,8 @@ pub fn show_menu_bar(
 
             ui.set_min_height(44.0);
             ui.horizontal_centered(|ui| {
-                if let Some(tex) = logo_texture {
-    let h = 22.0;
-    let aspect = tex.size()[0] as f32 / tex.size()[1] as f32;
-    ui.add_space(4.0);
-    ui.image((tex.id(), egui::vec2(h * aspect, h)));
-    ui.add_space(6.0);
-} else {
-    ui.label(egui::RichText::new(ic::APP_LOGO).size(17.0).color(t.accent));
-    ui.add_space(10.0);
-}
-                let (div_rect, _) =
-                    ui.allocate_exact_size(egui::vec2(1.0, 18.0), egui::Sense::hover());
-                ui.painter()
-                    .rect_filled(div_rect, egui::CornerRadius::ZERO, t.border);
+                // let (div_rect, _) =
+                //     ui.allocate_exact_size(egui::vec2(1.0, 18.0), egui::Sense::hover());
                 ui.add_space(10.0);
 
                 let file_id = ui.make_persistent_id("menu_file_popup");
@@ -742,13 +729,11 @@ fn paint_step_button(
 ) {
     let rounding = egui::CornerRadius::same(BTN_ROUNDING as u8);
     ui.painter().rect_filled(
-            rect,
-            rounding,
-            egui::Color32::from_rgba_premultiplied(210, 153, 34, 120), // ↑ was 30
-        );
+        rect,
+        rounding,
+        egui::Color32::from_rgba_premultiplied(210, 153, 34, 120),
+    );
     if is_active {
-        
-    
         ui.painter().rect_stroke(
             rect,
             rounding,
@@ -766,12 +751,12 @@ fn paint_step_button(
         );
     }
     let fg = if is_active {
-    egui::Color32::BLACK
-        } else if hovered {
-            egui::Color32::BLACK
-        } else {
-            egui::Color32::BLACK
-        };
+        egui::Color32::BLACK
+    } else if hovered {
+        egui::Color32::BLACK
+    } else {
+        egui::Color32::BLACK
+    };
     ui.painter().text(
         rect.center(),
         egui::Align2::CENTER_CENTER,

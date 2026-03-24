@@ -18,6 +18,7 @@ pub struct FileDialog {
     filename_input: String,
     pub result: Option<FileDialogResult>,
     theme: Theme,
+    needs_focus: bool,
 }
 
 pub struct FileDialogResult {
@@ -44,6 +45,7 @@ impl FileDialog {
             filename_input: String::new(),
             result: None,
             theme: Theme::default(),
+            needs_focus: false,
         };
         dialog.refresh_entries();
         dialog
@@ -60,6 +62,7 @@ impl FileDialog {
         self.refresh_entries();
         self.visible = true;
         self.result = None;
+        self.needs_focus = true;
     }
 
     pub fn open_for_save(&mut self, suggested_name: &str) {
@@ -78,6 +81,7 @@ impl FileDialog {
         self.refresh_entries();
         self.visible = true;
         self.result = None;
+        self.needs_focus = true;
     }
 
     fn refresh_entries(&mut self) {
@@ -427,8 +431,9 @@ impl FileDialog {
                                     .desired_width(f32::INFINITY),
                             );
 
-                            if self.mode == FileDialogMode::Save {
+                            if self.needs_focus {
                                 te.request_focus();
+                                self.needs_focus = false;
                             }
                         });
 
@@ -487,7 +492,17 @@ impl FileDialog {
                                         self.current_dir.join(&self.filename_input)
                                     })
                                 } else {
-                                    self.current_dir.join(&self.filename_input)
+                                    let fname = if std::path::Path::new(&self.filename_input)
+                                        .extension()
+                                        .map(|e| e.to_ascii_lowercase())
+                                        .as_deref()
+                                        == Some(std::ffi::OsStr::new("fr"))
+                                    {
+                                        self.filename_input.clone()
+                                    } else {
+                                        format!("{}.fr", self.filename_input)
+                                    };
+                                    self.current_dir.join(&fname)
                                 };
                                 self.result = Some(FileDialogResult {
                                     path,

@@ -43,6 +43,9 @@ pub use ph::CIRCLE as TAB_DIRTY_DOT;
 pub use ph::FLOPPY_DISK as SAVE_FILE;
 pub use ph::MAGNIFYING_GLASS as SEARCH;
 pub use ph::STOP as DEBUG_STOP;
-pub use ph::TABLE as VAR_VIEW;
+
 pub use ph::TEXT_T as FORMAT_CODE;
 pub use ph::TREE_STRUCTURE as TREE_VIEW;
+
+pub const WINDOW_CLOSE: &str = ph::X_SQUARE;
+pub const VAR_VIEW: &str = ph::STACK;

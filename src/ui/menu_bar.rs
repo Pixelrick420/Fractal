@@ -499,7 +499,7 @@ pub fn show_menu_bar(
                         } else {
                             "   Abstract Syntax Tree"
                         };
-                        if icon_menu_item(ui, "", tree_label, "", t) {
+                        if icon_menu_item(ui, ic::TREE_VIEW, tree_label, "", t) {
                             action = MenuAction::ToggleTreeView;
                             Popup::close_id(ctx, view_id);
                         }
@@ -508,7 +508,7 @@ pub fn show_menu_bar(
                         } else {
                             "   Variable State"
                         };
-                        if icon_menu_item(ui, "", var_label, "", t) {
+                        if icon_menu_item(ui, ic::VAR_VIEW, var_label, "", t) {
                             action = MenuAction::ToggleVarView;
                             Popup::close_id(ctx, view_id);
                         }

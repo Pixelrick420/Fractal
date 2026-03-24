@@ -26,7 +26,7 @@ use std::time::Instant;
 const AUTOSAVE_INTERVAL_SECS: u64 = 120;
 const MAX_RECENT_FILES: usize = 10;
 const SESSION_FILE: &str = "fractal_session.json";
-
+const LOGO_BYTES: &[u8] = include_bytes!("../../assets/fractal-editor-icon.png");
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct SessionState {
     open_files: Vec<PathBuf>,
@@ -110,11 +110,29 @@ struct FractalEditor {
     pending_debug_source: Option<PathBuf>,
     tree_view_window: TreeViewWindow,
     var_view_window: VarViewWindow,
+    logo_texture: Option<egui::TextureHandle>,
+
 }
 
 impl FractalEditor {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         setup_fonts(&cc.egui_ctx);
+        let logo_texture = {
+        let image = image::load_from_memory(LOGO_BYTES)
+            .expect("Invalid logo PNG")
+            .into_rgba8();
+        let (w, h) = image.dimensions();
+        let pixels = image.into_raw();
+        let color_image = egui::ColorImage::from_rgba_unmultiplied(
+            [w as usize, h as usize],
+            &pixels,
+        );
+        Some(cc.egui_ctx.load_texture(
+            "logo",
+            color_image,
+            egui::TextureOptions::LINEAR,
+        ))
+    };
         let profile = UserProfile::load();
         let theme = Theme::from_variant(profile.theme);
         let mut file_dialog = FileDialog::new();
@@ -158,6 +176,7 @@ impl FractalEditor {
             pending_debug_source: None,
             tree_view_window: TreeViewWindow::new(),
             var_view_window: VarViewWindow::new(),
+            logo_texture,
         };
 
         if !session.open_files.is_empty() {
@@ -723,6 +742,7 @@ impl FractalEditor {
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
+         
                     if let Some(msg) = self.error_message.clone() {
                         ui.label(
                             egui::RichText::new(ic::ERROR)
@@ -931,6 +951,8 @@ impl eframe::App for FractalEditor {
             &self.theme,
             &self.recent_files,
             self.search_bar.visible,
+            self.logo_texture.as_ref(),  // <-- add this
+
         );
 
         match action {
@@ -1176,6 +1198,7 @@ impl eframe::App for FractalEditor {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(self.theme.editor_bg))
             .show(ctx, |ui| {
+          
                 if self.docs_window.open {
                     self.docs_window.show(ui);
                 } else if self.tabs.is_empty() {

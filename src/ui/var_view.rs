@@ -53,31 +53,26 @@ impl VarViewWindow {
         let output = self.output_history.clone();
         let mut open = self.open;
 
-        let body_text = t.tab_active_fg;
+        let text_col = t.tab_active_fg;
         let muted_text = t.tab_inactive_fg;
         let value_col = t.tab_active_fg;
 
-        let changed_bg = {
-            let a = t.tab_dirty_dot;
-            let b = t.panel_bg;
-            egui::Color32::from_rgb(
-                ((a.r() as u16 * 80 + b.r() as u16 * 175) / 255) as u8,
-                ((a.g() as u16 * 80 + b.g() as u16 * 175) / 255) as u8,
-                ((a.b() as u16 * 80 + b.b() as u16 * 175) / 255) as u8,
-            )
+        let changed_bg = if t.variant == crate::ui::theme::ThemeVariant::Dark {
+            egui::Color32::from_rgba_premultiplied(255, 200, 80, 140)
+        } else {
+            egui::Color32::from_rgba_premultiplied(255, 200, 80, 80)
         };
         let changed_fg = t.tab_dirty_dot;
 
         let alt_row = {
             use crate::ui::theme::ThemeVariant;
             match t.variant {
-                ThemeVariant::Dark => egui::Color32::from_rgba_premultiplied(255, 255, 255, 18),
+                ThemeVariant::Dark => egui::Color32::from_rgba_premultiplied(0, 0, 0, 40),
                 ThemeVariant::Light => egui::Color32::from_rgba_premultiplied(0, 0, 0, 22),
             }
         };
         let accent_bg =
-            egui::Color32::from_rgba_premultiplied(t.accent.r(), t.accent.g(), t.accent.b(), 22);
-
+        egui::Color32::from_rgba_premultiplied(t.accent.r(), t.accent.g(), t.accent.b(), 60);
         let num_scopes = frame.scopes.len();
         let effective_scope = self
             .selected_scope
@@ -117,7 +112,11 @@ impl VarViewWindow {
                             ui.label(
                                 egui::RichText::new(format!("▶  {}{}", frame.step_label, line_txt))
                                     .size(11.0)
-                                    .color(t.accent)
+                                    .color(if t.variant == crate::ui::theme::ThemeVariant::Dark {
+                                            egui::Color32::BLACK
+                                        } else {
+                                            t.accent
+                                        })
                                     .monospace(),
                             );
                             ui.with_layout(
@@ -235,7 +234,15 @@ impl VarViewWindow {
                                         );
                                     }
 
-                                    let col = if is_selected { t.accent } else { muted_text };
+                                    let col = if is_selected {
+                                        if t.variant == crate::ui::theme::ThemeVariant::Dark {
+                                            egui::Color32::BLACK
+                                        } else {
+                                            t.accent
+                                        }
+                                    } else {
+                                        muted_text
+                                    };
 
                                     let depth_indent = visual_idx as f32 * 8.0;
                                     let arrow = if is_selected { "▶ " } else { "  " };
@@ -362,7 +369,7 @@ impl VarViewWindow {
                                     draw_var_table(
                                         ui,
                                         scope.vars.as_slice(),
-                                        body_text,
+                                        text_col,
                                         muted_text,
                                         value_col,
                                         changed_bg,
@@ -448,7 +455,7 @@ impl VarViewWindow {
 fn draw_var_table(
     ui: &mut egui::Ui,
     vars: &[super::debugger::VarRow],
-    body_text: egui::Color32,
+    text_col: egui::Color32,
     _muted: egui::Color32,
     value_col: egui::Color32,
     changed_bg: egui::Color32,
@@ -482,7 +489,7 @@ fn draw_var_table(
             egui::Align2::LEFT_CENTER,
             lbl,
             hfont.clone(),
-            body_text,
+            text_col,
         );
     }
 
@@ -493,7 +500,23 @@ fn draw_var_table(
             ui.allocate_exact_size(egui::vec2(available_w, row_h), egui::Sense::hover());
 
         let show_changed = row.changed && !is_paused_frame;
+    let text_col = if show_changed {
+            egui::Color32::BLACK
+        } else {
+            text_col
+        };
 
+        let type_col_final = if show_changed {
+            egui::Color32::BLACK
+        } else {
+            type_col
+        };
+
+        let value_col_final = if show_changed {
+            egui::Color32::BLACK
+        } else {
+            value_col
+        };
         if show_changed {
             ui.painter()
                 .rect_filled(row_rect, egui::CornerRadius::same(2), changed_bg);
@@ -509,7 +532,7 @@ fn draw_var_table(
             egui::Align2::LEFT_CENTER,
             clip_str(display_name, col_name_w - 10.0, &font, ui),
             font.clone(),
-            body_text,
+            text_col,
         );
 
         ui.painter().text(
@@ -517,10 +540,10 @@ fn draw_var_table(
             egui::Align2::LEFT_CENTER,
             clip_str(&row.type_label, col_type_w - 10.0, &font, ui),
             font.clone(),
-            type_col,
+            type_col_final,
         );
 
-        let vc = if show_changed { changed_fg } else { value_col };
+ 
         ui.painter().text(
             egui::pos2(
                 row_rect.left() + col_name_w + col_type_w + 6.0,
@@ -529,7 +552,7 @@ fn draw_var_table(
             egui::Align2::LEFT_CENTER,
             clip_str(&row.value, col_val_w - 14.0, &font, ui),
             font.clone(),
-            vc,
+            value_col_final,
         );
 
         if show_changed {
@@ -540,6 +563,7 @@ fn draw_var_table(
             );
         }
     }
+
 }
 
 fn clip_str(s: &str, max_px: f32, font: &egui::FontId, ui: &egui::Ui) -> String {

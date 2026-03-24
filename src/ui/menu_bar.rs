@@ -730,15 +730,17 @@ fn paint_step_button(
     label: &str,
     is_active: bool,
     hovered: bool,
-    t: &Theme,
+    _t: &Theme,
 ) {
     let rounding = egui::CornerRadius::same(BTN_ROUNDING as u8);
-    if is_active {
-        ui.painter().rect_filled(
+    ui.painter().rect_filled(
             rect,
             rounding,
-            egui::Color32::from_rgba_premultiplied(210, 153, 34, 30),
+            egui::Color32::from_rgba_premultiplied(210, 153, 34, 120), // ↑ was 30
         );
+    if is_active {
+        
+    
         ui.painter().rect_stroke(
             rect,
             rounding,
@@ -755,13 +757,13 @@ fn paint_step_button(
             egui::Color32::from_rgba_premultiplied(210, 153, 34, 220),
         );
     }
-    let fg = if hovered && !is_active {
-        t.tab_bar_bg
-    } else if is_active {
-        egui::Color32::from_rgb(210, 153, 34)
-    } else {
-        egui::Color32::from_rgb(210, 153, 34)
-    };
+    let fg = if is_active {
+    egui::Color32::BLACK
+        } else if hovered {
+            egui::Color32::BLACK
+        } else {
+            egui::Color32::BLACK
+        };
     ui.painter().text(
         rect.center(),
         egui::Align2::CENTER_CENTER,

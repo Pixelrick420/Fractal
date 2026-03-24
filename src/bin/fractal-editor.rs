@@ -77,7 +77,7 @@ thread_local! {
 struct FractalEditor {
     profile: UserProfile,
     theme: Theme,
-
+    cross_file_call_line: Option<usize>,
     tabs: Vec<Tab>,
     active_tab: usize,
 
@@ -125,6 +125,7 @@ impl FractalEditor {
 
         let mut editor = Self {
             theme,
+            cross_file_call_line: None,
             terminal: Terminal::new(theme, &cc.egui_ctx),
             file_dialog,
             docs_window: DocsWindow::new(theme),
@@ -176,6 +177,19 @@ impl FractalEditor {
         }
 
         editor
+    }
+
+    fn top_frame_name(&self) -> Option<String> {
+        self.debug_frame
+            .as_ref()
+            .and_then(|frame| frame.call_stack.last().cloned())
+    }
+
+    fn current_file_line_count(&self) -> usize {
+        self.tabs
+            .get(self.active_tab)
+            .map(|t| t.code.lines().count())
+            .unwrap_or(0)
     }
 
     fn apply_theme(&mut self, variant: ThemeVariant) {
@@ -595,6 +609,7 @@ impl FractalEditor {
         let session = DebugSession::new(&root, jsonl_path.clone());
         let frame = session.current_frame();
         self.debug_frame = Some(frame);
+        self.cross_file_call_line = None;
         self.debug_session = Some(session);
         self.tree_view_window.open = true;
         self.var_view_window.open = true;
@@ -655,6 +670,7 @@ impl FractalEditor {
         if let Some(ref path) = self.debug_lock_path {
             let _ = fs::remove_file(path);
         }
+        self.cross_file_call_line = None;
         self.debug_session = None;
         self.debug_frame = None;
         self.debug_jsonl_path = None;
@@ -955,7 +971,25 @@ impl eframe::App for FractalEditor {
             MenuAction::Run => self.run_code(ctx),
             MenuAction::StepRun => {
                 if self.debug_session.is_some() {
+                    if self.cross_file_call_line.is_none() {
+                        let top_name = self.top_frame_name();
+                        let in_current_file = top_name.map(|n| !n.contains("::")).unwrap_or(true);
+                        if in_current_file {
+                            if let Some(ref frame) = self.debug_frame {
+                                let line_count = self.current_file_line_count();
+                                if frame.source_line > 0 && frame.source_line <= line_count {
+                                    self.cross_file_call_line = Some(frame.source_line);
+                                }
+                            }
+                        }
+                    }
                     self.step_debug();
+
+                    let top_name = self.top_frame_name();
+                    let in_current_file = top_name.map(|n| !n.contains("::")).unwrap_or(true);
+                    if in_current_file {
+                        self.cross_file_call_line = None;
+                    }
                 } else {
                     self.run_debug();
                 }
@@ -1123,51 +1157,22 @@ impl eframe::App for FractalEditor {
             self.var_view_window.show(ctx, frame_ref, &theme);
         }
 
-        let debug_line: Option<usize> = self.debug_frame.as_ref().and_then(|frame| {
-            if frame.source_line > 0 {
-                return Some(frame.source_line);
-            }
-
-            let code = self.tabs.get(self.active_tab).map(|t| t.code.as_str())?;
-
-            let inside_cross_file_callee = frame.source_line == 0
-                && frame.call_stack.len() > 1
-                && frame
-                    .call_stack
-                    .last()
-                    .map(|n| n != "<main>" && n != "main")
-                    .unwrap_or(false);
-
-            if inside_cross_file_callee {
-                if func_def_name(&frame.step_label).is_some() {
-                    let callee = frame.call_stack.last().unwrap();
-                    let qualified = format!("::{callee}(");
-                    if let Some(ln) = find_code_line_at(code, &qualified, frame.active_node_id) {
-                        return Some(ln);
+        let debug_line = if let Some(call_line) = self.cross_file_call_line {
+            Some(call_line)
+        } else {
+            self.debug_frame.as_ref().and_then(|frame| {
+                if frame.source_line > 0 {
+                    let line_count = self.current_file_line_count();
+                    if frame.source_line <= line_count {
+                        Some(frame.source_line)
+                    } else {
+                        None
                     }
-                    let bare = format!("{callee}(");
-                    return find_code_line_at(code, &bare, frame.active_node_id);
+                } else {
+                    None
                 }
-
-                return None;
-            }
-
-            if let Some(fn_name) = func_def_name(&frame.step_label) {
-                let func_decl_term = format!("!func {}", fn_name);
-                if let Some(ln) = find_code_line_at(code, &func_decl_term, frame.active_node_id) {
-                    return Some(ln);
-                }
-                let call_term = format!("{}(", fn_name);
-                return find_code_line_at(code, &call_term, frame.active_node_id);
-            }
-
-            let term = debug_search_term(&frame.step_label);
-            if !term.is_empty() {
-                return find_code_line_at(code, &term, frame.active_node_id);
-            }
-            None
-        });
-
+            })
+        };
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(self.theme.editor_bg))
             .show(ctx, |ui| {
@@ -1249,82 +1254,6 @@ fn apply_egui_style(ctx: &egui::Context, t: &Theme) {
     s.spacing.menu_margin = egui::Margin::same(4);
     s.visuals.override_text_color = Some(t.tab_active_fg);
     ctx.set_style(s);
-}
-
-fn func_def_name(label: &str) -> Option<String> {
-    let rest = label.strip_prefix("FuncDef ")?;
-
-    let name = rest.split_whitespace().next()?;
-    Some(name.to_string())
-}
-
-fn debug_search_term(label: &str) -> String {
-    let parts: Vec<&str> = label.splitn(4, ' ').collect();
-    match parts.as_slice() {
-        [kw, name, ..] if *kw == "Decl" || *kw == "StructDecl" || *kw == "FuncDef" => {
-            name.to_string()
-        }
-
-        ["For", ..] => "!for".to_string(),
-        ["If", ..] => "!if".to_string(),
-        ["While", ..] => "!while".to_string(),
-        ["Return", ..] => "!return".to_string(),
-        ["Break", ..] => "!break".to_string(),
-        ["Continue", ..] => "!continue".to_string(),
-        ["Assign", op, ..] => match *op {
-            "MinusEq" => "-=".to_string(),
-            "PlusEq" => "+=".to_string(),
-            "StarEq" => "*=".to_string(),
-            "SlashEq" => "/=".to_string(),
-            "PercentEq" => "%=".to_string(),
-            "AmpEq" => "&=".to_string(),
-            "PipeEq" => "|=".to_string(),
-            "CaretEq" => "^=".to_string(),
-            "Eq" => " = ".to_string(),
-            _ => String::new(),
-        },
-        _ => String::new(),
-    }
-}
-
-#[allow(dead_code)]
-fn find_code_line(code: &str, term: &str) -> Option<usize> {
-    find_code_line_at(code, term, 0)
-}
-
-fn find_code_line_at(code: &str, term: &str, step_hint: usize) -> Option<usize> {
-    if term.is_empty() {
-        return None;
-    }
-    let matches: Vec<usize> = code
-        .lines()
-        .enumerate()
-        .filter_map(|(i, line)| {
-            if let Some(idx) = line.find(term) {
-                let b = idx;
-                let before_ok = b == 0
-                    || !line.as_bytes()[b - 1].is_ascii_alphanumeric()
-                        && line.as_bytes()[b - 1] != b'_';
-                let after = b + term.len();
-                let after_ok = after >= line.len()
-                    || !line.as_bytes()[after].is_ascii_alphanumeric()
-                        && line.as_bytes()[after] != b'_';
-                if before_ok && after_ok {
-                    return Some(i + 1);
-                }
-            }
-            None
-        })
-        .collect();
-
-    if matches.is_empty() {
-        return None;
-    }
-    let target = step_hint + 1;
-    matches
-        .iter()
-        .min_by_key(|&&ln| (ln as isize - target as isize).unsigned_abs())
-        .copied()
 }
 
 fn main() -> Result<(), eframe::Error> {

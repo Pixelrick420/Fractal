@@ -96,6 +96,55 @@ pub enum SymbolKind {
     Struct { fields: Vec<(String, SemType)> },
 }
 
+fn suggest_similar<'a>(
+    query: &str,
+    candidates: impl Iterator<Item = &'a String>,
+) -> Option<String> {
+    if query.len() <= 2 {
+        return None;
+    }
+    let q: Vec<char> = query.chars().collect();
+    let mut best: Option<(usize, &'a String)> = None;
+
+    for name in candidates {
+        if name.contains("::") && !query.contains("::") {
+            continue;
+        }
+
+        if name.len() <= 2 {
+            continue;
+        }
+        let n: Vec<char> = name.chars().collect();
+        let max_len = q.len().max(n.len());
+
+        let mut dp = vec![vec![0usize; n.len() + 1]; q.len() + 1];
+        for i in 0..=q.len() {
+            dp[i][0] = i;
+        }
+        for j in 0..=n.len() {
+            dp[0][j] = j;
+        }
+        for i in 1..=q.len() {
+            for j in 1..=n.len() {
+                dp[i][j] = if q[i - 1] == n[j - 1] {
+                    dp[i - 1][j - 1]
+                } else {
+                    1 + dp[i - 1][j].min(dp[i][j - 1]).min(dp[i - 1][j - 1])
+                };
+            }
+        }
+        let dist = dp[q.len()][n.len()];
+
+        let threshold = if max_len <= 5 { 1 } else { 2 };
+        if dist <= threshold {
+            if best.map_or(true, |(d, _)| dist < d) {
+                best = Some((dist, name));
+            }
+        }
+    }
+    best.map(|(_, name)| name.clone())
+}
+
 struct ScopeStack {
     scopes: Vec<HashMap<String, Symbol>>,
 }
@@ -132,6 +181,10 @@ impl ScopeStack {
             }
         }
         None
+    }
+
+    fn all_names(&self) -> impl Iterator<Item = &String> {
+        self.scopes.iter().flat_map(|s| s.keys())
     }
 
     fn defined_in_current(&self, name: &str) -> bool {
@@ -408,7 +461,18 @@ impl Analyzer {
             ParseNode::Identifier(name) => match self.scopes.lookup(name) {
                 Some(sym) => sym.sem_type.clone(),
                 None => {
-                    self.error(format!("undefined variable `{}`", name));
+                    let suggestion = suggest_similar(name, self.scopes.all_names());
+                    let msg = match suggestion {
+                        Some(ref s) => format!(
+                            "undefined variable `{}`\nhint: a variable named `{}` is in scope — did you mean `{}`?",
+                            name, s, s
+                        ),
+                        None => format!(
+                            "undefined variable `{}`\nnote: the variable must be declared before use with e.g. `:int {} = ...;`",
+                            name, name
+                        ),
+                    };
+                    self.error(msg);
                     SemType::Unknown
                 }
             },
@@ -447,7 +511,16 @@ impl Analyzer {
                                                 acc
                                             }
                                         });
-                                    self.error(format!("undefined identifier `{}`", qualified));
+                                    let suggestion =
+                                        suggest_similar(&qualified, self.scopes.all_names());
+                                    let msg = match suggestion {
+                                        Some(ref s) => format!(
+                                            "undefined identifier `{}`\nhint: did you mean `{}`?",
+                                            qualified, s
+                                        ),
+                                        None => format!("undefined identifier `{}`", qualified),
+                                    };
+                                    self.error(msg);
                                 }
 
                                 (SemType::Unknown, true)
@@ -836,11 +909,23 @@ impl Analyzer {
                             } else {
                                 if self.scopes.lookup(&func_name).is_some() {
                                     self.error(format!(
-                                        "`{}` is not a function and cannot be called",
-                                        func_name
+                                        "`{}` is not a function and cannot be called\nnote: `{}` is declared as a variable — did you mean to read its value instead of calling it?",
+                                        func_name, func_name
                                     ));
                                 } else {
-                                    self.error(format!("undefined function `{}`", func_name));
+                                    let suggestion =
+                                        suggest_similar(&func_name, self.scopes.all_names());
+                                    let msg = match suggestion {
+                                        Some(ref s) => format!(
+                                            "undefined function `{}`\nhint: a name `{}` is in scope — did you mean to call `{}`?",
+                                            func_name, s, s
+                                        ),
+                                        None => format!(
+                                            "undefined function `{}`\nnote: make sure the function is defined with `!func {}(...)` before it is called",
+                                            func_name, func_name
+                                        ),
+                                    };
+                                    self.error(msg);
                                 }
                                 SemType::Unknown
                             }
@@ -1066,21 +1151,22 @@ impl Analyzer {
                 let rt = self.infer_expr(right);
                 if !lt.is_numeric() && !matches!(lt, SemType::Unknown) {
                     self.error(format!(
-                        "additive operand must be numeric, got `{}`",
+                        "additive operand must be numeric (`:int` or `:float`), got `{}`\nnote: only `:int` and `:float` values support `+` and `-`",
                         lt.display()
                     ));
                 }
                 if !rt.is_numeric() && !matches!(rt, SemType::Unknown) {
                     self.error(format!(
-                        "additive operand must be numeric, got `{}`",
+                        "additive operand must be numeric (`:int` or `:float`), got `{}`\nnote: only `:int` and `:float` values support `+` and `-`",
                         rt.display()
                     ));
                 }
                 if lt.is_numeric() && rt.is_numeric() && lt != rt {
                     self.error(format!(
-                        "type mismatch in arithmetic: `{}` and `{}` — use an explicit cast",
+                        "type mismatch in arithmetic: `{}` + `{}` — operands must be the same type\nhint: use an explicit cast: `:{}(expr)` to convert before the operation",
                         lt.display(),
-                        rt.display()
+                        rt.display(),
+                        if matches!(lt, SemType::Float) { "int" } else { "float" }
                     ));
                 }
                 if matches!(lt, SemType::Unknown) && matches!(rt, SemType::Unknown) {
@@ -1120,21 +1206,22 @@ impl Analyzer {
                 }
                 if !lt.is_numeric() && !matches!(lt, SemType::Unknown) {
                     self.error(format!(
-                        "multiplicative operand must be numeric, got `{}`",
+                        "multiplicative operand must be numeric (`:int` or `:float`), got `{}`\nnote: only `:int` and `:float` values support `*`, `/`",
                         lt.display()
                     ));
                 }
                 if !rt.is_numeric() && !matches!(rt, SemType::Unknown) {
                     self.error(format!(
-                        "multiplicative operand must be numeric, got `{}`",
+                        "multiplicative operand must be numeric (`:int` or `:float`), got `{}`\nnote: only `:int` and `:float` values support `*`, `/`",
                         rt.display()
                     ));
                 }
                 if lt.is_numeric() && rt.is_numeric() && lt != rt {
                     self.error(format!(
-                        "type mismatch in arithmetic: `{}` and `{}` — use an explicit cast",
+                        "type mismatch in arithmetic: `{}` * `{}` — operands must be the same type\nhint: use an explicit cast: `:{}(expr)` to convert before the operation",
                         lt.display(),
-                        rt.display()
+                        rt.display(),
+                        if matches!(lt, SemType::Float) { "int" } else { "float" }
                     ));
                 }
                 if matches!(lt, SemType::Unknown) && matches!(rt, SemType::Unknown) {
@@ -1540,7 +1627,7 @@ impl Analyzer {
                 }
                 if self.scopes.defined_in_current(name) {
                     self.error(format!(
-                        "variable `{}` is already declared in this scope",
+                        "variable `{}` is already declared in this scope\nnote: each variable name must be unique within a block — choose a different name, or remove the duplicate declaration",
                         name
                     ));
                 } else {
@@ -1656,7 +1743,18 @@ impl Analyzer {
             } => {
                 let sem_ty = SemType::Struct(struct_name.clone());
                 if self.scopes.lookup(struct_name).is_none() {
-                    self.error(format!("undefined struct type `{}`", struct_name));
+                    let suggestion = suggest_similar(struct_name, self.scopes.all_names());
+                    let msg = match suggestion {
+                        Some(ref s) => format!(
+                            "undefined struct type `{}`\nhint: a type named `{}` is in scope — did you mean `:struct<{}>`?",
+                            struct_name, s, s
+                        ),
+                        None => format!(
+                            "undefined struct type `{}`\nnote: make sure the struct is defined with `:struct<{}> {{ ... }};` before it is used",
+                            struct_name, struct_name
+                        ),
+                    };
+                    self.error(msg);
                 }
                 if self.scopes.defined_in_current(var_name) {
                     self.error(format!(
@@ -1797,10 +1895,23 @@ impl Analyzer {
                             rv_ty.display()
                         ));
                     } else if !is_compound_op && !Self::types_compatible(&lv_ty, &rv_ty) {
+                        let cast_hint = if lv_ty.is_numeric() && rv_ty.is_numeric() {
+                            format!(
+                                "\nhint: use an explicit cast: `:{}(expr)` to convert the value",
+                                match &lv_ty {
+                                    SemType::Int => "int",
+                                    SemType::Float => "float",
+                                    _ => "...",
+                                }
+                            )
+                        } else {
+                            String::new()
+                        };
                         self.error(format!(
-                            "cannot assign value of type `{}` to target of type `{}`",
+                            "cannot assign value of type `{}` to target of type `{}`{}",
                             rv_ty.display(),
-                            lv_ty.display()
+                            lv_ty.display(),
+                            cast_hint
                         ));
                     } else if !is_compound_op
                         && matches!(lv_ty, SemType::List { .. })
@@ -1826,7 +1937,7 @@ impl Analyzer {
                 let ct = self.infer_expr(condition);
                 if !matches!(ct, SemType::Boolean | SemType::Unknown) {
                     self.error(format!(
-                        "`!if` condition must be `:boolean`, got `{}`",
+                        "`!if` condition must be `:boolean`, got `{}`\nhint: use a comparison operator (`==`, `~=`, `>`, `<`, `>=`, `<=`) to produce a boolean, or wrap it in a truthiness check",
                         ct.display()
                     ));
                 }
@@ -1917,7 +2028,7 @@ impl Analyzer {
                 let ct = self.infer_expr(condition);
                 if !matches!(ct, SemType::Boolean | SemType::Unknown) {
                     self.error(format!(
-                        "`!while` condition must be `:boolean`, got `{}`",
+                        "`!while` condition must be `:boolean`, got `{}`\nhint: use a comparison operator (`==`, `~=`, `>`, `<`, `>=`, `<=`) to produce a boolean",
                         ct.display()
                     ));
                 }
@@ -1958,7 +2069,7 @@ impl Analyzer {
                         ));
                     }
                 } else {
-                    self.error("`!return` used outside of a function");
+                    self.error("`!return` used outside of a function\nnote: `!return` can only appear inside a `!func` body — did you accidentally place it at the top level?");
                 }
             }
 
@@ -1968,13 +2079,13 @@ impl Analyzer {
 
             ParseNode::Break { .. } => {
                 if self.loop_depth == 0 {
-                    self.error("`!break` used outside of a loop");
+                    self.error("`!break` used outside of a loop\nnote: `!break` can only appear inside a `!for` or `!while` body");
                 }
             }
 
             ParseNode::Continue { .. } => {
                 if self.loop_depth == 0 {
-                    self.error("`!continue` used outside of a loop");
+                    self.error("`!continue` used outside of a loop\nnote: `!continue` can only appear inside a `!for` or `!while` body");
                 }
             }
 
@@ -1985,9 +2096,15 @@ impl Analyzer {
                     if steps.last().map_or(false, |s| matches!(s, AccessStep::Call(_))));
                 if !is_call && !matches!(ty, SemType::Void | SemType::Unknown) {
                     self.warn(format!(
-                        "expression result of type `{}` is unused; \
-                         did you mean to assign this to a variable?",
-                        ty.display()
+                        "expression result of type `{}` is unused\nhint: assign it to a variable with `:{}  name = ...;`, or remove the expression if it has no side effects",
+                        ty.display(),
+                        match &ty {
+                            SemType::Int => "int",
+                            SemType::Float => "float",
+                            SemType::Char => "char",
+                            SemType::Boolean => "boolean",
+                            _ => "...",
+                        }
                     ));
                 }
             }

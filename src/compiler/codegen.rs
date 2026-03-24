@@ -45,6 +45,9 @@ struct CodeGen {
 
     debug_visible_vars: Vec<(String, String)>,
     debug_current_func: String,
+    // When inside a module, this is "modname::" so call-stack entries are
+    // labelled "bubblesort::bubble(…)" rather than just "bubble(…)".
+    debug_module_prefix: String,
 }
 
 impl CodeGen {
@@ -96,6 +99,7 @@ impl CodeGen {
 
             debug_visible_vars: Vec::new(),
             debug_current_func: String::new(),
+            debug_module_prefix: String::new(),
         }
     }
 
@@ -188,88 +192,83 @@ impl CodeGen {
     }
 
     fn gen_root(&mut self, root: &ParseNode) {
-        
-    let items = match root {
-        ParseNode::Program(v) => v,
-        _ => return,
-    };
+        let items = match root {
+            ParseNode::Program(v) => v,
+            _ => return,
+        };
 
-    for item in items {
-        if let ParseNode::Module { name, .. } = item {
-            self.module_names.insert(name.clone());
-        }
-    }
-
-    self.line("#![allow(unused_variables, unused_mut, dead_code, non_snake_case, unused_imports, unreachable_patterns)]");
-    self.line("use std::io::{self, BufRead, Write};");
-    self.blank();
-    self.line("fn __fractal_fmt_float(v: f64) -> String {");
-    self.line("    if v.fract() == 0.0 && v.is_finite() {");
-    self.line("        format!(\"{:.1}\", v)");
-    self.line("    } else {");
-    self.line("        format!(\"{}\", v)");
-    self.line("    }");
-    self.line("}");
-    self.blank();
-    if self.debug_mode {
-        self.emit_debug_runtime();
-        self.blank();
-    }
-
-    let (defs, stmts): (Vec<_>, Vec<_>) = items.iter().partition(|n| {
-        matches!(
-            n,
-            ParseNode::FuncDef { .. } | ParseNode::StructDef { .. } | ParseNode::Module { .. }
-        )
-    });
-
-    for def in &defs {
-        self.gen_item(def);
-        self.blank();
-    }
-
-    self.line("fn main() {");
-    self.indent();
-    if self.debug_mode {
-        self.line("__fractal_debug_init();");
-        self.line("let __fractal_lock_path = std::env::var(\"FRACTAL_DEBUG_LOCK\").unwrap_or_default();");
-        self.line("if !__fractal_lock_path.is_empty() { __FRACTAL_DBG_LOCK.set(__fractal_lock_path).ok(); }");
-        
-        // Push initial stack frame for main - FIX: convert to String
-        self.line("__FRACTAL_CALL_STACK.with(|__s| __s.borrow_mut().push((\"<main>\".to_string(), \"[]\".to_string())));");
-    }
-    for s in &stmts {
-        self.gen_stmt(s);
-        if self.debug_mode {
-            if !matches!(
-                s,
-                ParseNode::Return { .. }
-                    | ParseNode::Break { .. }
-                    | ParseNode::Continue { .. }
-                    | ParseNode::Exit { .. }
-                    | ParseNode::If { .. }
-                    | ParseNode::While { .. }
-            ) {
-                self.emit_snapshot(s);
+        for item in items {
+            if let ParseNode::Module { name, .. } = item {
+                self.module_names.insert(name.clone());
             }
         }
+
+        self.line("#![allow(unused_variables, unused_mut, dead_code, non_snake_case, unused_imports, unreachable_patterns)]");
+        self.line("use std::io::{self, BufRead, Write};");
+        self.blank();
+        self.line("fn __fractal_fmt_float(v: f64) -> String {");
+        self.line("    if v.fract() == 0.0 && v.is_finite() {");
+        self.line("        format!(\"{:.1}\", v)");
+        self.line("    } else {");
+        self.line("        format!(\"{}\", v)");
+        self.line("    }");
+        self.line("}");
+        self.blank();
+        if self.debug_mode {
+            self.emit_debug_runtime();
+            self.blank();
+        }
+
+        let (defs, stmts): (Vec<_>, Vec<_>) = items.iter().partition(|n| {
+            matches!(
+                n,
+                ParseNode::FuncDef { .. } | ParseNode::StructDef { .. } | ParseNode::Module { .. }
+            )
+        });
+
+        for def in &defs {
+            self.gen_item(def);
+            self.blank();
+        }
+
+        self.line("fn main() {");
+        self.indent();
+        if self.debug_mode {
+            self.line("__fractal_debug_init();");
+            self.line("let __fractal_lock_path = std::env::var(\"FRACTAL_DEBUG_LOCK\").unwrap_or_default();");
+            self.line("if !__fractal_lock_path.is_empty() { __FRACTAL_DBG_LOCK.set(__fractal_lock_path).ok(); }");
+            // The thread-local already has ("<main>", "[]") seeded.
+            // We keep debug_current_func = "<main>" so snapshot labels are correct.
+        }
+        for s in &stmts {
+            self.gen_stmt(s);
+            if self.debug_mode {
+                if !matches!(
+                    s,
+                    ParseNode::Return { .. }
+                        | ParseNode::Break { .. }
+                        | ParseNode::Continue { .. }
+                        | ParseNode::Exit { .. }
+                        | ParseNode::If { .. }
+                        | ParseNode::While { .. }
+                ) {
+                    self.emit_snapshot(s);
+                }
+            }
+        }
+        if self.debug_mode {
+            let func = self.debug_current_func.clone();
+            let vars_code = self.build_vars_json_code();
+            let finished_line = format!(
+                "__fractal_debug_snapshot!(\"Program finished\", \"{f}\", 0, [{v}], true, None::<&str>);",
+                f = func,
+                v = vars_code,
+            );
+            self.line(&finished_line);
+        }
+        self.dedent();
+        self.line("}");
     }
-    if self.debug_mode {
-        let func = self.debug_current_func.clone();
-        let vars_code = self.build_vars_json_code();
-        let stack_code = self.build_stack_json();  // Add this
-        
-        let finished_line = format!(
-            "__fractal_debug_snapshot!(\"Program finished\", \"{f}\", 0, [{v}], {sk}, true, None::<&str>);",
-            f = func,
-            v = vars_code,
-            sk = stack_code,  // Add stack argument
-        );
-        self.line(&finished_line);
-    }
-    self.dedent();
-    self.line("}");
-}
 
     fn gen_item(&mut self, node: &ParseNode) {
         match node {
@@ -455,21 +454,25 @@ impl CodeGen {
                 })
                 .collect();
 
-            // In gen_funcdef, ensure display_name is a String
-                let display_name = if param_idents.is_empty() {
-                    format!("\"{}\".to_string()", name)  // Convert to String explicitly
-                } else {
-                    let fmt_placeholders = param_idents
-                        .iter()
-                        .map(|_| "{:?}")
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let fmt_args = param_idents.join(", ");
-                    format!(
-                        "format!(\"{}({})\", {}).to_string()",  // Ensure it returns String
-                        name, fmt_placeholders, fmt_args
-                    )
-                };
+            // Build display name: "funcname" or "mod::funcname(v1, v2, ...)".
+            // Must produce a String expression (not a &str literal) because
+            // __FRACTAL_CALL_STACK holds Vec<(String, String)>.
+            let qualified_name = format!("{}{}", self.debug_module_prefix, name);
+            let display_name = if param_idents.is_empty() {
+                // "\"funcname\".to_string()" in the generated code
+                format!("\"{}\".to_string()", qualified_name)
+            } else {
+                let fmt_placeholders = param_idents
+                    .iter()
+                    .map(|_| "{:?}")
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let fmt_args = param_idents.join(", ");
+                format!(
+                    "format!(\"{}({})\", {})",
+                    qualified_name, fmt_placeholders, fmt_args
+                )
+            };
 
             // Build initial vars JSON string for this frame using current param values
             let init_vars: Vec<String> = params
@@ -543,20 +546,18 @@ impl CodeGen {
         self.list_param_elem_types = prev_list_param_elem_types;
         self.local_var_types = prev_local_vars;
     }
-    fn build_stack_json(&self) -> String {
-    if self.debug_mode {
-        // Return a placeholder - the macro will ignore this and use the thread-local stack
-        "\"[]\".to_string()".to_string()
-    } else {
-        "\"[]\".to_string()".to_string()
-    }
-}
+
     fn gen_module(&mut self, name: &str, items: &[ParseNode]) {
         self.module_names.insert(name.to_string());
         self.line(&format!("pub mod fractal_{} {{", name));
         self.indent();
         self.line("use super::*;");
         self.blank();
+
+        // Track the module prefix so gen_funcdef can label stack frames as
+        // "bubblesort::bubble(…)" instead of just "bubble(…)".
+        let prev_module_prefix = self.debug_module_prefix.clone();
+        self.debug_module_prefix = format!("{}::", name);
 
         let (defs, stmts): (Vec<_>, Vec<_>) = items.iter().partition(|n| {
             matches!(
@@ -629,6 +630,7 @@ impl CodeGen {
 
         self.dedent();
         self.line("}");
+        self.debug_module_prefix = prev_module_prefix;
     }
 
     fn flush_hoists(&mut self) {
@@ -1512,15 +1514,12 @@ impl CodeGen {
             let for_label = format!("For {}", var_name);
             let func = self.debug_current_func.clone();
             let vars_code = self.build_vars_json_code();
-            let stack_code = self.build_stack_json();  // Add this
-            
             let snap = format!(
-                "__fractal_debug_snapshot!(\"{lb}\", \"{fc}\", {ln}, [{vrs}], {sk}, false, None::<&str>);",
+                "__fractal_debug_snapshot!(\"{lb}\", \"{fc}\", {ln}, [{vrs}], false, None::<&str>);",
                 lb = for_label,
                 fc = func,
                 ln = for_line,
                 vrs = vars_code,
-                sk = stack_code,  // Add stack argument
             );
             self.line(&snap);
             self.line("__fractal_debug_wait();");
@@ -2400,19 +2399,16 @@ impl CodeGen {
         let source_line = stmt_source_line(stmt);
         let func = self.debug_current_func.clone();
         let vars_code = self.build_vars_json_code();
-        let stack_code = self.build_stack_json();  // Add this
-        
         let line = format!(
-            "__fractal_debug_snapshot!(\"{lb}\", \"{fc}\", {ln}, [{vrs}], {sk}, false, None::<&str>);",
+            "__fractal_debug_snapshot!(\"{lb}\", \"{fc}\", {ln}, [{vrs}], false, None::<&str>);",
             lb = label.replace('"', "'"),
             fc = func,
             ln = source_line,
             vrs = vars_code,
-            sk = stack_code,  // Add stack argument
         );
         self.line(&line);
         self.line("__fractal_debug_wait();");
-}
+    }
 
     fn build_vars_json_code(&self) -> String {
         self.debug_visible_vars
@@ -2429,186 +2425,184 @@ impl CodeGen {
             .join(", ")
     }
 
-fn emit_debug_runtime(&mut self) {
-    let path = self.debug_path.clone();
+    fn emit_debug_runtime(&mut self) {
+        let path = self.debug_path.clone();
 
-    self.line("use std::sync::{Mutex, Once};");
-    self.line("use std::fs::{OpenOptions, File as __DbgFile};");
-    self.line("use std::io::{BufWriter as __DbgBufWriter, Write as __DbgWrite};");
-    self.blank();
+        self.line("use std::sync::{Mutex, Once};");
+        self.line("use std::fs::{OpenOptions, File as __DbgFile};");
+        self.line("use std::io::{BufWriter as __DbgBufWriter, Write as __DbgWrite};");
+        self.blank();
 
-    self.line("static __FRACTAL_DBG_INIT: Once = Once::new();");
-    self.line("#[allow(clippy::type_complexity)]");
-    self.line("static __FRACTAL_DBG_FILE: Mutex<Option<__DbgBufWriter<__DbgFile>>> = Mutex::new(None);");
-    self.line("static __FRACTAL_DBG_PREV: std::sync::OnceLock<Mutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();");
-    self.line("static __FRACTAL_DBG_STEP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);");
-    self.line(
-        "static __FRACTAL_DBG_LOCK: std::sync::OnceLock<String> = std::sync::OnceLock::new();",
-    );
-    self.blank();
+        self.line("static __FRACTAL_DBG_INIT: Once = Once::new();");
+        self.line("#[allow(clippy::type_complexity)]");
+        self.line("static __FRACTAL_DBG_FILE: Mutex<Option<__DbgBufWriter<__DbgFile>>> = Mutex::new(None);");
+        self.line("static __FRACTAL_DBG_PREV: std::sync::OnceLock<Mutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();");
+        self.line("static __FRACTAL_DBG_STEP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);");
+        self.line(
+            "static __FRACTAL_DBG_LOCK: std::sync::OnceLock<String> = std::sync::OnceLock::new();",
+        );
+        self.blank();
 
-    // Each stack frame is (display_name, vars_json_string).
-    // - The BOTTOM frame is always "<main>" seeded with "[]".
-    // - When a function is called it pushes its own frame with initial param vars.
-    // - At every snapshot the TOP frame's vars string is overwritten with the
-    //   current live vars.  Frames below are frozen at call-time so clicking a
-    //   caller in the UI shows its state when it made the call.
-    self.line("thread_local! {");
-    self.line("    static __FRACTAL_CALL_STACK: std::cell::RefCell<Vec<(String, String)>> =");
-    self.line("        std::cell::RefCell::new(vec![(\"<main>\".to_string(), \"[]\".to_string())]);");
-    self.line("}");
-    self.blank();
+        // Each stack frame is (display_name, vars_json_string).
+        // - The BOTTOM frame is always "<main>" seeded with "[]".
+        // - When a function is called it pushes its own frame with initial param vars.
+        // - At every snapshot the TOP frame's vars string is overwritten with the
+        //   current live vars.  Frames below are frozen at call-time so clicking a
+        //   caller in the UI shows its state when it made the call.
+        self.line("thread_local! {");
+        self.line("    static __FRACTAL_CALL_STACK: std::cell::RefCell<Vec<(String, String)>> =");
+        self.line("        std::cell::RefCell::new(vec![(\"<main>\".to_string(), \"[]\".to_string())]);");
+        self.line("}");
+        self.blank();
 
-    self.line("fn __fractal_debug_init() {");
-    self.indent();
-    self.line("__FRACTAL_DBG_INIT.call_once(|| {");
-    self.indent();
-    self.line(&format!(
-        "let __f = OpenOptions::new().create(true).write(true).truncate(true)\
-         .open(\"{path}\").expect(\"cannot open fractal debug file\");",
-        path = path
-    ));
-    self.line("*__FRACTAL_DBG_FILE.lock().unwrap() = Some(__DbgBufWriter::new(__f));");
-    self.dedent();
-    self.line("});");
-    self.dedent();
-    self.line("}");
-    self.blank();
+        self.line("fn __fractal_debug_init() {");
+        self.indent();
+        self.line("__FRACTAL_DBG_INIT.call_once(|| {");
+        self.indent();
+        self.line(&format!(
+            "let __f = OpenOptions::new().create(true).write(true).truncate(true)\
+             .open(\"{path}\").expect(\"cannot open fractal debug file\");",
+            path = path
+        ));
+        self.line("*__FRACTAL_DBG_FILE.lock().unwrap() = Some(__DbgBufWriter::new(__f));");
+        self.dedent();
+        self.line("});");
+        self.dedent();
+        self.line("}");
+        self.blank();
 
-    self.line("fn __fractal_debug_wait() {");
-    self.indent();
-    self.line("if let Some(path) = __FRACTAL_DBG_LOCK.get() {");
-    self.indent();
-    self.line("let _ = std::fs::write(path, \"\");");
-    self.line("while std::fs::metadata(path).is_ok() {");
-    self.indent();
-    self.line("std::thread::sleep(std::time::Duration::from_millis(10));");
-    self.dedent();
-    self.line("}");
-    self.dedent();
-    self.line("}");
-    self.dedent();
-    self.line("}");
-    self.blank();
+        self.line("fn __fractal_debug_wait() {");
+        self.indent();
+        self.line("if let Some(path) = __FRACTAL_DBG_LOCK.get() {");
+        self.indent();
+        self.line("let _ = std::fs::write(path, \"\");");
+        self.line("while std::fs::metadata(path).is_ok() {");
+        self.indent();
+        self.line("std::thread::sleep(std::time::Duration::from_millis(10));");
+        self.dedent();
+        self.line("}");
+        self.dedent();
+        self.line("}");
+        self.dedent();
+        self.line("}");
+        self.blank();
 
-    self.line("fn __fractal_debug_json_escape(s: &str) -> String {");
-    self.indent();
-    self.line("let mut o = String::new();");
-    self.line("for c in s.chars() {");
-    self.indent();
-    self.line("match c {");
-    self.indent();
-    self.line(r#"'"'  => o.push_str("\\\""),"#);
-    self.line(r#"'\\' => o.push_str("\\\\"),"#);
-    self.line(r#"'\n' => o.push_str("\\n"),"#);
-    self.line(r#"'\t' => o.push_str("\\t"),"#);
-    self.line(r#"'\r' => o.push_str("\\r"),"#);
-    self.line("c    => o.push(c),");
-    self.dedent();
-    self.line("}");
-    self.dedent();
-    self.line("}");
-    self.line("o");
-    self.dedent();
-    self.line("}");
-    self.blank();
+        self.line("fn __fractal_debug_json_escape(s: &str) -> String {");
+        self.indent();
+        self.line("let mut o = String::new();");
+        self.line("for c in s.chars() {");
+        self.indent();
+        self.line("match c {");
+        self.indent();
+        self.line(r#"'"'  => o.push_str("\\\""),"#);
+        self.line(r#"'\\' => o.push_str("\\\\"),"#);
+        self.line(r#"'\n' => o.push_str("\\n"),"#);
+        self.line(r#"'\t' => o.push_str("\\t"),"#);
+        self.line(r#"'\r' => o.push_str("\\r"),"#);
+        self.line("c    => o.push(c),");
+        self.dedent();
+        self.line("}");
+        self.dedent();
+        self.line("}");
+        self.line("o");
+        self.dedent();
+        self.line("}");
+        self.blank();
 
-    self.line("fn __fractal_debug_var(name: &str, type_label: &str, value: &str) -> String {");
-    self.indent();
-    self.line("let changed = {");
-    self.indent();
+        self.line("fn __fractal_debug_var(name: &str, type_label: &str, value: &str) -> String {");
+        self.indent();
+        self.line("let changed = {");
+        self.indent();
 
-    self.line("let mutex = __FRACTAL_DBG_PREV.get_or_init(|| Mutex::new(std::collections::HashMap::new()));");
-    self.line("let mut prev_map = mutex.lock().unwrap();");
-    self.line("let prev = prev_map.get(name).cloned().unwrap_or_default();");
-    self.line("let did_change = value != prev.as_str();");
-    self.line("prev_map.insert(name.to_string(), value.to_string());");
-    self.line("did_change");
-    self.dedent();
-    self.line("};");
-    self.line(r#"let mut s = String::from("{");"#);
-    self.line(r#"s.push_str("\"name\":\""); s.push_str(&__fractal_debug_json_escape(name)); s.push_str("\",");"#);
-    self.line(r#"s.push_str("\"type\":\""); s.push_str(&__fractal_debug_json_escape(type_label)); s.push_str("\",");"#);
-    self.line(r#"s.push_str("\"value\":\""); s.push_str(&__fractal_debug_json_escape(value)); s.push_str("\",");"#);
-    self.line(r#"s.push_str("\"changed\":"); s.push_str(if changed { "true" } else { "false" }); s.push('}');"#);
-    self.line("s");
-    self.dedent();
-    self.line("}");
-    self.blank();
+        self.line("let mutex = __FRACTAL_DBG_PREV.get_or_init(|| Mutex::new(std::collections::HashMap::new()));");
+        self.line("let mut prev_map = mutex.lock().unwrap();");
+        self.line("let prev = prev_map.get(name).cloned().unwrap_or_default();");
+        self.line("let did_change = value != prev.as_str();");
+        self.line("prev_map.insert(name.to_string(), value.to_string());");
+        self.line("did_change");
+        self.dedent();
+        self.line("};");
+        self.line(r#"let mut s = String::from("{");"#);
+        self.line(r#"s.push_str("\"name\":\""); s.push_str(&__fractal_debug_json_escape(name)); s.push_str("\",");"#);
+        self.line(r#"s.push_str("\"type\":\""); s.push_str(&__fractal_debug_json_escape(type_label)); s.push_str("\",");"#);
+        self.line(r#"s.push_str("\"value\":\""); s.push_str(&__fractal_debug_json_escape(value)); s.push_str("\",");"#);
+        self.line(r#"s.push_str("\"changed\":"); s.push_str(if changed { "true" } else { "false" }); s.push('}');"#);
+        self.line("s");
+        self.dedent();
+        self.line("}");
+        self.blank();
 
-    // The macro:
-    //  1. Builds the current frame's live vars JSON from $var_str arguments.
-    //  2. Updates the TOP frame in __FRACTAL_CALL_STACK with those vars
-    //     (callers below are frozen — they already have their call-time state).
-    //  3. Serialises ALL frames into "stack" (name array, bottom→top) and
-    //     "scopes" (one scope per frame, TOP FIRST so index-0 is the active
-    //     function and the UI can default-select it).
-    self.raw("macro_rules! __fractal_debug_snapshot {\n");
-    // NOTE: $stack parameter is accepted but not used - we always read from the thread-local
-    // storage to ensure accuracy. The parameter is kept for backward compatibility with call sites.
-    self.raw("    ($label:expr, $func:expr, $line:expr, [$($var_str:expr),* $(,)?], $stack:expr, $finished:expr, $error:expr) => {{\n");
-    self.raw("        let __dbg_step = __FRACTAL_DBG_STEP.fetch_add(1, std::sync::atomic::Ordering::SeqCst);\n");
-    self.raw("        let mut __dbg_g = __FRACTAL_DBG_FILE.lock().unwrap();\n");
-    self.raw("        if let Some(ref mut __dbg_w) = *__dbg_g {\n");
-    // 1. Build the live vars JSON for the current (top) frame
-    self.raw("            let __dbg_vars: Vec<String> = vec![$($var_str),*];\n");
-    self.raw("            let __dbg_vars_json = format!(\"[{}]\", __dbg_vars.join(\",\"));\n");
-    // 2. Update only the TOP frame's vars — callers stay frozen
-    self.raw("            __FRACTAL_CALL_STACK.with(|__stk| {\n");
-    self.raw("                if let Some(__top) = __stk.borrow_mut().last_mut() {\n");
-    self.raw("                    __top.1 = __dbg_vars_json.clone();\n");
-    self.raw("                }\n");
-    self.raw("            });\n");
-    // 3. Read all frames; emit stack bottom→top, scopes TOP→bottom (active first)
-    self.raw("            let (__dbg_stack_json, __dbg_scopes_json) = __FRACTAL_CALL_STACK.with(|__stk| {\n");
-    self.raw("                let __frames = __stk.borrow();\n");
-    // stack array: bottom → top (oldest call first, matches typical debugger display)
-    self.raw("                let __stack_parts: Vec<String> = __frames.iter()\n");
-    self.raw("                    .map(|(__name, _)| format!(\"\\\"{}\\\"\" , __fractal_debug_json_escape(__name)))\n");
-    self.raw("                    .collect();\n");
-    // scopes array: TOP frame first (index 0 = currently executing function)
-    // var_view iterates with .rev() so index-0 ends up on top of the panel.
-    self.raw("                let __scope_parts: Vec<String> = __frames.iter().rev()\n");
-    self.raw("                    .map(|(__name, __vars)| {\n");
-    self.raw("                        let mut __sc = String::from(\"{\\\"label\\\":\\\"\");\n");
-    self.raw("                        __sc.push_str(&__fractal_debug_json_escape(__name));\n");
-    self.raw("                        __sc.push_str(\"\\\",\\\"vars\\\":\");\n");
-    self.raw("                        __sc.push_str(__vars);\n");
-    self.raw("                        __sc.push('}');\n");
-    self.raw("                        __sc\n");
-    self.raw("                    })\n");
-    self.raw("                    .collect();\n");
-    self.raw("                (format!(\"[{}]\", __stack_parts.join(\",\")),\n");
-    self.raw("                 format!(\"[{}]\", __scope_parts.join(\",\")))\n");
-    self.raw("            });\n");
-    self.raw("            let __dbg_err: String = match ($error as Option<&str>) {\n");
-    self.raw("                None      => \"null\".into(),\n");
-    self.raw("                Some(__e) => { let mut __es = String::from(\"\\\"\"); __es.push_str(&__fractal_debug_json_escape(__e)); __es.push('\"'); __es },\n");
-    self.raw("            };\n");
-    self.raw("            let __dbg_line = {\n");
-    self.raw("                let mut __ln = String::from(\"{\\\"step\\\":\");\n");
-    self.raw("                __ln.push_str(&__dbg_step.to_string());\n");
-    self.raw("                __ln.push_str(\",\\\"label\\\":\\\"\");\n");
-    self.raw("                __ln.push_str(&__fractal_debug_json_escape($label));\n");
-    self.raw("                __ln.push_str(\"\\\",\\\"line\\\":\");\n");
-    self.raw("                __ln.push_str(&($line as usize).to_string());\n");
-    self.raw("                __ln.push_str(\",\\\"stack\\\":\");\n");
-    self.raw("                __ln.push_str(&__dbg_stack_json);\n");
-    self.raw("                __ln.push_str(\",\\\"scopes\\\":\");\n");
-    self.raw("                __ln.push_str(&__dbg_scopes_json);\n");
-    self.raw("                __ln.push_str(\",\\\"output\\\":\\\"\\\",\\\"finished\\\":\");\n");
-    self.raw("                __ln.push_str(if $finished { \"true\" } else { \"false\" });\n");
-    self.raw("                __ln.push_str(\",\\\"error\\\":\");\n");
-    self.raw("                __ln.push_str(&__dbg_err);\n");
-    self.raw("                __ln.push('}');\n");
-    self.raw("                __ln\n");
-    self.raw("            };\n");
-    self.raw("            let _ = writeln!(__dbg_w, \"{}\", __dbg_line);\n");
-    self.raw("            let _ = __dbg_w.flush();\n");
-    self.raw("        }\n");
-    self.raw("    }};\n");
-    self.raw("}\n");
-}
+        // The macro:
+        //  1. Builds the current frame's live vars JSON from $var_str arguments.
+        //  2. Updates the TOP frame in __FRACTAL_CALL_STACK with those vars
+        //     (callers below are frozen — they already have their call-time state).
+        //  3. Serialises ALL frames into "stack" (name array, bottom→top) and
+        //     "scopes" (one scope per frame, TOP FIRST so index-0 is the active
+        //     function and the UI can default-select it).
+        self.raw("macro_rules! __fractal_debug_snapshot {\n");
+        self.raw("    ($label:expr, $func:expr, $line:expr, [$($var_str:expr),* $(,)?], $finished:expr, $error:expr) => {{\n");
+        self.raw("        let __dbg_step = __FRACTAL_DBG_STEP.fetch_add(1, std::sync::atomic::Ordering::SeqCst);\n");
+        self.raw("        let mut __dbg_g = __FRACTAL_DBG_FILE.lock().unwrap();\n");
+        self.raw("        if let Some(ref mut __dbg_w) = *__dbg_g {\n");
+        // 1. Build the live vars JSON for the current (top) frame
+        self.raw("            let __dbg_vars: Vec<String> = vec![$($var_str),*];\n");
+        self.raw("            let __dbg_vars_json = format!(\"[{}]\", __dbg_vars.join(\",\"));\n");
+        // 2. Update only the TOP frame's vars — callers stay frozen
+        self.raw("            __FRACTAL_CALL_STACK.with(|__stk| {\n");
+        self.raw("                if let Some(__top) = __stk.borrow_mut().last_mut() {\n");
+        self.raw("                    __top.1 = __dbg_vars_json.clone();\n");
+        self.raw("                }\n");
+        self.raw("            });\n");
+        // 3. Read all frames; emit stack bottom→top, scopes TOP→bottom (active first)
+        self.raw("            let (__dbg_stack_json, __dbg_scopes_json) = __FRACTAL_CALL_STACK.with(|__stk| {\n");
+        self.raw("                let __frames = __stk.borrow();\n");
+        // stack array: bottom → top (oldest call first, matches typical debugger display)
+        self.raw("                let __stack_parts: Vec<String> = __frames.iter()\n");
+        self.raw("                    .map(|(__name, _)| format!(\"\\\"{}\\\"\" , __fractal_debug_json_escape(__name)))\n");
+        self.raw("                    .collect();\n");
+        // scopes array: TOP frame first (index 0 = currently executing function)
+        // var_view iterates with .rev() so index-0 ends up on top of the panel.
+        self.raw("                let __scope_parts: Vec<String> = __frames.iter().rev()\n");
+        self.raw("                    .map(|(__name, __vars)| {\n");
+        self.raw("                        let mut __sc = String::from(\"{\\\"label\\\":\\\"\");\n");
+        self.raw("                        __sc.push_str(&__fractal_debug_json_escape(__name));\n");
+        self.raw("                        __sc.push_str(\"\\\",\\\"vars\\\":\");\n");
+        self.raw("                        __sc.push_str(__vars);\n");
+        self.raw("                        __sc.push('}');\n");
+        self.raw("                        __sc\n");
+        self.raw("                    })\n");
+        self.raw("                    .collect();\n");
+        self.raw("                (format!(\"[{}]\", __stack_parts.join(\",\")),\n");
+        self.raw("                 format!(\"[{}]\", __scope_parts.join(\",\")))\n");
+        self.raw("            });\n");
+        self.raw("            let __dbg_err: String = match ($error as Option<&str>) {\n");
+        self.raw("                None      => \"null\".into(),\n");
+        self.raw("                Some(__e) => { let mut __es = String::from(\"\\\"\"); __es.push_str(&__fractal_debug_json_escape(__e)); __es.push('\"'); __es },\n");
+        self.raw("            };\n");
+        self.raw("            let __dbg_line = {\n");
+        self.raw("                let mut __ln = String::from(\"{\\\"step\\\":\");\n");
+        self.raw("                __ln.push_str(&__dbg_step.to_string());\n");
+        self.raw("                __ln.push_str(\",\\\"label\\\":\\\"\");\n");
+        self.raw("                __ln.push_str(&__fractal_debug_json_escape($label));\n");
+        self.raw("                __ln.push_str(\"\\\",\\\"line\\\":\");\n");
+        self.raw("                __ln.push_str(&($line as usize).to_string());\n");
+        self.raw("                __ln.push_str(\",\\\"stack\\\":\");\n");
+        self.raw("                __ln.push_str(&__dbg_stack_json);\n");
+        self.raw("                __ln.push_str(\",\\\"scopes\\\":\");\n");
+        self.raw("                __ln.push_str(&__dbg_scopes_json);\n");
+        self.raw("                __ln.push_str(\",\\\"output\\\":\\\"\\\",\\\"finished\\\":\");\n");
+        self.raw("                __ln.push_str(if $finished { \"true\" } else { \"false\" });\n");
+        self.raw("                __ln.push_str(\",\\\"error\\\":\");\n");
+        self.raw("                __ln.push_str(&__dbg_err);\n");
+        self.raw("                __ln.push('}');\n");
+        self.raw("                __ln\n");
+        self.raw("            };\n");
+        self.raw("            let _ = writeln!(__dbg_w, \"{}\", __dbg_line);\n");
+        self.raw("            let _ = __dbg_w.flush();\n");
+        self.raw("        }\n");
+        self.raw("    }};\n");
+        self.raw("}\n");
+    }
 }
 
 fn escape_ident(name: &str) -> String {

@@ -264,9 +264,7 @@ impl SemanticResult {
             }
             println!();
         }
-        if self.errors.is_empty() {
-            println!("\x1b[1;32m No semantic errors.\x1b[0m\n");
-        } else {
+        if !self.errors.is_empty() {
             println!("\x1b[1;31m✗  {} error(s):\x1b[0m", self.errors.len());
             for e in &self.errors {
                 eprintln!("   {}", e);

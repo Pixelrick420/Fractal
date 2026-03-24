@@ -212,25 +212,43 @@ fn format_notes(rest: &str) {
 #[derive(Debug, Clone)]
 pub struct SemanticWarning {
     pub message: String,
+    pub line: Option<usize>,
 }
 
 impl fmt::Display for SemanticWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut lines = self.message.splitn(2, '\n');
         let main = lines.next().unwrap_or(&self.message);
-        write!(f, "\x1b[1;33mWarning:\x1b[0m {}", main)
+        if let Some(ln) = self.line {
+            write!(
+                f,
+                "\x1b[1;33mWarning\x1b[0m \x1b[1;34m[line {}]\x1b[0m\x1b[1;33m:\x1b[0m {}",
+                ln, main
+            )
+        } else {
+            write!(f, "\x1b[1;33mWarning:\x1b[0m {}", main)
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct SemanticError {
     pub message: String,
+    pub line: Option<usize>,
 }
 
 impl SemanticError {
     fn new(msg: impl Into<String>) -> Self {
         SemanticError {
             message: msg.into(),
+            line: None,
+        }
+    }
+
+    fn with_line(msg: impl Into<String>, line: usize) -> Self {
+        SemanticError {
+            message: msg.into(),
+            line: Some(line),
         }
     }
 }
@@ -239,7 +257,15 @@ impl fmt::Display for SemanticError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut lines = self.message.splitn(2, '\n');
         let main = lines.next().unwrap_or(&self.message);
-        write!(f, "\x1b[1;31mSemantic Error:\x1b[0m {}", main)
+        if let Some(ln) = self.line {
+            write!(
+                f,
+                "\x1b[1;31mSemantic Error\x1b[0m \x1b[1;34m[line {}]\x1b[0m\x1b[1;31m:\x1b[0m {}",
+                ln, main
+            )
+        } else {
+            write!(f, "\x1b[1;31mSemantic Error:\x1b[0m {}", main)
+        }
     }
 }
 
@@ -335,9 +361,21 @@ impl Analyzer {
         self.errors.push(SemanticError::new(msg));
     }
 
+    fn error_at(&mut self, line: usize, msg: impl Into<String>) {
+        self.errors.push(SemanticError::with_line(msg, line));
+    }
+
     fn warn(&mut self, msg: impl Into<String>) {
         self.warnings.push(SemanticWarning {
             message: msg.into(),
+            line: None,
+        });
+    }
+
+    fn warn_at(&mut self, line: usize, msg: impl Into<String>) {
+        self.warnings.push(SemanticWarning {
+            message: msg.into(),
+            line: Some(line),
         });
     }
 
@@ -784,14 +822,74 @@ impl Analyzer {
                                                 | SemType::Unknown
                                         );
                                         if !printable {
-                                            self.error(format!(
-                                                "`print` argument {} has type `{}`, \
-                                                 which cannot be printed; \
-                                                 only `:int`, `:float`, `:char`, and `:boolean` \
-                                                 values are printable",
-                                                i + 1,
-                                                at.display()
-                                            ));
+                                            let type_explanation = match at {
+                                                SemType::Void => {
+
+                                                    let call_hint = if let Some(arg_expr) = args.get(i + 1) {
+                                                        match arg_expr {
+                                                            ParseNode::AccessChain { base, steps, .. }
+                                                                if steps.last().map_or(false, |s| matches!(s, AccessStep::Call(_))) =>
+                                                            {
+                                                                format!(
+                                                                    "\nnote: `{}(...)` returns `:void` — it produces no value and cannot be printed\n\
+                                                                     hint: call `{}(...)` on its own line as a statement, not as an argument to `print`",
+                                                                    base, base
+                                                                )
+                                                            }
+                                                            _ => "\nnote: `:void` means the expression produces no value — only functions that return a value can be printed".to_string(),
+                                                        }
+                                                    } else {
+                                                        "\nnote: `:void` means the expression produces no value".to_string()
+                                                    };
+                                                    format!(
+                                                        "`print` argument {} has type `:void`, which cannot be printed\n\
+                                                         note: `print` can only format values of type `:int`, `:float`, `:char`, or `:boolean`{}",
+                                                        i + 1, call_hint
+                                                    )
+                                                }
+                                                SemType::Struct(sname) => format!(
+                                                    "`print` argument {} has type `:struct<{}>`, which cannot be printed directly\n\
+                                                     note: structs are composite types — `print` only accepts `:int`, `:float`, `:char`, and `:boolean` values\n\
+                                                     hint: access a printable field instead, e.g. `print(\"{{}}\", {}::field_name)`\n\
+                                                     hint: to print a numeric field from `{}`, use `{}::field_name` as the argument",
+                                                    i + 1, sname,
+
+                                                    if let Some(arg_expr) = args.get(i + 1) {
+                                                        match arg_expr {
+                                                            ParseNode::AccessChain { base, .. } => base.as_str(),
+                                                            _ => "your_var",
+                                                        }
+                                                    } else { "your_var" },
+                                                    sname,
+                                                    if let Some(arg_expr) = args.get(i + 1) {
+                                                        match arg_expr {
+                                                            ParseNode::AccessChain { base, .. } => base.as_str(),
+                                                            _ => "your_var",
+                                                        }
+                                                    } else { "your_var" }
+                                                ),
+                                                SemType::List { elem: _ } => format!(
+                                                    "`print` argument {} has type `{}`, which cannot be printed directly\n\
+                                                     note: lists are not scalar values — `print` only accepts `:int`, `:float`, `:char`, and `:boolean`\n\
+                                                     hint: to print a specific element, index into it: e.g. `print(\"{{}}\", my_list[0])`\n\
+                                                     hint: to print all elements, use a `!for` loop over the list",
+                                                    i + 1, at.display()
+                                                ),
+                                                SemType::Array { elem: _, size } => format!(
+                                                    "`print` argument {} has type `{}`, which cannot be printed directly\n\
+                                                     note: arrays are not scalar values — `print` only accepts `:int`, `:float`, `:char`, and `:boolean`\n\
+                                                     hint: to print a specific element, index into it: e.g. `print(\"{{}}\", my_array[0])`\n\
+                                                     hint: to print all {} elements, use a `!for` loop",
+                                                    i + 1, at.display(), size
+                                                ),
+                                                _ => format!(
+                                                    "`print` argument {} has type `{}`, which cannot be printed; \
+                                                     only `:int`, `:float`, `:char`, and `:boolean` values are printable",
+                                                    i + 1,
+                                                    at.display()
+                                                ),
+                                            };
+                                            self.error(type_explanation);
                                         }
                                     }
                                 }
@@ -1350,6 +1448,20 @@ impl Analyzer {
                         ));
                         continue;
                     }
+
+                    if let Some(existing) = self.scopes.lookup(name) {
+                        if existing.origin.starts_with("module:") {
+                            let module_name =
+                                existing.origin.strip_prefix("module:").unwrap_or(name);
+                            self.error(format!(
+                                "struct name `{}` conflicts with imported module `{}`\n\
+                                 hint: a file `{}.fr` was imported and its module is already named `{}`\n\
+                                 hint: rename your struct to avoid ambiguity, e.g. `:struct<My{}>  {{ ... }}`",
+                                name, module_name, module_name, module_name, name
+                            ));
+                            continue;
+                        }
+                    }
                     let mut resolved_fields: Vec<(String, SemType)> = Vec::new();
                     let mut had_field_error = false;
                     for f in fields {
@@ -1466,6 +1578,16 @@ impl Analyzer {
                             self.scopes.define(qualified_sym.clone());
                             self.all_symbols.push(qualified_sym);
                         }
+                    }
+
+                    if !self.scopes.defined_in_current(name) {
+                        self.scopes.define(Symbol {
+                            name: name.clone(),
+                            kind: SymbolKind::Variable,
+                            sem_type: SemType::Unknown,
+                            scope_depth: self.scope_depth(),
+                            origin: format!("module:{}", name),
+                        });
                     }
                     self.current_origin = saved_origin;
                 }
@@ -1594,37 +1716,40 @@ impl Analyzer {
                 data_type,
                 name,
                 init,
-                ..
+                line,
             } => {
                 let decl_ty = self.resolve_type_node(data_type);
                 if matches!(decl_ty, SemType::Void) {
-                    self.error(format!(
-                        "cannot declare variable `{}` with type `:void`; \
+                    self.error_at(
+                        *line,
+                        format!(
+                            "cannot declare variable `{}` with type `:void`; \
                          `:void` is only valid as a function return type",
-                        name
-                    ));
+                            name
+                        ),
+                    );
                     return;
                 }
                 if let SemType::Array { elem, .. } = &decl_ty {
                     if matches!(elem.as_ref(), SemType::Void) {
-                        self.error(format!(
-                            "cannot declare array `{}` with element type `:void`",
-                            name
-                        ));
+                        self.error_at(
+                            *line,
+                            format!("cannot declare array `{}` with element type `:void`", name),
+                        );
                         return;
                     }
                 }
                 if let SemType::List { elem } = &decl_ty {
                     if matches!(elem.as_ref(), SemType::Void) {
-                        self.error(format!(
-                            "cannot declare list `{}` with element type `:void`",
-                            name
-                        ));
+                        self.error_at(
+                            *line,
+                            format!("cannot declare list `{}` with element type `:void`", name),
+                        );
                         return;
                     }
                 }
                 if self.scopes.defined_in_current(name) {
-                    self.error(format!(
+                    self.error_at(*line, format!(
                         "variable `{}` is already declared in this scope\nnote: each variable name must be unique within a block — choose a different name, or remove the duplicate declaration",
                         name
                     ));
@@ -1640,21 +1765,30 @@ impl Analyzer {
 
                 if init.is_none() {
                     match &decl_ty {
-                        SemType::Array { .. } => self.warn(format!(
-                            "array `{}` declared without an initialiser; \
+                        SemType::Array { .. } => self.warn_at(
+                            *line,
+                            format!(
+                                "array `{}` declared without an initialiser; \
                              consider using `= [...]` to give it an explicit value",
-                            name
-                        )),
-                        SemType::List { .. } => self.warn(format!(
-                            "list `{}` declared without an initialiser; \
+                                name
+                            ),
+                        ),
+                        SemType::List { .. } => self.warn_at(
+                            *line,
+                            format!(
+                                "list `{}` declared without an initialiser; \
                              consider using `= [...]` to give it an explicit value",
-                            name
-                        )),
-                        SemType::Struct(_) => self.warn(format!(
-                            "struct variable `{}` declared without an initialiser; \
+                                name
+                            ),
+                        ),
+                        SemType::Struct(_) => self.warn_at(
+                            *line,
+                            format!(
+                                "struct variable `{}` declared without an initialiser; \
                              consider using `= {{ ... }}` or `= !null`",
-                            name
-                        )),
+                                name
+                            ),
+                        ),
                         _ => {}
                     }
                 }
@@ -1666,32 +1800,41 @@ impl Analyzer {
                             decl_ty,
                             SemType::Array { .. } | SemType::List { .. } | SemType::Unknown
                         ) {
-                            self.error(format!(
-                                "cannot initialise `{}` (type `{}`) with `[]`; \
+                            self.error_at(
+                                *line,
+                                format!(
+                                    "cannot initialise `{}` (type `{}`) with `[]`; \
                                  `[]` is only valid for `:array` and `:list` types",
-                                name,
-                                decl_ty.display()
-                            ));
+                                    name,
+                                    decl_ty.display()
+                                ),
+                            );
                         }
                     } else {
                         if matches!(init_expr.as_ref(), ParseNode::Null)
                             && !matches!(decl_ty, SemType::Struct(_) | SemType::Unknown)
                         {
-                            self.error(format!(
-                                "cannot initialise `{}` with `!null`; \
+                            self.error_at(
+                                *line,
+                                format!(
+                                    "cannot initialise `{}` with `!null`; \
                                  `!null` can only be assigned to struct-type variables",
-                                name
-                            ));
+                                    name
+                                ),
+                            );
                             return;
                         }
                         let init_ty = self.infer_expr(init_expr);
 
                         if matches!(init_ty, SemType::Void) {
-                            self.error(format!(
-                                "cannot initialise `{}` with a `:void` value; \
+                            self.error_at(
+                                *line,
+                                format!(
+                                    "cannot initialise `{}` with a `:void` value; \
                                  `:void` functions return no value",
-                                name
-                            ));
+                                    name
+                                ),
+                            );
                             return;
                         }
 
@@ -1699,13 +1842,16 @@ impl Analyzer {
                             && matches!(init_ty, SemType::Array { .. })
                             && !matches!(init_expr.as_ref(), ParseNode::ArrayLit(_))
                         {
-                            self.error(format!(
-                                "cannot initialise `{}` (type `{}`) with value of type `{}`; \
+                            self.error_at(
+                                *line,
+                                format!(
+                                    "cannot initialise `{}` (type `{}`) with value of type `{}`; \
                                  arrays and lists are distinct types",
-                                name,
-                                decl_ty.display(),
-                                init_ty.display()
-                            ));
+                                    name,
+                                    decl_ty.display(),
+                                    init_ty.display()
+                                ),
+                            );
                         } else if !Self::types_compatible(&decl_ty, &init_ty) {
                             let msg = match (&decl_ty, &init_ty) {
                                 (
@@ -1727,7 +1873,7 @@ impl Analyzer {
                                     init_ty.display()
                                 ),
                             };
-                            self.error(msg);
+                            self.error_at(*line, msg);
                         }
                     }
                 }
@@ -1737,9 +1883,38 @@ impl Analyzer {
                 struct_name,
                 var_name,
                 init,
-                ..
+                line,
             } => {
                 let sem_ty = SemType::Struct(struct_name.clone());
+
+                if let Some(existing) = self.scopes.lookup(var_name) {
+                    if existing.origin.starts_with("module:") {
+                        let module_name =
+                            existing.origin.strip_prefix("module:").unwrap_or(var_name);
+                        self.error_at(*line, format!(
+                            "variable name `{}` conflicts with imported module `{}`\n\
+                             hint: the name `{}` was already brought into scope by `!import \"./{}.fr\";`\n\
+                             hint: rename your variable to something else, e.g. `my_{}`",
+                            var_name, module_name, var_name, module_name, var_name
+                        ));
+                    }
+                }
+
+                if let Some(existing) = self.scopes.lookup(struct_name) {
+                    if existing.origin.starts_with("module:") {
+                        let module_name = existing
+                            .origin
+                            .strip_prefix("module:")
+                            .unwrap_or(struct_name);
+                        self.error_at(*line, format!(
+                            "struct type name `{}` conflicts with imported module `{}`\n\
+                             hint: the module `{}` was imported and its symbols are accessed as `{}::name`\n\
+                             hint: rename your struct to avoid the conflict, e.g. `:struct<My{}>  {{ ... }}`",
+                            struct_name, module_name, module_name, module_name, struct_name
+                        ));
+                    }
+                }
+
                 if self.scopes.lookup(struct_name).is_none() {
                     let suggestion = suggest_similar(struct_name, self.scopes.all_names());
                     let msg = match suggestion {
@@ -1752,13 +1927,13 @@ impl Analyzer {
                             struct_name, struct_name
                         ),
                     };
-                    self.error(msg);
+                    self.error_at(*line, msg);
                 }
                 if self.scopes.defined_in_current(var_name) {
-                    self.error(format!(
-                        "variable `{}` is already declared in this scope",
-                        var_name
-                    ));
+                    self.error_at(
+                        *line,
+                        format!("variable `{}` is already declared in this scope", var_name),
+                    );
                 } else {
                     self.declare_sym(Symbol {
                         name: var_name.clone(),

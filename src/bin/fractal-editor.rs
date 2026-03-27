@@ -682,7 +682,7 @@ impl FractalEditor {
     }
 
     fn handle_close_confirm(&mut self, ctx: &egui::Context) {
-        match self.close_confirm.show(ctx) {
+        match self.close_confirm.show(ctx, &self.theme) {
             CloseConfirmAction::Cancel => {}
             CloseConfirmAction::Discard(idx) => self.close_tab(idx),
             CloseConfirmAction::Save(idx) => {
@@ -704,7 +704,7 @@ impl FractalEditor {
     }
 
     fn handle_quit_confirm(&mut self, ctx: &egui::Context) {
-        match self.quit_confirm.show(ctx) {
+        match self.quit_confirm.show(ctx, &self.theme) {
             QuitConfirmAction::Keep => {}
             QuitConfirmAction::Discard => {
                 self.allow_quit = true;

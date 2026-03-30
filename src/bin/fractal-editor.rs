@@ -110,7 +110,6 @@ struct FractalEditor {
     pending_debug_source: Option<PathBuf>,
     tree_view_window: TreeViewWindow,
     var_view_window: VarViewWindow,
-    // logo_texture: Option<egui::TextureHandle>,
 }
 
 impl FractalEditor {
@@ -178,12 +177,6 @@ impl FractalEditor {
         }
 
         editor
-    }
-
-    fn top_frame_name(&self) -> Option<String> {
-        self.debug_frame
-            .as_ref()
-            .and_then(|frame| frame.call_stack.last().cloned())
     }
 
     fn current_file_line_count(&self) -> usize {
@@ -591,12 +584,18 @@ impl FractalEditor {
         let root = match parse_with_source(tokens, &source_name) {
             Ok(r) => r,
             Err(e) => {
+                if !self.tabs.is_empty() {
+                    self.tabs[self.active_tab].is_running = false;
+                }
                 self.error_message = Some(format!("Parse error: {}", e.message));
                 return;
             }
         };
         let sem = analyze(&root);
         if sem.has_errors() {
+            if !self.tabs.is_empty() {
+                self.tabs[self.active_tab].is_running = false;
+            }
             self.error_message = Some(
                 sem.errors
                     .iter()
@@ -607,11 +606,15 @@ impl FractalEditor {
             return;
         }
 
-        let session = DebugSession::new(&root, jsonl_path.clone());
+        let mut session = DebugSession::new(&root, jsonl_path.clone());
+
+        session.poll_file();
+
         let frame = session.current_frame();
         self.debug_frame = Some(frame);
         self.cross_file_call_line = None;
         self.debug_session = Some(session);
+
         self.tree_view_window.open = true;
         self.var_view_window.open = true;
         self.var_view_window.clear_output();
@@ -641,22 +644,26 @@ impl FractalEditor {
                 let finished = frame.finished;
                 let errored = frame.error.is_some();
                 let err_msg = frame.error.clone();
-                self.debug_frame = Some(frame);
 
                 if finished {
+                    self.debug_frame = Some(frame);
                     self.success_message = Some("Debug: program finished.".into());
                     self.debug_binary_running = false;
-
                     if let Some(ref path) = self.debug_lock_path {
                         let _ = std::fs::remove_file(path);
                     }
                 } else if errored {
+                    self.debug_frame = Some(frame);
                     let msg = err_msg.unwrap_or_else(|| "Runtime error".into());
                     self.error_message = Some(format!("Debug fault: {msg}"));
                     self.debug_session = None;
                     self.debug_binary_running = false;
                     if let Some(ref path) = self.debug_lock_path {
                         let _ = std::fs::remove_file(path);
+                    }
+                } else {
+                    if let Some(ref session) = self.debug_session {
+                        self.debug_frame = Some(session.current_frame());
                     }
                 }
             }
@@ -972,25 +979,21 @@ impl eframe::App for FractalEditor {
             MenuAction::Run => self.run_code(ctx),
             MenuAction::StepRun => {
                 if self.debug_session.is_some() {
-                    if self.cross_file_call_line.is_none() {
-                        let top_name = self.top_frame_name();
-                        let in_current_file = top_name.map(|n| !n.contains("::")).unwrap_or(true);
-                        if in_current_file {
-                            if let Some(ref frame) = self.debug_frame {
-                                let line_count = self.current_file_line_count();
-                                if frame.source_line > 0 && frame.source_line <= line_count {
-                                    self.cross_file_call_line = Some(frame.source_line);
-                                }
-                            }
+                    if let Some(ref frame) = self.debug_frame {
+                        let active_stem = self
+                            .tabs
+                            .get(self.active_tab)
+                            .and_then(|t| t.current_file.as_ref())
+                            .and_then(|p| p.file_stem())
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("");
+                        let currently_in_own_file =
+                            frame.source_file.is_empty() || frame.source_file == active_stem;
+                        if currently_in_own_file && frame.source_line > 0 {
+                            self.cross_file_call_line = Some(frame.source_line);
                         }
                     }
                     self.step_debug();
-
-                    let top_name = self.top_frame_name();
-                    let in_current_file = top_name.map(|n| !n.contains("::")).unwrap_or(true);
-                    if in_current_file {
-                        self.cross_file_call_line = None;
-                    }
                 } else {
                     self.run_debug();
                 }
@@ -1147,6 +1150,7 @@ impl eframe::App for FractalEditor {
                 active_node_id: 0,
                 step_label: "No debug session active".into(),
                 source_line: 0,
+                source_file: String::new(),
                 scopes: vec![],
                 call_stack: vec![],
                 finished: false,
@@ -1158,10 +1162,21 @@ impl eframe::App for FractalEditor {
             self.var_view_window.show(ctx, frame_ref, &theme);
         }
 
-        let debug_line = if let Some(call_line) = self.cross_file_call_line {
-            Some(call_line)
-        } else {
-            self.debug_frame.as_ref().and_then(|frame| {
+        let debug_line = if let Some(ref frame) = self.debug_frame {
+            let active_stem = self
+                .tabs
+                .get(self.active_tab)
+                .and_then(|t| t.current_file.as_ref())
+                .and_then(|p| p.file_stem())
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+
+            let in_foreign_file = !frame.source_file.is_empty() && frame.source_file != active_stem;
+
+            if in_foreign_file {
+                self.cross_file_call_line
+            } else {
+                self.cross_file_call_line = None;
                 if frame.source_line > 0 {
                     let line_count = self.current_file_line_count();
                     if frame.source_line <= line_count {
@@ -1172,7 +1187,10 @@ impl eframe::App for FractalEditor {
                 } else {
                     None
                 }
-            })
+            }
+        } else {
+            self.cross_file_call_line = None;
+            None
         };
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(self.theme.editor_bg))

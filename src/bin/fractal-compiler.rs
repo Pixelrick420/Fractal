@@ -146,6 +146,8 @@ fn main() {
                 .arg(&bin_path)
                 .arg("-C")
                 .arg("opt-level=2")
+                .arg("-C")
+                .arg("codegen-units=1")
                 .arg("-A")
                 .arg("warnings")
                 .status();

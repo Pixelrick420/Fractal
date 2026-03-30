@@ -45,9 +45,10 @@ struct CodeGen {
 
     debug_visible_vars: Vec<(String, String)>,
     debug_current_func: String,
-    // When inside a module, this is "modname::" so call-stack entries are
-    // labelled "bubblesort::bubble(…)" rather than just "bubble(…)".
+
     debug_module_prefix: String,
+
+    debug_current_file: String,
 }
 
 impl CodeGen {
@@ -100,6 +101,7 @@ impl CodeGen {
             debug_visible_vars: Vec::new(),
             debug_current_func: String::new(),
             debug_module_prefix: String::new(),
+            debug_current_file: String::new(),
         }
     }
 
@@ -260,7 +262,7 @@ impl CodeGen {
             let func = self.debug_current_func.clone();
             let vars_code = self.build_vars_json_code();
             let finished_line = format!(
-                "__fractal_debug_snapshot!(\"Program finished\", \"{f}\", 0, [{v}], true, None::<&str>);",
+                "__fractal_debug_snapshot!(\"Program finished\", \"{f}\", 0, \"\", [{v}], true, None::<&str>);",
                 f = func,
                 v = vars_code,
             );
@@ -408,8 +410,6 @@ impl CodeGen {
         self.debug_current_func = name.to_string();
         self.debug_visible_vars.clear();
 
-        // Push all parameters into debug_visible_vars so their values
-        // appear in the variable state panel and update as they change.
         if self.debug_mode {
             for p in params {
                 if let ParseNode::Param {
@@ -426,7 +426,6 @@ impl CodeGen {
         if self.debug_mode {
             self.line("__fractal_debug_init();");
 
-            // Freeze the CALLER's vars in its frame RIGHT NOW
             let caller_vars_code = self.build_vars_json_code();
             let caller_vars_json = if caller_vars_code.is_empty() {
                 "\"[]\".to_string()".to_string()
@@ -516,7 +515,6 @@ impl CodeGen {
             }
         }
 
-        // Pop this call frame when the function exits.
         if self.debug_mode {
             self.line("__FRACTAL_CALL_STACK.with(|__s| { __s.borrow_mut().pop(); });");
         }
@@ -547,6 +545,9 @@ impl CodeGen {
 
         let prev_module_prefix = self.debug_module_prefix.clone();
         self.debug_module_prefix = format!("{}::", name);
+
+        let prev_module_file = self.debug_current_file.clone();
+        self.debug_current_file = name.to_string();
 
         let (defs, stmts): (Vec<_>, Vec<_>) = items.iter().partition(|n| {
             matches!(
@@ -620,6 +621,7 @@ impl CodeGen {
         self.dedent();
         self.line("}");
         self.debug_module_prefix = prev_module_prefix;
+        self.debug_current_file = prev_module_file;
     }
 
     fn flush_hoists(&mut self) {
@@ -1499,23 +1501,26 @@ impl CodeGen {
             self.debug_visible_vars.push((vn.clone(), for_ty_label));
         }
 
-        self.line(&format!("while {} {} {} {{", vn, cmp_op, st_s));
-        self.indent();
-
         if self.debug_mode {
             let for_label = format!("For {}", var_name);
             let func = self.debug_current_func.clone();
+            let file = self.debug_current_file.replace('"', "'");
             let vars_code = self.build_vars_json_code();
             let snap = format!(
-                "__fractal_debug_snapshot!(\"{lb}\", \"{fc}\", {ln}, [{vrs}], false, None::<&str>);",
+                "__fractal_debug_snapshot!(\"{lb}\", \"{fc}\", {ln}, \"{fi}\", [{vrs}], false, None::<&str>);",
                 lb = for_label,
                 fc = func,
                 ln = for_line,
+                fi = file,
                 vrs = vars_code,
             );
             self.line(&snap);
             self.line("__fractal_debug_wait();");
         }
+
+        self.line(&format!("while {} {} {} {{", vn, cmp_op, st_s));
+        self.indent();
+
         for stmt in body {
             self.gen_stmt_for_body(stmt, &vn, &sp_s);
             if self.debug_mode {
@@ -2398,12 +2403,14 @@ impl CodeGen {
         let label = stmt_debug_label(stmt);
         let source_line = stmt_source_line(stmt);
         let func = self.debug_current_func.clone();
+        let file = self.debug_current_file.replace('"', "'");
         let vars_code = self.build_vars_json_code();
         let line = format!(
-            "__fractal_debug_snapshot!(\"{lb}\", \"{fc}\", {ln}, [{vrs}], false, None::<&str>);",
+            "__fractal_debug_snapshot!(\"{lb}\", \"{fc}\", {ln}, \"{fi}\", [{vrs}], false, None::<&str>);",
             lb = label.replace('"', "'"),
             fc = func,
             ln = source_line,
+            fi = file,
             vrs = vars_code,
         );
         self.line(&line);
@@ -2529,7 +2536,7 @@ impl CodeGen {
         self.blank();
 
         self.raw("macro_rules! __fractal_debug_snapshot {\n");
-        self.raw("    ($label:expr, $func:expr, $line:expr, [$($var_str:expr),* $(,)?], $finished:expr, $error:expr) => {{\n");
+        self.raw("    ($label:expr, $func:expr, $line:expr, $file:expr, [$($var_str:expr),* $(,)?], $finished:expr, $error:expr) => {{\n");
         self.raw("        let __dbg_step = __FRACTAL_DBG_STEP.fetch_add(1, std::sync::atomic::Ordering::SeqCst);\n");
         self.raw("        let mut __dbg_g = __FRACTAL_DBG_FILE.lock().unwrap();\n");
         self.raw("        if let Some(ref mut __dbg_w) = *__dbg_g {\n");
@@ -2569,6 +2576,9 @@ impl CodeGen {
         self.raw("                __ln.push_str(&__fractal_debug_json_escape($label));\n");
         self.raw("                __ln.push_str(\"\\\",\\\"line\\\":\");\n");
         self.raw("                __ln.push_str(&($line as usize).to_string());\n");
+        self.raw("                __ln.push_str(\",\\\"file\\\":\\\"\");\n");
+        self.raw("                __ln.push_str(&__fractal_debug_json_escape($file));\n");
+        self.raw("                __ln.push_str(\"\\\"\");\n");
         self.raw("                __ln.push_str(\",\\\"stack\\\":\");\n");
         self.raw("                __ln.push_str(&__dbg_stack_json);\n");
         self.raw("                __ln.push_str(\",\\\"scopes\\\":\");\n");

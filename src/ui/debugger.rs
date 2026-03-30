@@ -271,6 +271,7 @@ pub struct DebugSnapshot {
     pub step: usize,
     pub label: String,
     pub source_line: usize,
+    pub source_file: String,
     pub scopes: Vec<ScopeSnapshot>,
     pub call_stack: Vec<String>,
     pub output_since_last: String,
@@ -297,6 +298,7 @@ pub struct DebugFrame {
     pub active_node_id: usize,
     pub step_label: String,
     pub source_line: usize,
+    pub source_file: String,
     pub scopes: Vec<ScopeSnapshot>,
     pub call_stack: Vec<String>,
     pub finished: bool,
@@ -312,6 +314,7 @@ pub struct DebugSession {
     pub tree: Vec<TreeNode>,
     pub finished: bool,
     label_to_node: HashMap<String, usize>,
+    last_stepped_frame: Option<DebugFrame>,
 }
 
 impl DebugSession {
@@ -331,6 +334,7 @@ impl DebugSession {
             tree,
             finished: false,
             label_to_node,
+            last_stepped_frame: None,
         }
     }
 
@@ -378,11 +382,11 @@ impl DebugSession {
     }
 
     pub fn current_frame(&self) -> DebugFrame {
-        if self.snapshots.is_empty() {
-            return placeholder_frame();
+        if !self.snapshots.is_empty() {
+            let idx = self.cursor.min(self.snapshots.len() - 1);
+            return self.snap_to_frame(&self.snapshots[idx]);
         }
-        let idx = self.cursor.saturating_sub(1).min(self.snapshots.len() - 1);
-        self.snap_to_frame(&self.snapshots[idx])
+        placeholder_frame()
     }
 
     pub fn step(&mut self) -> Option<DebugFrame> {
@@ -394,6 +398,7 @@ impl DebugSession {
         if frame.finished {
             self.finished = true;
         }
+        self.last_stepped_frame = Some(frame.clone());
         Some(frame)
     }
 
@@ -435,6 +440,7 @@ impl DebugSession {
             active_node_id,
             step_label: snap.label.clone(),
             source_line: snap.source_line,
+            source_file: snap.source_file.clone(),
             scopes: snap.scopes.clone(),
             call_stack: snap.call_stack.clone(),
             finished: snap.finished,
@@ -467,6 +473,7 @@ fn placeholder_frame() -> DebugFrame {
         active_node_id: 0,
         step_label: "Waiting for debug output…".into(),
         source_line: 0,
+        source_file: String::new(),
         scopes: vec![],
         call_stack: vec!["main".into()],
         finished: false,
@@ -479,6 +486,7 @@ fn parse_snapshot_line(line: &str) -> Option<DebugSnapshot> {
     let step = extract_u64(line, "\"step\"")?;
     let label = extract_str(line, "\"label\"").unwrap_or_default();
     let source_line = extract_u64(line, "\"line\"").unwrap_or(0) as usize;
+    let source_file = extract_str(line, "\"file\"").unwrap_or_default();
     let output = extract_str(line, "\"output\"").unwrap_or_default();
     let finished = extract_bool(line, "\"finished\"").unwrap_or(false);
     let error = extract_nullable_str(line, "\"error\"");
@@ -489,6 +497,7 @@ fn parse_snapshot_line(line: &str) -> Option<DebugSnapshot> {
         step: step as usize,
         label,
         source_line,
+        source_file,
         scopes,
         call_stack,
         output_since_last: output,

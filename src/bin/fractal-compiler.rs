@@ -125,7 +125,12 @@ fn main() {
                 process::exit(1);
             }
 
-            let bin_path = Path::new(source_file).with_extension("");
+            let bin_path = {
+                let base = Path::new(source_file).with_extension("");
+                #[cfg(target_os = "windows")]
+                let base = base.with_extension("exe");
+                base
+            };
 
             if DEBUG {
                 section("STAGE 6 — RUSTC");

@@ -1,6 +1,6 @@
 {
   "functions": {
-    "api/run": {
+    "app/api/run": {
       "maxDuration": 15,
       "memory": 1024
     }

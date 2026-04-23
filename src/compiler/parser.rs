@@ -1157,6 +1157,7 @@ impl Parser {
     }
 
     fn try_parse_lvalue_chain(&mut self) -> PResult<ParseNode> {
+        let line = self.cur_line();
         let name = self.expect_identifier()?;
         let steps = self.parse_postfix_steps()?;
 
@@ -1171,7 +1172,7 @@ impl Parser {
         Ok(ParseNode::AccessChain {
             base: name,
             steps,
-            line: 0,
+            line,
         })
     }
 

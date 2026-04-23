@@ -25,3 +25,4 @@ test_files
 testcases.fr
 run_debug_tests.sh
 debug_output.txt
+tests/

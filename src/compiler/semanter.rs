@@ -1421,11 +1421,27 @@ impl Analyzer {
                             format!("`%` right operand must be `:int`, got `{}`", rt.display()),
                         );
                     }
+                    if matches!(rt, SemType::Int) {
+                        if let ParseNode::IntLit(val, _) = right.as_ref() {
+                            if *val == 0 {
+                                self.error_at(*line, "division by zero is not allowed");
+                            }
+                        }
+                    }
                     return if matches!(lt, SemType::Unknown) && matches!(rt, SemType::Unknown) {
                         SemType::Unknown
                     } else {
                         SemType::Int
                     };
+                }
+
+                // Check for division by zero (compile-time constant)
+                if matches!(op, MulOp::Div) && matches!(rt, SemType::Int) {
+                    if let ParseNode::IntLit(val, _) = right.as_ref() {
+                        if *val == 0 {
+                            self.error_at(*line, "division by zero is not allowed");
+                        }
+                    }
                 }
                 if !lt.is_numeric() && !matches!(lt, SemType::Unknown) {
                     self.error_at(*line, format!(
@@ -2360,18 +2376,24 @@ impl Analyzer {
                 }
                 self.scopes.push();
 
-                let is_predeclared = matches!(var_type.as_ref(), ParseNode::TypeVoid(_))
-                    && self.scopes.lookup(var_name).is_some();
-
-                if !is_predeclared {
-                    self.declare_sym(Symbol {
-                        name: var_name.clone(),
-                        kind: SymbolKind::Variable,
-                        sem_type: vt,
-                        scope_depth: self.scope_depth(),
-                        origin: "loop".to_string(),
-                    });
+                if self.scopes.lookup(var_name).is_some() {
+                    self.error_at(
+                        *line,
+                        format!(
+                            "variable `{}` is already declared in an outer scope — \
+                            `!for` loop variable cannot shadow an existing variable",
+                            var_name
+                        ),
+                    );
                 }
+
+                self.declare_sym(Symbol {
+                    name: var_name.clone(),
+                    kind: SymbolKind::Variable,
+                    sem_type: vt,
+                    scope_depth: self.scope_depth(),
+                    origin: "loop".to_string(),
+                });
                 self.loop_depth += 1;
                 for stmt in body {
                     self.analyze_node(stmt);

@@ -839,6 +839,30 @@ impl CodeGen {
                     s.chars().map(|c| format!("'{}'", escape_char(c))).collect();
                 format!("[{}]", chars.join(", "))
             }
+            (ParseNode::TypeArray { elem: arr_elem, .. }, Some(ParseNode::ArrayLit(elems, _))) => {
+                if let ParseNode::TypeStruct { name: sname, .. } = arr_elem.as_ref() {
+                    let sname = sname.clone();
+                    let parts: Vec<_> = elems
+                        .iter()
+                        .map(|e| match e {
+                            ParseNode::StructLit(fields, _) => {
+                                let body = self.emit_struct_lit_body(&sname, fields);
+                                format!(
+                                    "Some(Box::new({} {{ {} }}))",
+                                    escape_struct_name(&sname),
+                                    body
+                                )
+                            }
+                            ParseNode::Null(_) => "None".to_string(),
+                            _ => self.gen_expr(e),
+                        })
+                        .collect();
+                    format!("[{}]", parts.join(", "))
+                } else {
+                    let parts: Vec<_> = elems.iter().map(|e| self.gen_expr(e)).collect();
+                    format!("[{}]", parts.join(", "))
+                }
+            }
             (
                 ParseNode::TypeList {
                     elem: list_elem, ..
@@ -1935,20 +1959,41 @@ impl CodeGen {
             ParseNode::Cmp {
                 left, op, right, ..
             } => {
-                let op_s = match op {
-                    CmpOp::Gt => ">",
-                    CmpOp::Lt => "<",
-                    CmpOp::Ge => ">=",
-                    CmpOp::Le => "<=",
-                    CmpOp::EqEq => "==",
-                    CmpOp::Ne => "!=",
-                };
-                format!(
-                    "({} {} {})",
-                    self.gen_expr(left),
-                    op_s,
-                    self.gen_expr(right)
-                )
+                let lhs = self.gen_expr(left);
+                let rhs = self.gen_expr(right);
+                
+                // Handle comparison with None (null) for Option types
+                let lhs_is_null = matches!(left.as_ref(), ParseNode::Null(_));
+                let rhs_is_null = matches!(right.as_ref(), ParseNode::Null(_));
+                
+                if lhs_is_null || rhs_is_null {
+                    if lhs_is_null && rhs_is_null {
+                        // Both null
+                        match op {
+                            CmpOp::EqEq => "true".to_string(),
+                            CmpOp::Ne => "false".to_string(),
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        // One is null, one is optional
+                        let opt = if lhs_is_null { rhs } else { lhs };
+                        match op {
+                            CmpOp::EqEq => format!("({}.is_none())", opt),
+                            CmpOp::Ne => format!("({}.is_some())", opt),
+                            _ => unreachable!(),
+                        }
+                    }
+                } else {
+                    let op_s = match op {
+                        CmpOp::Gt => ">",
+                        CmpOp::Lt => "<",
+                        CmpOp::Ge => ">=",
+                        CmpOp::Le => "<=",
+                        CmpOp::EqEq => "==",
+                        CmpOp::Ne => "!=",
+                    };
+                    format!("({} {} {})", lhs, op_s, rhs)
+                }
             }
             ParseNode::BitOr { left, right, .. } => {
                 format!("({} | {})", self.gen_expr(left), self.gen_expr(right))
@@ -1990,17 +2035,13 @@ impl CodeGen {
             ParseNode::Mul {
                 left, op, right, ..
             } => {
-                let op_s = match op {
-                    MulOp::Mul => "*",
-                    MulOp::Div => "/",
-                    MulOp::Mod => "%",
-                };
-                format!(
-                    "({} {} {})",
-                    self.gen_expr(left),
-                    op_s,
-                    self.gen_expr(right)
-                )
+                let lhs = self.gen_expr(left);
+                let rhs = self.gen_expr(right);
+                match op {
+                    MulOp::Mul => format!("({} * {})", lhs, rhs),
+                    MulOp::Div => format!("({} / {})", lhs, rhs),
+                    MulOp::Mod => format!("({} % {})", lhs, rhs),
+                }
             }
             ParseNode::Unary { op, operand, .. } => match op {
                 UnOp::Neg => format!("(-{})", self.gen_expr(operand)),

@@ -5,34 +5,43 @@ use eframe::egui;
 
 #[derive(PartialEq, Clone, Copy)]
 enum Chapter {
+    QuickReference,
     GettingStarted,
     TypesVariables,
     Operators,
     FunctionsControl,
     Structs,
+    Modules,
     StdLib,
+    CommonPatterns,
 }
 
 impl Chapter {
     fn label(self) -> &'static str {
         match self {
+            Self::QuickReference => "Quick Reference",
             Self::GettingStarted => "Getting Started",
             Self::TypesVariables => "Types & Variables",
             Self::Operators => "Operators",
             Self::FunctionsControl => "Control Flow",
             Self::Structs => "Structs",
+            Self::Modules => "Modules",
             Self::StdLib => "Standard Library",
+            Self::CommonPatterns => "Common Patterns",
         }
     }
 }
 
 const CHAPTERS: &[Chapter] = &[
+    Chapter::QuickReference,
     Chapter::GettingStarted,
     Chapter::TypesVariables,
     Chapter::Operators,
     Chapter::FunctionsControl,
     Chapter::Structs,
+    Chapter::Modules,
     Chapter::StdLib,
+    Chapter::CommonPatterns,
 ];
 
 pub struct DocsWindow {
@@ -47,7 +56,7 @@ impl DocsWindow {
     pub fn new(theme: Theme) -> Self {
         Self {
             open: false,
-            chapter: Chapter::GettingStarted,
+            chapter: Chapter::QuickReference,
             theme,
             search_query: String::new(),
             search_focused: false,
@@ -115,7 +124,7 @@ impl DocsWindow {
                         let resp = ui.add(
                             egui::TextEdit::singleline(&mut self.search_query)
                                 .id(search_id)
-                                .hint_text("Search docs…")
+                                .hint_text("Search docs...")
                                 .frame(false)
                                 .desired_width(f32::INFINITY)
                                 .font(egui::TextStyle::Small),
@@ -176,7 +185,6 @@ impl DocsWindow {
 
                 draw_chapter_row(ui, row, selected, hovered, ch.label(), &t);
 
-                // --- BADGE FIX: higher opacity background + bright text for dark mode ---
                 let badge_str = format!("{hits}");
                 let badge_center = egui::pos2(row.right() - 18.0, row.center().y);
                 let badge_rect = egui::Rect::from_center_size(badge_center, egui::vec2(22.0, 16.0));
@@ -187,7 +195,7 @@ impl DocsWindow {
                         t.accent.r(),
                         t.accent.g(),
                         t.accent.b(),
-                        90, // was 45 — bumped for contrast in both themes
+                        90,
                     ),
                 );
                 ui.painter().text(
@@ -195,7 +203,7 @@ impl DocsWindow {
                     egui::Align2::CENTER_CENTER,
                     &badge_str,
                     egui::FontId::proportional(10.0),
-                    t.tab_active_fg, // was t.accent — use bright fg colour instead
+                    t.tab_active_fg,
                 );
 
                 if resp.clicked() {
@@ -259,12 +267,15 @@ impl DocsWindow {
                             render_search_header(ui, t, &search_q, chapter);
                         }
                         match chapter {
+                            Chapter::QuickReference => render_quick_reference(ui, t),
                             Chapter::GettingStarted => render_getting_started(ui, t),
                             Chapter::TypesVariables => render_types_variables(ui, t),
                             Chapter::Operators => render_operators(ui, t),
                             Chapter::FunctionsControl => render_functions_control(ui, t),
                             Chapter::Structs => render_structs(ui, t),
+                            Chapter::Modules => render_modules(ui, t),
                             Chapter::StdLib => render_stdlib(ui, t),
+                            Chapter::CommonPatterns => render_common_patterns(ui, t),
                         }
                     });
                 });
@@ -321,37 +332,44 @@ fn draw_chapter_row(
 
 fn chapter_search_text(ch: Chapter) -> &'static str {
     match ch {
+        Chapter::QuickReference => {
+            "quick reference syntax cheat sheet keywords types operators !start !end \
+             !func !if !for !while :int :float :array :list"
+        }
         Chapter::GettingStarted => {
             "getting started program structure !start !end comments # ### import \
-            keyboard shortcuts run compile Ctrl+S Ctrl+O Ctrl+N Ctrl+D terminal !exit \
-            exit code greet hello world philosophy design goals strongly typed compiled \
-            compiler errors warnings integer overflow type mismatch sieve primes fibonacci \
-            GCD LCM math algorithm"
+             keyboard shortcuts run compile Ctrl+S Ctrl+O terminal !exit exit code \
+             hello world philosophy design goals strongly typed compiled compiler errors"
         }
         Chapter::TypesVariables => {
             "types variables int float char boolean void array list string declaration \
-            assignment default values NULL literals binary hex octal decimal 0b 0x 0o 0d \
-            type casting :int :float :char :boolean :array :list strong typing static \
-            uninitialised initialiser"
+             assignment default values literals binary hex octal decimal 0b 0x 0o 0d \
+             type casting :int :float :array :list strong typing static"
         }
         Chapter::Operators => {
             "operators arithmetic unary binary plus minus multiply divide modulo \
-            bitwise NOT AND OR XOR shift left right logical !not !and !or comparison \
-            greater less equal not-equal ~= assignment += -= *= /= %= &= |= ^= \
-            symbol :: -> type keyword"
+             bitwise NOT AND OR XOR shift left right logical !not !and !or comparison \
+             greater less equal not-equal ~= assignment += -= *= /= precedence"
         }
         Chapter::FunctionsControl => {
             "functions !func return !return control flow !if !elif !else !for !while \
-            !break !continue conditionals loops for loop while loop indentation \
-            curly braces scoping local global variables shadowing factorial clamp"
+             !break !continue conditionals loops for loop while recursion factorial"
         }
         Chapter::Structs => {
             "structs struct user defined types :struct member access :: fields \
-            nested struct fixed size complex types Vec2 Vec3 Rect Particle initialise"
+             nested struct fixed size Vec2 Vec3 Rect Particle initialise self-referential"
+        }
+        Chapter::Modules => {
+            "modules !module !import file organization cross-file namespace scope \
+             Constants helper functions library"
         }
         Chapter::StdLib => {
-            "standard library print input append pop insert delete find array list \
-            io format string placeholder math import"
+            "standard library print input append pop insert delete find len array list \
+             io format string placeholder math import abs sqrt pow floor ceil min max"
+        }
+        Chapter::CommonPatterns => {
+            "common patterns code recipes stack queue BST linked list sorting \
+             bubble sort merge sort data structures algorithms"
         }
     }
 }
@@ -391,6 +409,17 @@ fn h2(ui: &mut egui::Ui, text: &str, t: &Theme) {
             .color(t.accent),
     );
     ui.add_space(6.0);
+}
+
+fn h3(ui: &mut egui::Ui, text: &str, t: &Theme) {
+    ui.add_space(16.0);
+    ui.label(
+        egui::RichText::new(text)
+            .size(12.5)
+            .strong()
+            .color(t.tab_active_fg),
+    );
+    ui.add_space(4.0);
 }
 
 fn para(ui: &mut egui::Ui, text: &str, t: &Theme) {
@@ -574,7 +603,122 @@ fn shortcuts_table(ui: &mut egui::Ui, id: &str, rows: &[(&str, &str)], t: &Theme
 }
 
 // ---------------------------------------------------------------------------
-// Getting Started — expanded
+// Quick Reference
+// ---------------------------------------------------------------------------
+
+fn render_quick_reference(ui: &mut egui::Ui, t: &Theme) {
+    h1(ui, "Quick Reference", t);
+    para(
+        ui,
+        "This page provides a quick syntax overview. Click chapters in the sidebar for detailed documentation.",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Program Structure", t);
+    code(
+        ui,
+        "!start\n    # your code here\n!end",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Keywords", t);
+    kv2(
+        ui,
+        "keywords",
+        ["Keyword", "Description"],
+        &[
+            ("!start / !end", "Program delimiters"),
+            ("!func", "Declare a function"),
+            ("!if / !elif / !else", "Conditional"),
+            ("!for", "Counted loop"),
+            ("!while", "Condition loop"),
+            ("!return", "Return from function"),
+            ("!break / !continue", "Loop control"),
+            ("!import", "Import another file"),
+            ("!module", "Define a module"),
+            ("!exit", "Terminate program"),
+        ],
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Types", t);
+    kv2(
+        ui,
+        "types",
+        ["Type", "Description"],
+        &[
+            (":int", "64-bit integer"),
+            (":float", "64-bit float"),
+            (":char", "Unicode character"),
+            (":boolean", "true or false"),
+            (":void", "Null type"),
+            (":array<T, N>", "Fixed array"),
+            (":list<T>", "Dynamic list"),
+            (":struct<Name>", "User struct"),
+        ],
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Operators", t);
+    kv2(
+        ui,
+        "operators",
+        ["Operator", "Description"],
+        &[
+            ("+ - * / %", "Arithmetic"),
+            ("& | ^ ~", "Bitwise"),
+            ("!not !and !or", "Logical"),
+            ("== ~= > < >= <=", "Comparison"),
+            ("+= -= *= /= %=", "Compound assign"),
+            ("::", "Struct member"),
+            ("->", "Return type"),
+        ],
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Type Casting", t);
+    para(
+        ui,
+        "Use :Type(expression) to convert between types:",
+        t,
+    );
+    code(
+        ui,
+        ":int n = :int(3.99);    # 3\n:float f = :float(5);    # 5.0\n:char c = :char(65);     # 'A'",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Common Patterns", t);
+    code(
+        ui,
+        "# Function\n!func add(:int a, :int b) -> :int {\n    !return a + b;\n}\n\n# For loop\n!for (:int i, 0, 10, 1) {\n    print(\"{}\", i);\n}\n\n# Struct\n:struct<Point> {\n    :int x;\n    :int y;\n};",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Keyboard Shortcuts", t);
+    shortcuts_table(
+        ui,
+        "shortcuts",
+        &[
+            ("Ctrl+S", "Save"),
+            ("Ctrl+O", "Open"),
+            ("Ctrl+N", "New tab"),
+            ("Ctrl+D", "Toggle docs"),
+            ("Ctrl+F", "Find"),
+        ],
+        t,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Getting Started
 // ---------------------------------------------------------------------------
 
 fn render_getting_started(ui: &mut egui::Ui, t: &Theme) {
@@ -582,12 +726,45 @@ fn render_getting_started(ui: &mut egui::Ui, t: &Theme) {
     para(
         ui,
         "Welcome to Fractal — a statically-typed, strongly-typed language designed for \
-        clarity and correctness. Every program must begin with !start and end with !end. \
-        Only code between those markers is compiled and executed.",
+        clarity and correctness.",
         t,
     );
 
-    // ---- Why Fractal? ----
+    rule(ui, t);
+    h2(ui, "Hello World", t);
+    para(ui, "Every program must begin with !start and end with !end.", t);
+    code(
+        ui,
+        "!start\n    print(\"Hello, World!\\n\");\n!end",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Variables & Functions", t);
+    para(
+        ui,
+        "A simple program with variables and a function:",
+        t,
+    );
+    code(
+        ui,
+        "!start\n    :int x = 10;\n    :int y = 20;\n\n    !func sum(:int a, :int b) -> :int {\n        !return a + b;\n    }\n\n    print(\"{} + {} = {}\", x, y, sum(x, y));\n!end",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Loops & Conditionals", t);
+    para(
+        ui,
+        "Using !for loop and !if statement:",
+        t,
+    );
+    code(
+        ui,
+        "!start\n    :int total = 0;\n\n    !for (:int i, 1, 6, 1) {\n        !if (i % 2 == 0) {\n            total = total + i;\n        }\n    }\n\n    print(\"Sum of evens 1-5: {}\", total);\n!end",
+        t,
+    );
+
     rule(ui, t);
     h2(ui, "Why Fractal?", t);
     para(
@@ -597,298 +774,83 @@ fn render_getting_started(ui: &mut egui::Ui, t: &Theme) {
     );
     kv2(
         ui,
-        "philosophy_table",
-        ["Principle", "What it means for you"],
+        "philosophy",
+        ["Principle", "What it means"],
         &[
             (
                 "No implicit casts",
-                "Every type conversion is written explicitly with :Type(expr). \
-                You always know exactly what your values are.",
+                "Every type conversion is explicit with :Type(expr)",
             ),
             (
                 "Compile-time safety",
-                "Type mismatches, uninitialised struct access, and out-of-bounds \
-                literals are caught before your program ever runs.",
+                "Type errors caught before running",
             ),
             (
                 "Minimal syntax",
-                "Keywords are prefixed with ! so they can never collide with \
-                variable names. The language is small enough to hold in your head.",
+                "Keywords use ! prefix, never conflict with variables",
             ),
         ],
         t,
     );
 
-    // ---- Program Structure ----
     rule(ui, t);
-    h2(ui, "Program Structure", t);
-    para(
-        ui,
-        "Variables declared directly inside !start (with no extra block nesting) \
-        are global to the whole program. Everything else is local to its nearest { } block. \
-        The compiler treats !start as { and !end as }.",
-        t,
-    );
-    code(
-        ui,
-        "!start\n    # global variable — accessible everywhere\n    :int count = 0;\n\n    !func greet() -> :void {\n        print(\"Hello, Fractal!\\n\");\n    }\n\n    greet();\n!end",
-        t,
-    );
-
-    // ---- Comments ----
     h2(ui, "Comments", t);
-    para(
-        ui,
-        "Single-line comments start with #. Block comments are wrapped in ### delimiters.",
-        t,
-    );
     code(
         ui,
-        "# single-line comment\n\n###\n    This is a\n    multi-line comment.\n###",
+        "# single-line comment\n\n###\n    multi-line\n    comment\n###",
         t,
     );
 
-    // ---- Importing ----
-    h2(ui, "Importing", t);
-    para(
-        ui,
-        "Use !import to bring in another Fractal file or a standard module. \
-        Imports must appear at the top level, before !start, or directly inside !start \
-        before any executable statements.",
-        t,
-    );
-    code(ui, "!import \"math\";\n!import \"myutils\";", t);
-
-    // ---- Exiting ----
-    h2(ui, "Exiting", t);
-    para(
-        ui,
-        "!exit terminates the program immediately with an integer exit code. \
-        It can appear anywhere — inside or outside functions.",
-        t,
-    );
-    code(ui, "!exit 0;   # success\n!exit 1;   # failure", t);
-
-    // ---- Compiler Errors & Warnings ----
     rule(ui, t);
-    h2(ui, "Compiler Errors & Warnings", t);
-    para(
+    h2(ui, "Importing Files", t);
+    code(
         ui,
-        "The Fractal compiler prints structured diagnostics. Errors stop compilation; \
-        warnings allow the build to proceed but flag potential problems.",
+        "!import \"math\";\n!import \"./utils.fr\";",
         t,
     );
-    kv2(
-        ui,
-        "diag_table",
-        ["Category", "Common causes"],
-        &[
-            (
-                "Type mismatch  [E]",
-                "Assigning a :float to a :int variable without an explicit cast.",
-            ),
-            (
-                "Uninitialised  [W]",
-                "Declaring a struct or array without an initialiser.",
-            ),
-            (
-                "Undeclared var [E]",
-                "Using a name before its :Type declaration in scope.",
-            ),
-            (
-                "Shadowed var   [E]",
-                "Declaring a !for loop variable with the same name as an outer variable.",
-            ),
-            (
-                "Misplaced func [E]",
-                "Writing a !func definition inside a loop or conditional block.",
-            ),
-            (
-                "Missing brace  [W]",
-                "Placing { on a new line after !if / !elif / !else.",
-            ),
-        ],
-        t,
-    );
+
+    rule(ui, t);
+    h2(ui, "Compiler Errors", t);
     para(
         ui,
-        "Example — the compiler rejects this program because the result of :float \
-        division is assigned to a :int without an explicit cast:",
+        "The compiler catches type errors at compile time:",
         t,
     );
     code(
         ui,
-        "!start\n    :int a = 10;\n    :int b = 3;\n\n    # ERROR — cannot assign :float result to :int\n    :int ratio = a / :float(b);\n\n    # CORRECT — cast the result back to :int\n    :int ratio2 = :int(a / :float(b));   # 3\n!end",
-        t,
-    );
-    note(
-        ui,
-        "When a type error occurs the compiler prints the file path, line number, \
-        and a short explanation. Fix all errors before warnings.",
+        "!start\n    :int a = 10;\n    :float b = 3.0;\n\n    # ERROR: cannot assign float to int\n    :int c = b;\n\n    # CORRECT: use explicit cast\n    :int d = :int(b);   # 3\n!end",
         t,
     );
 
-    // ---- Keyboard Shortcuts ----
     rule(ui, t);
     h2(ui, "Keyboard Shortcuts", t);
     shortcuts_table(
         ui,
-        "shortcuts_grid",
+        "shortcuts",
         &[
-            ("Ctrl+S", "Save and auto-format"),
-            ("Ctrl+Shift+S", "Save As…"),
+            ("Ctrl+S", "Save and format"),
             ("Ctrl+O", "Open file"),
             ("Ctrl+N", "New tab"),
-            ("Ctrl+D", "Toggle documentation"),
+            ("Ctrl+D", "Toggle docs"),
             ("Ctrl+F", "Find in file"),
-            ("Ctrl+H", "Find & Replace"),
-            ("Ctrl+`", "Toggle terminal"),
         ],
-        t,
-    );
-
-    note(
-        ui,
-        "Press Run (or use the toolbar) to compile and execute. \
-        The fractal-compiler binary must be on PATH or in the same directory as this editor.",
-        t,
-    );
-
-    // ---- Large Example Program ----
-    rule(ui, t);
-    h2(ui, "Example Program — Math Utilities", t);
-    para(
-        ui,
-        "The program below demonstrates functions, loops, conditionals, arrays, and \
-        type casting working together. It computes the GCD and LCM of two numbers, \
-        generates the first N Fibonacci numbers into a list, and uses a prime sieve \
-        to collect all primes below a given limit.",
-        t,
-    );
-    code(
-        ui,
-        r#"!start
-
-    ###
-        Math utilities: GCD, LCM, Fibonacci, Prime Sieve
-    ###
-
-    # --- Greatest Common Divisor (Euclidean algorithm) ---
-    !func gcd(:int a, :int b) -> :int {
-        !while (b ~= 0) {
-            :int tmp = b;
-            b = a % b;
-            a = tmp;
-        }
-        !return a;
-    }
-
-    # --- Least Common Multiple ---
-    !func lcm(:int a, :int b) -> :int {
-        !return (a / gcd(a, b)) * b;
-    }
-
-    # --- Absolute value for integers ---
-    !func abs_int(:int n) -> :int {
-        !if (n < 0) { !return 0 - n; }
-        !return n;
-    }
-
-    # --- Fibonacci: fill a list with the first n terms ---
-    !func fibonacci(:int n) -> :list<:int> {
-        :list<:int> seq = [0];
-        !if (n <= 0) { !return seq; }
-
-        append(seq, 1);
-        !for (:int i, 2, n, 1) {
-            :int prev2 = seq[i - 2];
-            :int prev1 = seq[i - 1];
-            append(seq, prev2 + prev1);
-        }
-        !return seq;
-    }
-
-    # --- Sieve of Eratosthenes: primes below limit ---
-    !func sieve(:int limit) -> :list<:int> {
-        :list<:int> primes = [];
-
-        # boolean flags: is_composite[i] == true means i is not prime
-        :array<:boolean, 1000> is_composite;
-        !for (:int k, 0, limit, 1) {
-            is_composite[k] = false;
-        }
-        is_composite[0] = true;
-        is_composite[1] = true;
-
-        !for (:int i, 2, limit, 1) {
-            !if (!not is_composite[i]) {
-                append(primes, i);
-                # mark all multiples of i as composite
-                :int mul = i * 2;
-                !while (mul < limit) {
-                    is_composite[mul] = true;
-                    mul += i;
-                }
-            }
-        }
-        append(primes,-1);
-        !return primes;
-    }
-
-    # ---- main ----
-
-    :int x = 48;
-    :int y = 36;
-
-    print("GCD({}, {}) = {}\n", x, y, gcd(x, y));   # 12
-    print("LCM({}, {}) = {}\n", x, y, lcm(x, y));   # 144
-
-    # First 10 Fibonacci numbers
-    :list<:int> fibs = fibonacci(10);
-    print("Fibonacci(10): ");
-    !for (:int i, 0, 10, 1) {
-        print("{} ", fibs[i]);
-    }
-    print("\n");   # 0 1 1 2 3 5 8 13 21 34
-
-    # Primes below 50
-    :list<:int> p = sieve(50);
-    :int count = 0;
-    !while (p[count] ~= -1) {
-        print("{} ", p[count]);
-        count += 1;
-    }
-    print("\n");   # 2 3 5 7 11 13 17 19 23 29 31 37 41 43 47
-
-!end"#,
-        t,
-    );
-
-    note(
-        ui,
-        "The sieve function uses an :array<:boolean, 1000> with a hard upper bound. \
-        Adjust the array size if you need to sieve beyond 1000. \
-        For dynamic upper bounds, use a :list<:boolean> instead.",
         t,
     );
 }
 
 // ---------------------------------------------------------------------------
-// Remaining chapters — unchanged
+// Types & Variables
 // ---------------------------------------------------------------------------
 
 fn render_types_variables(ui: &mut egui::Ui, t: &Theme) {
     h1(ui, "Types & Variables", t);
     para(
         ui,
-        "Fractal is statically and strongly typed. Every variable must carry an explicit \
-        type annotation prefixed with ':'. All type mismatches are compile-time errors — \
-        there is no implicit casting.",
+        "Fractal is statically typed. Every variable must have an explicit type annotation.",
         t,
     );
 
     rule(ui, t);
-
     h2(ui, "Simple Types", t);
     kv3(
         ui,
@@ -897,489 +859,600 @@ fn render_types_variables(ui: &mut egui::Ui, t: &Theme) {
         &[
             (":int", "64-bit signed integer", "0"),
             (":float", "64-bit IEEE 754 float", "0.0"),
-            (":char", "32-bit Unicode character (UTF-32)", "'\\0'"),
-            (":boolean", "Boolean — true or false", "false"),
-            (":void", "The null type; !null is its only value", "—"),
+            (":char", "Unicode character", "'\\0'"),
+            (":boolean", "true or false", "false"),
+            (":void", "Null type", "—"),
         ],
         t,
     );
-    note(
-        ui,
-        "Simple-type variables declared without an initialiser receive the default value above. \
-        Arrays, lists, and structs have no default — a warning is issued if declared without one.",
-        t,
-    );
 
-    h2(ui, "Iterable Types", t);
-    kv3(
+    rule(ui, t);
+    h2(ui, "Collection Types", t);
+    kv2(
         ui,
-        "iter_types",
-        ["Type", "Description", "Example"],
+        "coll_types",
+        ["Type", "Description"],
         &[
-            (
-                ":array<T, N>",
-                "Fixed-size, single element type",
-                ":array<:int, 5>",
-            ),
-            (
-                ":list<T>",
-                "Variable-size, single element type",
-                ":list<:float>",
-            ),
+            (":array<T, N>", "Fixed-size array of N elements"),
+            (":list<T>", "Dynamic list"),
         ],
         t,
     );
-    para(
-        ui,
-        "Strings are char arrays or char lists. A double-quoted literal initialises a char array.",
-        t,
-    );
 
+    rule(ui, t);
     h2(ui, "Integer Literals", t);
     shortcuts_table(
         ui,
         "int_lit",
         &[
-            ("255  or  0d255", "Decimal"),
+            ("255", "Decimal"),
             ("0xFF", "Hexadecimal"),
-            ("0b11111111", "Binary"),
+            ("0b1111", "Binary"),
             ("0o377", "Octal"),
         ],
         t,
     );
 
+    rule(ui, t);
     h2(ui, "Float Literals", t);
     shortcuts_table(
         ui,
         "float_lit",
         &[
-            ("1.5", "Plain float"),
-            ("1.5e6", "With positive exponent"),
-            ("9.9e-1", "With negative exponent"),
+            ("1.5", "Plain"),
+            ("1.5e6", "Scientific"),
         ],
         t,
     );
 
-    h2(ui, "Char Literals", t);
-    shortcuts_table(
-        ui,
-        "char_lit",
-        &[
-            ("'A'", "ASCII character"),
-            ("'\\n'", "Newline"),
-            ("'\\t'", "Tab"),
-            ("'\\\\'", "Backslash"),
-            ("'\\''", "Single quote"),
-            ("'\\0'", "Null character"),
-        ],
-        t,
-    );
-
-    h2(ui, "Array & String Literals", t);
-    para(
-        ui,
-        "A char array can be initialised with a double-quoted string literal.",
-        t,
-    );
-    code(
-        ui,
-        ":array<:int, 5>  nums  = [10, 20, 30, 40, 50];\n:array<:char, 6> hello = \"hello!\";\n:list<:float>    vals  = [1.1, 2.2, 3.3];",
-        t,
-    );
-
+    rule(ui, t);
     h2(ui, "Declarations", t);
     code(
         ui,
-        ":int     count  = 42;\n:float   ratio  = 0.618;\n:char    letter = 'F';\n:boolean flag   = true;\n\n# Uninitialised — gets default value\n:int   zero;     # == 0\n:float origin;   # == 0.0",
+        ":int     count = 42;\n:float   ratio = 0.618;\n:char    letter = 'F';\n:boolean flag = true;\n\n# Default values\n:int zero;     # 0\n:float f;    # 0.0",
         t,
     );
 
+    rule(ui, t);
     h2(ui, "Type Casting", t);
     para(
         ui,
-        "Use the :Type(expr) syntax. No other implicit conversions exist. \
-        The permitted casts are:",
+        "Use :Type(expression) syntax:",
         t,
     );
     kv2(
         ui,
-        "cast_table",
-        ["Cast", "Meaning"],
+        "casts",
+        ["Cast", "Effect"],
         &[
-            (
-                ":int(expr)",
-                "float → int (truncates), char → codepoint, boolean → 0/1",
-            ),
-            (":float(expr)", "int → float, boolean → 0.0/1.0"),
-            (":char(expr)", "int → Unicode character"),
-            (
-                ":boolean(expr)",
-                "int → false if 0 else true; float → false if 0.0 else true",
-            ),
+            (":int(expr)", "Convert to int (truncates)"),
+            (":float(expr)", "Convert to float"),
+            (":char(expr)", "Convert to char"),
+            (":boolean(expr)", "Convert to boolean"),
         ],
         t,
     );
     code(
         ui,
-        "# Numeric\n:float f = :float(42);        # 42.0\n:int   n = :int(3.99);        # 3  (truncates)\n\n# Character\n:char c  = :char(65);         # 'A'\n:int  cp = :int('Z');         # 90\n\n# Boolean\n:boolean b = :boolean(0);     # false\n:int     i = :int(true);      # 1\n\n# Chained\n:char ch = :char(:int(:float(66.9)));  # 'B'",
+        ":float f = :float(42);    # 42.0\n:int n = :int(3.99);    # 3\n:char c = :char(65);    # 'A'",
         t,
     );
 
-    h2(ui, "Indexing Arrays & Lists", t);
+    rule(ui, t);
+    h2(ui, "Indexing", t);
     code(
         ui,
-        ":int first = arr[0];\n:int last  = arr[4];\n:int i     = 2;\n:int mid   = arr[i];   # computed index",
+        ":int first = arr[0];\n:int i = 2;\n:int val = arr[i];",
         t,
     );
 }
+
+// ---------------------------------------------------------------------------
+// Operators
+// ---------------------------------------------------------------------------
 
 fn render_operators(ui: &mut egui::Ui, t: &Theme) {
     h1(ui, "Operators", t);
     para(
         ui,
-        "All operators are listed below grouped by kind. \
-        Fractal uses ~= for not-equal (not !=) and the ! prefix for logical operators.",
+        "Fractal uses ~= for not-equal and ! prefix for logical operators.",
         t,
     );
 
     rule(ui, t);
-
     h2(ui, "Arithmetic", t);
     kv2(
         ui,
-        "arith_ops",
+        "arith",
         ["Operator", "Description"],
         &[
-            ("+ −", "Unary plus / negate"),
+            ("+ -", "Unary plus/negate"),
             ("+", "Addition"),
-            ("−", "Subtraction"),
+            ("-", "Subtraction"),
             ("*", "Multiplication"),
             ("/", "Division"),
-            ("%", "Modulo (integer only)"),
+            ("%", "Modulo (int only)"),
         ],
         t,
     );
 
-    h2(ui, "Bitwise (integer only)", t);
+    rule(ui, t);
+    h2(ui, "Bitwise (int only)", t);
     kv2(
         ui,
-        "bitwise_ops",
+        "bitwise",
         ["Operator", "Description"],
         &[
-            ("~", "Bitwise NOT (unary)"),
-            ("&", "Bitwise AND"),
-            ("|", "Bitwise OR"),
-            ("^", "Bitwise XOR"),
-            ("<<", "Left shift"),
-            (">>", "Right shift"),
+            ("~", "NOT"),
+            ("&", "AND"),
+            ("|", "OR"),
+            ("^", "XOR"),
+            ("<< >>", "Shift"),
         ],
         t,
     );
 
-    h2(ui, "Logical (boolean only)", t);
+    rule(ui, t);
+    h2(ui, "Logical (boolean)", t);
     kv2(
         ui,
-        "logical_ops",
+        "logical",
         ["Operator", "Description"],
         &[
-            ("!not", "Logical NOT (unary)"),
-            ("!and", "Logical AND"),
-            ("!or", "Logical OR"),
+            ("!not", "NOT"),
+            ("!and", "AND"),
+            ("!or", "OR"),
         ],
         t,
     );
     code(
         ui,
-        ":boolean a = true;\n:boolean b = false;\n:boolean c = !not a;           # false\n:boolean d = a !and b;         # false\n:boolean e = a !or  b;         # true\n:boolean f = (!not b) !and a;  # true",
+        ":boolean a = true;\n:boolean b = false;\n:boolean c = !not a;        # false\n:boolean d = a !and b;      # false\n:boolean e = a !or b;       # true",
         t,
     );
 
+    rule(ui, t);
     h2(ui, "Comparison", t);
     kv2(
         ui,
-        "cmp_ops",
+        "cmp",
         ["Operator", "Description"],
         &[
             (">", "Greater than"),
             ("<", "Less than"),
-            (">=", "Greater than or equal"),
-            ("<=", "Less than or equal"),
+            (">=", "> or equal"),
+            ("<=", "< or equal"),
             ("==", "Equal"),
-            ("~=", "Not equal (all types)"),
+            ("~=", "Not equal"),
         ],
         t,
     );
-    note(ui, "Fractal uses ~= for not-equal, not !=.", t);
+    note(ui, "Fractal uses ~= for not-equal, not !=", t);
 
+    rule(ui, t);
     h2(ui, "Assignment", t);
     kv2(
         ui,
-        "assign_ops",
-        ["Operator", "Equivalent to"],
+        "assign",
+        ["Operator", "Equivalent"],
         &[
-            ("=", "Simple assignment"),
+            ("=", "Assign"),
             ("+=", "a = a + b"),
-            ("-=", "a = a − b"),
+            ("-=", "a = a - b"),
             ("*=", "a = a * b"),
             ("/=", "a = a / b"),
-            ("%=", "a = a % b  (int only)"),
-            ("&=", "a = a & b  (int only)"),
-            ("|=", "a = a | b  (int only)"),
-            ("^=", "a = a ^ b  (int only)"),
         ],
         t,
     );
 
-    h2(ui, "Special Symbols", t);
-    kv2(
+    rule(ui, t);
+    h2(ui, "Precedence", t);
+    para(
         ui,
-        "other_sym",
-        ["Symbol", "Meaning"],
-        &[
-            (":", "Type prefix — :int, :float, …"),
-            ("!", "Keyword prefix — !if, !func, …"),
-            ("->", "Function return type"),
-            ("::", "Struct member access"),
-            ("()", "Function call, grouping, type cast"),
-            ("[]", "Array / list index"),
-            ("{}", "Block / scope delimiter"),
-            ("<>", "Type parameter (generics)"),
-        ],
+        "Operators evaluated in this order (highest to lowest):",
         t,
     );
-
-    h2(ui, "Example — Mixed Expression", t);
     code(
         ui,
-        ":int a = 255;\n:int b = 0xFF;\n\n:int bitwise = (a & b) | (a ^ 0b10101010);\n:int shifted  = a >> 1;\n\n:boolean ok = (a ~= 0) !and (:float(a) > 0.0);",
+        "1. unary: - ~ !not\n2. * / %\n3. + -\n4. << >>\n5. &\n6. ^\n7. |\n8. == ~= > < >= <=\n9. !and\n10. !or",
         t,
     );
 }
+
+// ---------------------------------------------------------------------------
+// Functions & Control Flow
+// ---------------------------------------------------------------------------
 
 fn render_functions_control(ui: &mut egui::Ui, t: &Theme) {
     h1(ui, "Control Flow", t);
     para(
         ui,
-        "Fractal has four control-flow constructs: !if / !elif / !else, !for, !while, \
-        and !func. All blocks require curly braces. \
-        The opening brace must be on the same line as the keyword.",
+        "Fractal has !func, !if, !for, and !while. All blocks use curly braces.",
         t,
     );
 
     rule(ui, t);
-
     h2(ui, "Functions", t);
-    para(
-        ui,
-        "Declare functions at the top level with !func. Functions may not be nested \
-        inside !if, !for, !while, or another !func body.",
-        t,
-    );
     code(
         ui,
-        "!func add(:int a, :int b) -> :int {\n    !return a + b;\n}\n\n!func clamp(:float val, :float lo, :float hi) -> :float {\n    !if (val < lo) { !return lo; }\n    !if (val > hi) { !return hi; }\n    !return val;\n}\n\n:int   sum = add(10, 32);\n:float cl  = clamp(150.0, 0.0, 100.0);",
+        "!func add(:int a, :int b) -> :int {\n    !return a + b;\n}\n\n!func greet(:char name) -> :void {\n    print(\"Hello {}\\n\", name);\n}",
         t,
     );
     note(
         ui,
-        "!func definitions must appear at the top level of the program — not inside any block.",
+        "!func definitions must appear at the top level, not inside any block.",
         t,
     );
 
-    h2(ui, "Conditionals — !if / !elif / !else", t);
+    rule(ui, t);
+    h2(ui, "Conditionals", t);
     code(
         ui,
-        "!if (grade >= 90) {\n    letter = 'A';\n}\n!elif (grade >= 80) {\n    letter = 'B';\n}\n!elif (grade >= 70) {\n    letter = 'C';\n}\n!else {\n    letter = 'F';\n}",
+        "!if (x > 0) {\n    print(\"positive\\n\");\n}\n!elif (x < 0) {\n    print(\"negative\\n\");\n}\n!else {\n    print(\"zero\\n\");\n}",
         t,
     );
     warning(
         ui,
-        "The opening { must be on the same line as the condition. \
-        Placing { on the next line produces a compiler warning.",
+        "The opening { must be on the same line as the condition.",
         t,
     );
 
+    rule(ui, t);
     h2(ui, "For Loop", t);
-    para(
-        ui,
-        "Syntax: !for (:int var, start, exclusive_end, step). \
-        The loop variable must be :int and must not shadow any variable in an enclosing scope.",
-        t,
-    );
     code(
         ui,
-        "# Count 0 to 9\n!for (:int i, 0, 10, 1) {\n    print(\"{}\", i);\n}\n\n# Nested loops\n!for (:int row, 0, 4, 1) {\n    !for (:int col, 0, 4, 1) {\n        print(\"{},{} \", row, col);\n    }\n}",
+        "# Count 0 to 9\n!for (:int i, 0, 10, 1) {\n    print(\"{}\", i);\n}\n\n# Nested loops\n!for (:int r, 0, 3, 1) {\n    !for (:int c, 0, 3, 1) {\n        print(\"({},{})\", r, c);\n    }\n}",
         t,
     );
     note(
         ui,
-        "The !for loop variable must be :int — using :float is a compile error. \
-        It also must not shadow any variable already in scope.",
+        "The loop variable must be :int and must not shadow outer variables.",
         t,
     );
 
+    rule(ui, t);
     h2(ui, "While Loop", t);
     code(
         ui,
-        ":int n = 27;\n:int steps = 0;\n\n!while (n ~= 1) {\n    !if (is_even(n)) {\n        n /= 2;\n    } !else {\n        n = n * 3 + 1;\n    }\n    steps += 1;\n}",
+        ":int n = 10;\n!while (n > 0) {\n    print(\"{}\", n);\n    n = n - 1;\n}",
         t,
     );
 
+    rule(ui, t);
     h2(ui, "Break & Continue", t);
     code(
         ui,
-        "# !break exits the nearest loop\n!for (:int i, 0, 100, 1) {\n    !if (i == 42) { !break; }\n}\n\n# !continue skips to the next iteration\n:int odd_sum = 0;\n!for (:int i, 0, 20, 1) {\n    !if (is_even(i)) { !continue; }\n    odd_sum += i;\n}",
+        "!for (:int i, 0, 100, 1) {\n    !if (i == 42) { !break; }\n}\n\n!for (:int i, 0, 10, 1) {\n    !if (i % 2 == 0) { !continue; }\n    print(\"{}\", i);  # prints 1,3,5,7,9\n}",
         t,
     );
 
-    h2(ui, "Variable Scoping", t);
+    rule(ui, t);
+    h2(ui, "Recursion", t);
     para(
         ui,
-        "All variables are local to their nearest { } block. \
-        Variables declared directly inside !start (no nesting) are global.",
+        "Functions can call themselves:",
         t,
     );
     code(
         ui,
-        ":int global = 10;   # accessible everywhere\n\n!if (true) {\n    :int local = global + 1;  # only visible in this block\n    global = local;\n}\n\n# local is no longer accessible here",
+        "!func factorial(:int n) -> :int {\n    !if (n <= 1) { !return 1; }\n    !return n * factorial(n - 1);\n}\n\nprint(\"{}\", factorial(5));  # 120",
         t,
     );
 
-    h2(ui, "Full Example — Factorial", t);
+    rule(ui, t);
+    h2(ui, "Variable Scope", t);
     code(
         ui,
-        "!start\n\n    !func factorial(:int n) -> :int {\n        :int result = 1;\n        !for (:int i, 1, n, 1) {\n            result *= i;\n        }\n        !return result;\n    }\n\n    print(\"{}\", factorial(6));   # 720\n\n!end",
+        ":int global = 10;\n\n!if (true) {\n    :int local = 20;\n    global = local;\n}\n# local is out of scope here",
         t,
     );
 }
+
+// ---------------------------------------------------------------------------
+// Structs
+// ---------------------------------------------------------------------------
 
 fn render_structs(ui: &mut egui::Ui, t: &Theme) {
     h1(ui, "Structs", t);
     para(
         ui,
-        "User-defined structures group related fields into a named type. \
-        Structs are always fixed-size. Members are accessed with the :: operator.",
+        "User-defined types that group related fields. Members accessed with ::.",
         t,
     );
 
     rule(ui, t);
-
-    h2(ui, "Defining a Struct", t);
+    h2(ui, "Defining Structs", t);
     code(
         ui,
-        ":struct<Vec2> {\n    :float x;\n    :float y;\n};\n\n:struct<Vec3> {\n    :float x;\n    :float y;\n    :float z;\n};",
+        ":struct<Vec2> {\n    :float x;\n    :float y;\n};\n\n:struct<Rect> {\n    :float x;\n    :float y;\n    :float w;\n    :float h;\n};",
         t,
     );
 
+    rule(ui, t);
     h2(ui, "Nested Structs", t);
     code(
         ui,
-        ":struct<Rect> {\n    :struct<Vec2> top_left;\n    :struct<Vec2> bottom_right;\n    :float width;\n    :float height;\n};\n\n:struct<Particle> {\n    :struct<Vec3>     pos;\n    :struct<Vec3>     vel;\n    :float            mass;\n    :boolean          active;\n    :int              id;\n    :array<:float, 3> color;\n};",
+        ":struct<Particle> {\n    :struct<Vec2> pos;\n    :struct<Vec2> vel;\n    :float mass;\n};",
         t,
     );
 
-    h2(ui, "Initialising Structs", t);
+    rule(ui, t);
+    h2(ui, "Initialisation", t);
     code(
         ui,
-        ":struct<Vec2> origin = { x = 0.0, y = 0.0 };\n:struct<Vec2> point  = { x = 3.0, y = 4.0 };\n\n:struct<Rect> box1 = {\n    top_left     = { x = 0.0,  y = 0.0  },\n    bottom_right = { x = 10.0, y = 10.0 },\n    width  = 10.0,\n    height = 10.0\n};",
+        ":struct<Vec2> origin = { x = 0.0, y = 0.0 };\n:struct<Vec2> p = { x = 3.0, y = 4.0 };",
         t,
     );
 
-    h2(ui, "Member Access with ::", t);
+    rule(ui, t);
+    h2(ui, "Member Access", t);
     code(
         ui,
-        ":float px    = point::x;\n:float box_w = box1::width;\n\n# Deep access through nested structs\n:float tl_x = box1::top_left::x;",
+        ":float x = p::x;\n:float y = p::y;",
         t,
     );
 
+    rule(ui, t);
     h2(ui, "Structs in Functions", t);
     code(
         ui,
-        "!func dot2(:struct<Vec2> a, :struct<Vec2> b) -> :float {\n    !return (a::x * b::x) + (a::y * b::y);\n}\n\n:float d = dot2(origin, point);",
+        "!func distance(:struct<Vec2> a, :struct<Vec2> b) -> :float {\n    :float dx = b::x - a::x;\n    :float dy = b::y - a::y;\n    !return :float(dx * dx + dy * dy);\n}",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Self-Referential", t);
+    para(
+        ui,
+        "Structs can reference themselves for linked structures:",
+        t,
+    );
+    code(
+        ui,
+        ":struct<Node> {\n    :int value;\n    :struct<Node> next;\n};\n\n# Create a linked list\n:struct<Node> head = { value = 1, next = !null };\nhead::next = { value = 2, next = !null };",
         t,
     );
 
     warning(
         ui,
-        "Declaring a struct without an initialiser produces a compiler warning — structs have no default value.",
+        "Declaring a struct without an initializer produces a warning — structs have no default value.",
         t,
     );
 }
+
+// ---------------------------------------------------------------------------
+// Modules
+// ---------------------------------------------------------------------------
+
+fn render_modules(ui: &mut egui::Ui, t: &Theme) {
+    h1(ui, "Modules", t);
+    para(
+        ui,
+        "Modules organize code across files. Use !module to define, !import to use.",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Defining a Module", t);
+    para(
+        ui,
+        "A module wraps related code:",
+        t,
+    );
+    code(
+        ui,
+        "!module Math {\n    :float pi = 3.14159;\n\n    !func square(:int n) -> :int {\n        !return n * n;\n    }\n}",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Importing Files", t);
+    para(
+        ui,
+        "Use !import to bring in another file:",
+        t,
+    );
+    code(
+        ui,
+        "!import \"./math.fr\";\n!import \"utils\";",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Module Example", t);
+    para(
+        ui,
+        "File: constants.fr",
+        t,
+    );
+    code(
+        ui,
+        "!start\n    :float golden_ratio = 1.618;\n    :float e = 2.718;\n!end",
+        t,
+    );
+
+    para(ui, "File: math.fr that imports constants:", t);
+    code(
+        ui,
+        "!import \"./constants.fr\";\n\n!start\n    !func add(:int a, :int b) -> :int {\n        !return a + b;\n}\n!end",
+        t,
+    );
+
+    para(ui, "Using in main.fr:", t);
+    code(
+        ui,
+        "!import \"./math.fr\";\n\n!start\n    print(\"{}\", math::add(3, 4));\n!end",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Best Practices", t);
+    kv2(
+        ui,
+        "practices",
+        ["Tip", "Description"],
+        &[
+            ("One module per file", "Keep related code together"),
+            ("Meaningful names", "Use descriptive module names"),
+            ("Clear boundaries", "Group related functions"),
+        ],
+        t,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Standard Library
+// ---------------------------------------------------------------------------
 
 fn render_stdlib(ui: &mut egui::Ui, t: &Theme) {
     h1(ui, "Standard Library", t);
     para(
         ui,
-        "The standard library provides I/O functions and collection methods. \
-        Import additional modules with !import (e.g. !import \"math\";).",
+        "Built-in functions for I/O and collections.",
         t,
     );
 
     rule(ui, t);
+    h2(ui, "I/O Functions", t);
 
-    h2(ui, "print", t);
-    para(
-        ui,
-        "Writes a formatted string to standard output. \
-        Use {} as a placeholder for each argument, in order.",
-        t,
-    );
+    h3(ui, "print", t);
     code(
         ui,
-        "print(\"{}\", 42);                       # 42\nprint(\"{} {} {}\", 1.0, 'A', true);     # 1 A true\nprint(\"Sum: {}\", a + b);",
+        "print(\"Value: {}\", 42);\nprint(\"{} + {} = {}\", 1, 2, 3);",
         t,
     );
 
-    h2(ui, "input", t);
-    para(
-        ui,
-        "Reads from standard input and fills placeholder variables from the format string. \
-        A type mismatch between the format and the variable is a compile error.",
-        t,
-    );
+    h3(ui, "input", t);
     code(
         ui,
-        ":int n;\ninput(\"{}\", n);   # reads an integer from stdin",
+        ":int n;\ninput(\"{}\", n);",
         t,
     );
 
-    h2(ui, "Array Methods", t);
+    rule(ui, t);
+    h2(ui, "List Functions", t);
     kv3(
         ui,
-        "arr_methods",
-        ["Function", "Description", "Returns"],
-        &[(
-            "find(arr, value)",
-            "Index of first match, or −1 if not found",
-            ":int",
-        )],
-        t,
-    );
-
-    h2(ui, "List Methods", t);
-    kv3(
-        ui,
-        "list_methods",
+        "list_fns",
         ["Function", "Description", "Returns"],
         &[
-            ("append(lst, value)", "Add element to the end", ":void"),
-            ("pop(lst)", "Remove and return the last element", "T"),
-            ("insert(lst, index)", "Insert element at index", ":void"),
-            ("delete(lst, index)", "Remove element at index", ":void"),
-            ("find(lst, value)", "First index of value, or −1", ":int"),
+            ("append(lst, v)", "Add to end", ":void"),
+            ("pop(lst)", "Remove last", "T"),
+            ("insert(lst, idx, v)", "Insert value at index", ":void"),
+            ("delete(lst, idx)", "Delete at index", ":void"),
+            ("find(lst, v)", "Find index", ":int"),
+            ("len(lst)", "Get length", ":int"),
         ],
         t,
     );
     code(
         ui,
-        ":list<:int> nums = [1, 2, 3];\n\nappend(nums, 4);\nappend(nums, 5);\n\n:int last = pop(nums);        # 5\n:int idx  = find(nums, 2);    # 1\ninsert(nums, 0);              # insert 0 at front\ndelete(nums, 0);              # remove index 0",
+        ":list<:int> nums = [1, 2, 3];\nappend(nums, 4);\n:int last = pop(nums);            # 4\n:int idx = find(nums, 2);        # 1\ninsert(nums, 0, 99);              # insert 99 at index 0\ndelete(nums, 0);                  # delete index 0",
         t,
     );
 
+    rule(ui, t);
+    h2(ui, "Array Functions", t);
+    kv3(
+        ui,
+        "arr_fns",
+        ["Function", "Description", "Returns"],
+        &[
+            ("find(arr, v)", "Find index", ":int"),
+            ("len(arr)", "Array length (fixed)", ":int"),
+        ],
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Math Functions", t);
+    kv3(
+        ui,
+        "math_fns",
+        ["Function", "Description", "Returns"],
+        &[
+            ("abs(n)", "Absolute value", "int/float"),
+            ("sqrt(n)", "Square root", ":float"),
+            ("pow(a, b)", "a raised to b", ":float"),
+            ("floor(n)", "Floor", ":int"),
+            ("ceil(n)", "Ceiling", ":int"),
+            ("min(a, b)", "Minimum", "int/float"),
+            ("max(a, b)", "Maximum", "int/float"),
+        ],
+        t,
+    );
+    code(
+        ui,
+        ":int a = abs(-5);           # 5\n:float s = sqrt(16.0);        # 4.0\n:float p = pow(2.0, 3.0);     # 8.0\n:int f = floor(3.9);         # 3\n:int c = ceil(3.1);          # 4",
+        t,
+    );
+
+    rule(ui, t);
     h2(ui, "Full Example", t);
     code(
         ui,
-        "!start\n\n    !func is_even(:int n) -> :boolean {\n        !return (n % 2) == 0;\n    }\n\n    :list<:int> evens = [0];\n\n    !for (:int i, 1, 20, 1) {\n        !if (is_even(i)) {\n            append(evens, i);\n        }\n    }\n\n    :int idx = find(evens, 8);   # 4\n    print(\"Found 8 at index {}\", idx);\n\n!end",
+        "!start\n    :list<:int> evens = [];\n\n    !for (:int i, 1, 10, 1) {\n        !if (i % 2 == 0) {\n            append(evens, i);\n        }\n    }\n\n    :int count = len(evens);\n    print(\"Found {} evens\", count);\n!end",
+        t,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Common Patterns
+// ---------------------------------------------------------------------------
+
+fn render_common_patterns(ui: &mut egui::Ui, t: &Theme) {
+    h1(ui, "Common Patterns", t);
+    para(
+        ui,
+        "Code recipes for common data structures and algorithms.",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Stack", t);
+    code(
+        ui,
+        ":struct<Stack> {\n    :list<:int> data;\n    :int top;\n};\n\n!func make_stack() -> :struct<Stack> {\n    :struct<Stack> s;\n    s::data = [];\n    s::top = -1;\n    !return s;\n}\n\n!func push(:struct<Stack> s, :int v) -> :void {\n    append(s::data, v);\n    s::top = s::top + 1;\n}\n\n!func stack_pop(:struct<Stack> s) -> :int {\n    !if (s::top < 0) { !return -1; }\n    :int val = s::data[s::top];\n    s::top = s::top - 1;\n    !return val;\n}",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Queue", t);
+    code(
+        ui,
+        ":struct<Queue> {\n    :list<:int> data;\n    :int head;\n    :int tail;\n};\n\n!func make_queue() -> :struct<Queue> {\n    :struct<Queue> q;\n    q::data = [];\n    q::head = 0;\n    q::tail = 0;\n    !return q;\n}\n\n!func enqueue(:struct<Queue> q, :int v) -> :void {\n    append(q::data, v);\n    q::tail = q::tail + 1;\n}\n\n!func dequeue(:struct<Queue> q) -> :int {\n    !if (q::head >= q::tail) { !return -1; }\n    :int val = q::data[q::head];\n    q::head = q::head + 1;\n    !return val;\n}",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Binary Search Tree", t);
+    code(
+        ui,
+        ":struct<BSTNode> {\n    :int value;\n    :int left;\n    :int right;\n};\n\n!func insert(:int val, :list<:struct<BSTNode>> nodes, :int root) -> :void {\n    :int cur = root;\n    !for (:int i, 0, 1000, 1) {\n        :struct<BSTNode> n = nodes[cur];\n        !if (val < n::value) {\n            !if (n::left == -1) { n::left = val; !break; }\n            cur = n::left;\n        } !else {\n            !if (n::right == -1) { n::right = val; !break; }\n            cur = n::right;\n        }\n    }\n}",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Bubble Sort", t);
+    code(
+        ui,
+        "!func bubble_sort(:list<:int> arr) -> :void {\n    :int n = len(arr);\n\n    !for (:int i, 0, n, 1) {\n        !for (:int j, 0, n - i - 1, 1) {\n            !if (arr[j] > arr[j + 1]) {\n                :int tmp = arr[j];\n                arr[j] = arr[j + 1];\n                arr[j + 1] = tmp;\n            }\n        }\n    }\n}",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Merge Sort", t);
+    code(
+        ui,
+        "!func merge(:list<:int> a, :list<:int> b) -> :list<:int> {\n    :list<:int> result = [];\n    :int i = 0;\n    :int j = 0;\n\n    !while (i < len(a) !and j < len(b)) {\n        !if (a[i] <= b[j]) {\n            append(result, a[i]);\n            i = i + 1;\n        } !else {\n            append(result, b[j]);\n            j = j + 1;\n        }\n    }\n\n    !while (i < len(a)) {\n        append(result, a[i]);\n        i = i + 1;\n    }\n\n    !while (j < len(b)) {\n        append(result, b[j]);\n        j = j + 1;\n    }\n\n    !return result;\n}",
+        t,
+    );
+
+    rule(ui, t);
+    h2(ui, "Linked List", t);
+    code(
+        ui,
+        ":struct<Node> {\n    :int value;\n    :struct<Node> next;\n};\n\n# Traverse list\n!func traverse(:struct<Node> head) -> :void {\n    :struct<Node> cur = head;\n    !while (cur ~= !null) {\n        print(\"{}\", cur::value);\n        cur = cur::next;\n    }\n}",
         t,
     );
 }

@@ -131,45 +131,74 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // Step 2: send Rust source to Wandbox to compile and run
   try {
-    const wandboxResp = await fetchImpl(
-      "https://wandbox.org/api/compile.json",
+    const godboltResp = await fetchImpl(
+      "https://godbolt.org/api/compiler/rust/compile",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         body: JSON.stringify({
-          compiler: "rust-head",
-          code: rustSource,
-          options: "",
-          stdin: "",
+          source: rustSource,
+          options: {
+            userArguments: "",
+            executeParameters: {
+              args: [],
+              stdin: "",
+            },
+            compilerOptions: {
+              executorRequest: true,
+            },
+            filters: {
+              execute: true,
+            },
+            tools: [],
+            libraries: [],
+          },
+          lang: "rust",
+          allowStoreCodeDebug: true,
         }),
       },
     );
 
-    if (!wandboxResp.ok) {
-      throw new Error(`Wandbox returned ${wandboxResp.status}`);
+    if (!godboltResp.ok) {
+      throw new Error(`Godbolt returned ${godboltResp.status}`);
     }
 
-    const result = (await wandboxResp.json()) as {
-      program_output?: string;
-      program_error?: string;
-      compiler_error?: string;
-      status?: string;
+    const result = (await godboltResp.json()) as {
+      stdout?: Array<{ text: string }>;
+      stderr?: Array<{ text: string }>;
+      buildResult?: { stderr?: Array<{ text: string }> };
+      code?: number;
     };
 
-    if (result.compiler_error) {
+    const stdout = (result.stdout ?? [])
+      .map((l) => l.text)
+      .join("\n")
+      .trim();
+    const stderr = (result.stderr ?? [])
+      .map((l) => l.text)
+      .join("\n")
+      .trim();
+    const buildErr = (result.buildResult?.stderr ?? [])
+      .map((l) => l.text)
+      .join("\n")
+      .trim();
+
+    if (buildErr) {
       return NextResponse.json({
         output: "",
         compiled: false,
-        error: result.compiler_error,
+        error: buildErr,
       });
     }
 
     return NextResponse.json({
-      output: result.program_output?.trim() || "(no output)",
+      output: stdout || "(no output)",
       compiled: true,
-      error: result.program_error || null,
+      error: stderr || null,
     });
   } catch (err: any) {
     return NextResponse.json({

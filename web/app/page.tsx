@@ -289,11 +289,6 @@ function useLatestRelease() {
   return { release, error };
 }
 
-function formatBytes(bytes: number) {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
 type LucideIcon = React.FC<{
   size?: number;
   strokeWidth?: number;
@@ -533,7 +528,7 @@ export default function Home() {
           transition: opacity 0.15s ease, transform 0.15s ease;
         }
         .fractal-mobile-menu a.cta:hover { opacity: 0.9; transform: translateY(-1px); }
-        @media (max-width: 768px) {
+        @media (max-width: 900px) {
           .fractal-hamburger { display: flex; align-items: center; justify-content: center; }
           nav[class*="nav"] > div[class*="navLinks"] { display: none !important; }
           .fractal-mobile-menu { display: flex; }

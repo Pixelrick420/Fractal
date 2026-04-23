@@ -1059,40 +1059,42 @@
     color: var(--text) !important;
 }
 .installBlock {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background: var(--surface, #13151f);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
-  padding: 1rem 1.25rem;
-  max-width: 780px;
-  margin: 2rem auto 0;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: var(--surface, #13151f);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    max-width: 780px;
+    margin: 2rem auto 0;
 }
 .installCmd {
-  flex: 1;
-  font-family: var(--font-mono, monospace);
-  font-size: 0.85rem;
-  color: var(--text-body);
-  white-space: nowrap;
-  overflow-x: auto;
+    flex: 1;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.85rem;
+    color: var(--text-body);
+    white-space: nowrap;
+    overflow-x: auto;
 }
 .installCopyBtn {
-  flex-shrink: 0;
-  background: var(--accent, #5b8af0);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 0.45rem 1rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s ease;
+    flex-shrink: 0;
+    background: var(--accent, #5b8af0);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 0.45rem 1rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
 }
-.installCopyBtn:hover { opacity: 0.85; }
+.installCopyBtn:hover {
+    opacity: 0.85;
+}
 .installNote {
-  text-align: center;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  margin-top: 0.75rem;
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 0.75rem;
 }

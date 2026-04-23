@@ -340,7 +340,7 @@ const EDITOR_FEATURES: { Icon: LucideIcon; title: string; desc: string }[] = [
   {
     Icon: BookOpen as LucideIcon,
     title: "Built-in Docs",
-    desc: "Language reference is one click away — inside the editor, always.",
+    desc: "Language reference is one click away - inside the editor, always.",
   },
 ];
 
@@ -355,7 +355,7 @@ const PROBLEM_CARDS: {
   {
     Icon: AlertTriangle as LucideIcon,
     name: "Python",
-    body: "No types means no discipline. Beginners never learn to think about what data they're working with — until C forces them to, all at once.",
+    body: "No types means no discipline. Beginners never learn to think about what data they're working with - until C forces them to, all at once.",
     tag: "Missing: type discipline",
     tagColor: "var(--syn-keyword)",
     center: false,
@@ -552,6 +552,8 @@ export default function Home() {
           <a href="#syntax">Syntax</a>
           <a href="#errors">Errors</a>
           <a href="#editor">Editor</a>
+          <a href="/demo">Demo</a>
+          <a href="/docs">Docs</a>
           <a href="#download" className={styles.navCta}>
             Download
           </a>
@@ -584,6 +586,12 @@ export default function Home() {
         </a>
         <a href="#editor" onClick={closeMenu}>
           Editor
+        </a>
+        <a href="/demo" onClick={closeMenu}>
+          Demo
+        </a>
+        <a href="/docs" onClick={closeMenu}>
+          Docs
         </a>
         <a href="#download" onClick={closeMenu} className="cta">
           Download
@@ -631,7 +639,7 @@ export default function Home() {
           <AnimatedCode />
           <div className={styles.heroCodeNote}>
             <span className={styles.heroCodeNoteKw}>:int</span> and
-            <span className={styles.heroCodeNoteKw}> :float</span> — types you
+            <span className={styles.heroCodeNoteKw}> :float</span> - types you
             can&apos;t miss
           </div>
         </div>
@@ -692,7 +700,7 @@ export default function Home() {
               <span className={styles.syn_type}>:string</span>
               <p>
                 Types always start with <code>:</code>. You always know what a
-                variable holds — no guessing.
+                variable holds - no guessing.
               </p>
             </div>
             <div className={styles.syntaxRule}>
@@ -716,7 +724,7 @@ export default function Home() {
         <h2 className={styles.sectionTitle}>Errors that teach, not punish.</h2>
         <p className={styles.sectionSubtitle}>
           When something goes wrong, Fractal explains what happened and shows
-          you how to fix it — in plain language.
+          you how to fix it - in plain language.
         </p>
         <div className={styles.errorLayout}>
           <ErrorDemo />
@@ -735,7 +743,7 @@ export default function Home() {
               {
                 n: "03",
                 title: "Line and column",
-                body: "Errors point exactly to where the problem is — no hunting through your whole file.",
+                body: "Errors point exactly to where the problem is - no hunting through your whole file.",
               },
             ].map(({ n, title, body }) => (
               <div key={n} className={styles.errorPoint}>

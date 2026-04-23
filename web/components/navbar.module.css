@@ -1,0 +1,95 @@
+.nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 3rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.logo {
+    font-family: var(--mono);
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--text);
+    text-decoration: none;
+    letter-spacing: -0.02em;
+}
+
+.logoKw {
+    color: var(--syn-keyword);
+    font-weight: 800;
+}
+
+.links {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.links a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.links a:hover {
+    color: var(--text);
+}
+
+.active {
+    color: var(--accent) !important;
+}
+
+.cta {
+    background: var(--accent) !important;
+    color: #000 !important;
+    padding: 0.45rem 1.2rem;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.88rem;
+    transition: opacity 0.2s, transform 0.2s !important;
+}
+
+.cta:hover {
+    opacity: 0.88;
+    transform: translateY(-1px);
+    color: #000 !important;
+}
+
+.sidebarNav {
+    display: flex;
+    flex-direction: column;
+    padding: 1rem 0;
+    height: 100%;
+    width: 200px;
+    border-right: 1px solid var(--border);
+    box-sizing: border-box;
+}
+
+.sidebarLinks {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0 1rem;
+    margin-top: 2rem;
+}
+
+.sidebarLinks a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s;
+    padding: 0.5rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.sidebarLinks a:hover {
+    color: var(--text);
+    background: var(--surface);
+}

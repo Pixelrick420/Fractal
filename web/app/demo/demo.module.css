@@ -1,0 +1,139 @@
+.root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+}
+
+.container {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    overflow: hidden;
+    min-width: 0;
+    min-height: 0;
+}
+
+@media (max-width: 900px) {
+    .container {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr 1fr;
+    }
+}
+
+.editorPane,
+.outputPane {
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.editorHeader,
+.outputHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 1rem;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.fileName,
+.outputTitle {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.editorActions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.iconBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.iconBtn:hover {
+    background: var(--surface);
+    color: var(--text);
+    border-color: var(--border-light);
+}
+
+.runBtn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.9rem;
+    background: var(--accent);
+    border: none;
+    border-radius: 6px;
+    color: #000;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.runBtn:hover {
+    opacity: 0.85;
+    transform: translateY(-1px);
+}
+
+.runBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.editorContent {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+.loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    background: var(--bg);
+}
+
+.outputPane {
+    background: var(--bg-2);
+}
+
+.outputContent {
+    flex: 1;
+    margin: 0;
+    padding: 1rem;
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-dim);
+    line-height: 1.7;
+    white-space: pre-wrap;
+    overflow: auto;
+    background: var(--bg-2);
+}

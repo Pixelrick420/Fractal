@@ -10,3 +10,4 @@ web/node_modules/
 web/out
 web/.env
 web/.env.*
+*.tsbuildinfo

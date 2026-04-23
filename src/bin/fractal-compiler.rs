@@ -25,22 +25,30 @@ fn section(title: &str) {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let (debug_mode, source_file_str) = match args.as_slice() {
-        [_, f] => (false, f.clone()),
-        [_, flag, f] if flag == "--debug" => (true, f.clone()),
-        [_, sub, f] if sub == "debug" => (true, f.clone()),
+    let (debug_mode, emit_rust_only, source_file_str) = match args.as_slice() {
+        [_, f] => (false, false, f.clone()),
+        [_, flag, f] if flag == "--debug" => (true, false, f.clone()),
+        [_, sub, f] if sub == "debug" => (true, false, f.clone()),
+        [_, flag, f] if flag == "--emit-rust" => (false, true, f.clone()),
         _ => {
             print_error(&format!(
-                "Usage: {} [--debug | debug] <path/to/file.fr>",
+                "Usage: {} [--debug | debug | --emit-rust] <path/to/file.fr>",
                 &args[0]
             ));
             eprintln!();
-            eprintln!("  {}  file.fr          compile normally", &args[0]);
+            eprintln!("  {}  file.fr              compile normally", &args[0]);
             eprintln!(
-                "  {}  debug file.fr    compile with debugger instrumentation",
+                "  {}  debug file.fr         compile with debugger instrumentation",
                 &args[0]
             );
-            eprintln!("  {}  --debug file.fr  same as above (flag form)", &args[0]);
+            eprintln!(
+                "  {}  --debug file.fr        same as above (flag form)",
+                &args[0]
+            );
+            eprintln!(
+                "  {}  --emit-rust file.fr    output Rust source to stdout, skip rustc",
+                &args[0]
+            );
             process::exit(1);
         }
     };
@@ -100,8 +108,6 @@ fn main() {
                 process::exit(1);
             }
 
-            let out_path = Path::new(source_file).with_extension("rs");
-
             let debug_jsonl_path = Path::new(source_file)
                 .with_extension("debug.jsonl")
                 .to_string_lossy()
@@ -119,6 +125,14 @@ fn main() {
                     eprintln!("{:>4} │ {}", i + 1, line);
                 }
             }
+
+            // --emit-rust: print Rust source to stdout and exit, skipping rustc
+            if emit_rust_only {
+                print!("{}", rs_code);
+                process::exit(0);
+            }
+
+            let out_path = Path::new(source_file).with_extension("rs");
 
             if let Err(e) = fs::write(&out_path, &rs_code) {
                 print_error(&format!("could not write `{}`: {}", out_path.display(), e));

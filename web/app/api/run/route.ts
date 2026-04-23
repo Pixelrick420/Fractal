@@ -111,7 +111,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Step 1: compile Fractal → Rust source only (no rustc)
   const {
     stdout: rustSource,
     stderr: compileStderr,

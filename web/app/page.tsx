@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import styles from "./page.module.css";
 
-// ── Lucide React icons (install: npm i lucide-react) ──────────────────────────
 import {
   AlertTriangle,
   GitBranch,
@@ -311,47 +310,6 @@ const BINARY_META: Record<string, { Icon: LucideIcon; desc: string }> = {
     desc: "Full GUI editor with syntax highlighting & terminal",
   },
 };
-
-function DownloadCard({ asset }: { asset: ReleaseAsset }) {
-  const meta = BINARY_META[asset.name] ?? {
-    Icon: Package as LucideIcon,
-    desc: "Binary",
-  };
-  const { Icon } = meta;
-  return (
-    <a href={asset.browser_download_url} className={styles.dlCard} download>
-      <span className={styles.dlIcon}>
-        <Icon size={22} strokeWidth={1.5} />
-      </span>
-      <div className={styles.dlInfo}>
-        <span className={styles.dlName}>{asset.name}</span>
-        <span className={styles.dlDesc}>{meta.desc}</span>
-        <span className={styles.dlSize}>{formatBytes(asset.size)}</span>
-      </div>
-      <span className={styles.dlArrow}>↓</span>
-    </a>
-  );
-}
-
-function DownloadCardSkeleton() {
-  return (
-    <div className={styles.dlCardSkeleton}>
-      <span className={styles.dlIcon}>
-        <Package size={22} strokeWidth={1.5} style={{ opacity: 0.3 }} />
-      </span>
-      <div className={styles.dlInfo}>
-        <span
-          className={`${styles.dlName} ${styles.skeletonBar}`}
-          style={{ width: "140px" }}
-        />
-        <span
-          className={`${styles.dlDesc} ${styles.skeletonBar}`}
-          style={{ width: "200px" }}
-        />
-      </div>
-    </div>
-  );
-}
 
 const EDITOR_FEATURES: { Icon: LucideIcon; title: string; desc: string }[] = [
   {

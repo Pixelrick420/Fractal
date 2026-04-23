@@ -917,10 +917,35 @@ impl CodeGen {
         );
 
         let rhs = match init {
-            None => format!(
-                "Some(Box::new({}::default()))",
-                escape_struct_name(struct_name)
-            ),
+            None => {
+                // Generate default values for all struct fields (wrapped in Some)
+                let fields = self.struct_fields.get(struct_name);
+                let default_fields: Vec<String> = match fields {
+                    Some(field_list) => field_list
+                        .iter()
+                        .map(|(fname, ftype)| {
+                            let default_val = match ftype {
+                                SemType::Int => "Some(0)".to_string(),
+                                SemType::Float => "Some(0.0)".to_string(),
+                                SemType::Boolean => "Some(false)".to_string(),
+                                SemType::Char => "Some('\\0')".to_string(),
+                                SemType::Void => "None".to_string(),
+                                SemType::Array { .. } => "None".to_string(),
+                                SemType::List { .. } => "Some(Vec::new())".to_string(),
+                                SemType::Struct(_) => "None".to_string(),
+                                SemType::Unknown => "None".to_string(),
+                            };
+                            format!("{}: {}", fname, default_val)
+                        })
+                        .collect(),
+                    None => vec![],
+                };
+                format!(
+                    "Some(Box::new({} {{ {} }}))",
+                    escape_struct_name(struct_name),
+                    default_fields.join(", ")
+                )
+            }
             Some(ParseNode::Null(_)) => "None".to_string(),
             Some(ParseNode::StructLit(fields, _)) => {
                 let sn = struct_name.to_string();
@@ -1254,11 +1279,9 @@ impl CodeGen {
 
                 AccessStep::Index(idx_expr) => {
                     let idx = self.gen_expr(idx_expr);
-                    let tmp = format!("__idx_{}", self.hoist_counter);
-                    self.hoist_counter += 1;
-                    self.hoist_buf
-                        .push(format!("let {} = {} as usize;", tmp, idx));
-                    out = format!("{}[{}]", out, tmp);
+                    // Use inline conversion instead of hoisting to fix nested list access
+                    let idx_var = format!("({} as usize)", idx);
+                    out = format!("{}[{}]", out, idx_var);
                     cur_type = match cur_type {
                         Some(SemType::Array { elem, .. }) => Some(*elem),
                         Some(SemType::List { elem }) => Some(*elem),
@@ -1798,9 +1821,9 @@ impl CodeGen {
                         match step {
                             AccessStep::Field(f) => {
                                 if is_last {
-                                    return format!("&mut {}.{}", out, f);
+                                    return format!("&mut {}.{}", out, escape_ident(f));
                                 } else {
-                                    out = format!("{}.{}.as_mut().unwrap()", out, f);
+                                    out = format!("{}.{}.as_mut().unwrap()", out, escape_ident(f));
                                 }
                             }
                             AccessStep::Index(e) => {
@@ -2114,9 +2137,9 @@ impl CodeGen {
                     && !self.struct_params.contains(base)
                 {
                     if base_is_param_struct {
-                        return format!("{}.as_ref().unwrap().{}.unwrap()", base_escaped, fname);
+                        return format!("{}.as_ref().unwrap().{}.unwrap()", base_escaped, escape_ident(fname));
                     }
-                    return format!("{}::{}", base_escaped, fname);
+                    return format!("{}::{}", base_escaped, escape_ident(fname));
                 }
             }
         }
@@ -2135,9 +2158,9 @@ impl CodeGen {
                             match step {
                                 AccessStep::Field(f) => {
                                     out = if is_last {
-                                        format!("{}.{}.unwrap()", out, f)
+                                        format!("{}.{}.unwrap()", out, escape_ident(f))
                                     } else {
-                                        format!("{}.{}.as_ref().unwrap()", out, f)
+                                        format!("{}.{}.as_ref().unwrap()", out, escape_ident(f))
                                     };
                                 }
                                 AccessStep::Index(e) => {
@@ -2164,7 +2187,7 @@ impl CodeGen {
                                 }
                                 out = format!("{}({})", out, av.join(", "));
                             }
-                            AccessStep::Field(f) => out = format!("{}::{}", out, f),
+                            AccessStep::Field(f) => out = format!("{}::{}", out, escape_ident(f)),
                             AccessStep::Index(e) => {
                                 let idx = self.gen_expr(e);
                                 out = format!("{}[{} as usize]", out, idx);

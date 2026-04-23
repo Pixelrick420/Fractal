@@ -43,7 +43,7 @@ STRUCTDECL_TAIL -> Equals EXPRESSION
 # A struct body is zero or more typed field declarations, each terminated by ;
 FIELDS -> FIELD FIELDS
         | ε
-# A single field is a type and a name — no default value is allowed.
+# A single field is a type and a name - no default value is allowed.
 FIELD  -> DATATYPE Identifier EndL
 
 # A block is a scoped sequence of statements wrapped in braces.
@@ -80,7 +80,7 @@ ELSEPART -> Elif LParen EXPRESSION RParen BLK ELSEPART
           | ε
 
 # A variable declaration introduces a new name with a type; the initialiser
-# is optional — omitting it gives a default value for simple types.
+# is optional - omitting it gives a default value for simple types.
 DECL      -> DATATYPE Identifier DECL_TAIL
 DECL_TAIL -> Equals EXPRESSION
            | ε
@@ -93,7 +93,7 @@ ASSIGN   -> ACCESS_CHAIN ASSIGNOP EXPRESSION
 ASSIGNOP -> Equals | PlusEquals | MinusEquals | StarEquals | SlashEquals
           | PercentEquals | AmpersandEquals | PipeEquals | CaretEquals
 
-# A type annotation — either a primitive, a sized array, a variable-length
+# A type annotation - either a primitive, a sized array, a variable-length
 # list, or a named struct type.
 DATATYPE -> TypeInt
           | TypeFloat
@@ -126,7 +126,7 @@ LOGNOT -> Not LOGNOT
         | CMP
 
 # A comparison produces a :boolean result. Only one comparison per expression
-# is allowed (non-associative) — parentheses are required to chain them.
+# is allowed (non-associative) - parentheses are required to chain them.
 CMP   -> BITOR CMPOP BITOR
        | BITOR
 CMPOP -> Greater | Less | GreaterEquals | LessEquals | EqualsEquals | TildeEquals

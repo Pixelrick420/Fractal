@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  Fractal Language — Uninstaller
+#  Fractal Language - Uninstaller
 #  https://github.com/Pixelrick420/Fractal
 # =============================================================================
 
@@ -64,7 +64,7 @@ info "Removing binaries..."
 
 for bin in "${FOUND[@]}"; do
     $SUDO rm -f "${INSTALL_DIR}/${bin}" \
-        || die "Failed to remove '${bin}' — make sure you have sufficient privileges."
+        || die "Failed to remove '${bin}' - make sure you have sufficient privileges."
     success "Removed ${INSTALL_DIR}/${bin}"
 done
 
@@ -73,7 +73,7 @@ ALL_GONE=true
 for bin in "${FOUND[@]}"; do
     if command -v "$bin" &>/dev/null; then
         LOCATION=$(command -v "$bin")
-        warn "'${bin}' still found at ${LOCATION} — there may be another copy outside ${INSTALL_DIR}."
+        warn "'${bin}' still found at ${LOCATION} - there may be another copy outside ${INSTALL_DIR}."
         ALL_GONE=false
     fi
 done
@@ -103,7 +103,7 @@ if command -v rustup &>/dev/null; then
         [yY][eE][sS]|[yY])
             info "Running rustup self uninstall..."
             rustup self uninstall -y \
-                || die "rustup uninstall failed — try running 'rustup self uninstall' manually."
+                || die "rustup uninstall failed - try running 'rustup self uninstall' manually."
             success "Rust removed."
             ;;
         *)
@@ -117,6 +117,6 @@ echo ""
 if $ALL_GONE; then
     echo -e "${GREEN}${BOLD}  Fractal has been uninstalled.${RESET}"
 else
-    echo -e "${YELLOW}${BOLD}  Fractal partially uninstalled — see warnings above.${RESET}"
+    echo -e "${YELLOW}${BOLD}  Fractal partially uninstalled - see warnings above.${RESET}"
 fi
 echo ""

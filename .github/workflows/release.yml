@@ -49,9 +49,6 @@ jobs:
             libgl1-mesa-dev \
             libegl1-mesa-dev
 
-      # ── fractal-compiler ────────────────────────────────────────────────────
-      # Pure CLI binary with no GUI deps — fully static via musl + crt-static.
-      # Zero runtime dependencies: runs on any x86-64 Linux kernel >= 3.2.
       - name: Build fractal-compiler (fully static)
         env:
           CC_x86_64_unknown_linux_musl: musl-gcc
@@ -67,9 +64,9 @@ jobs:
           echo "=== fractal-compiler ==="
           file "$bin"
           ldd "$bin" 2>&1 || true
-          # musl static binaries print "statically linked"; glibc dynamic ones
-          # print a list of .so files. Accept either "statically linked" or
-          # "not a dynamic executable" (both mean fully static).
+
+
+
           ldd_out=$(ldd "$bin" 2>&1 || true)
           if echo "$ldd_out" | grep -qE 'statically linked|not a dynamic executable'; then
             echo "OK: fractal-compiler is fully static"
@@ -79,17 +76,10 @@ jobs:
             exit 1
           fi
 
-      # ── fractal-editor ──────────────────────────────────────────────────────
-      # Uses eframe/glow (OpenGL) + egui_term, which require libGL and libEGL
-      # at runtime — these are GPU driver interfaces that cannot be statically
-      # bundled (they are provided by the user's graphics stack).
-      # We still build with musl to eliminate the GLIBC version dependency;
-      # the only runtime libs needed are libGL, libEGL, and libX11/wayland,
-      # all of which ship with every desktop Linux.
       - name: Build fractal-editor (musl, opengl runtime)
         env:
           CC_x86_64_unknown_linux_musl: musl-gcc
-          # Do NOT add crt-static here — it conflicts with OpenGL dynamic linking
+
           RUSTFLAGS: ""
           PKG_CONFIG_ALLOW_CROSS: "1"
         run: |
@@ -103,9 +93,9 @@ jobs:
           file "$bin"
           echo "--- dynamic deps (only GL/EGL/X11/wayland expected) ---"
           ldd "$bin" 2>&1 || true
-          # Fail if it links against a versioned GLIBC symbol (the original bug)
+
           if objdump -p "$bin" 2>/dev/null | grep -q 'GLIBC_2\.[0-9]'; then
-            echo "ERROR: fractal-editor has versioned GLIBC deps — musl build failed"
+            echo "ERROR: fractal-editor has versioned GLIBC deps - musl build failed"
             exit 1
           fi
           echo "OK: fractal-editor has no versioned GLIBC dependencies"
@@ -114,7 +104,7 @@ jobs:
         run: |
           mkdir -p executable
 
-          # Show what built and what's in the repo root
+
           echo '--- build output ---'
           ls -lh target/x86_64-unknown-linux-musl/release/fractal-* 2>&1 || true
           echo '--- repo root ---'
@@ -124,7 +114,7 @@ jobs:
           cp target/x86_64-unknown-linux-musl/release/fractal-editor   executable/fractal-editor
           chmod +x executable/fractal-compiler executable/fractal-editor
 
-          # Copy installer scripts — search up to 2 levels deep, skip build dirs
+
           for script in install.sh uninstall.sh; do
             found=$(find . -maxdepth 2 -name "$script" \
               -not -path './target/*' -not -path './executable/*' | head -1)
@@ -132,7 +122,7 @@ jobs:
               cp "$found" "executable/$script"
               echo "Copied $found -> executable/$script"
             else
-              echo "Warning: $script not found in repo — skipping"
+              echo "Warning: $script not found in repo - skipping"
             fi
           done
 
@@ -153,22 +143,22 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "Fractal ${{ steps.version.outputs.tag }}"
           body: |
-            ## Fractal Language — ${{ steps.version.outputs.tag }}
+            #
             Built from commit `${{ steps.version.outputs.short }}` on branch `${{ github.ref_name }}`.
 
-            Both binaries use musl — no GLIBC version requirement.
+            Both binaries use musl - no GLIBC version requirement.
 
             | Binary | Runtime dependencies |
             |--------|---------------------|
-            | `fractal-compiler` | None — fully static, runs on any x86-64 Linux |
+            | `fractal-compiler` | None - fully static, runs on any x86-64 Linux |
             | `fractal-editor`   | `libGL`/`libEGL` + X11 or Wayland (present on any desktop Linux) |
 
-            ### One-line install
+            ##
             ```bash
             curl -fsSL https://github.com/Pixelrick420/Fractal/releases/latest/download/install.sh | bash
             ```
 
-            ### Usage
+            ##
             ```bash
             fractal-compiler your_program.fr
             fractal-compiler debug your_program.fr

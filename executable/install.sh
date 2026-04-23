@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  Fractal Language — Installer
+#  Fractal Language - Installer
 #  https://github.com/Pixelrick420/Fractal
 # =============================================================================
 
@@ -94,7 +94,7 @@ fi
 
 # ── 5. Optional helpers ───────────────────────────────────────────────────────
 if ! command -v xxd &>/dev/null; then
-    warn "'xxd' not found — binary verification will be skipped."
+    warn "'xxd' not found - binary verification will be skipped."
     HAS_XXD=false
 else
     HAS_XXD=true
@@ -110,9 +110,9 @@ success "Dependencies OK."
 
 # ── 6. Note on binaries ──────────────────────────────────────────────────────
 # Release binaries are built with musl (fully static for the compiler, minimal
-# dynamic deps for the editor — only libGL/libEGL + X11/Wayland, which every
+# dynamic deps for the editor - only libGL/libEGL + X11/Wayland, which every
 # desktop Linux provides). No GLIBC version check is needed.
-GLIBC_OK=true   # always true — musl binaries have no GLIBC requirement
+GLIBC_OK=true   # always true - musl binaries have no GLIBC requirement
 
 # ── 7. Rust installer (only called when a source build is needed) ─────────────
 RUST_JUST_INSTALLED=false
@@ -124,7 +124,7 @@ ensure_rust() {
         return
     fi
 
-    info "Rust not found — installing via rustup..."
+    info "Rust not found - installing via rustup..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --no-modify-path --profile minimal \
         || die "rustup installation failed.\n  Check your internet connection and try again."
@@ -134,7 +134,7 @@ ensure_rust() {
         || export PATH="$HOME/.cargo/bin:$PATH"
 
     rustc --version &>/dev/null \
-        || die "rustc not found after install — PATH may not include ~/.cargo/bin."
+        || die "rustc not found after install - PATH may not include ~/.cargo/bin."
 
     RUST_VER=$(rustc --version | awk '{print $2}')
     success "Rust ${RUST_VER} installed."
@@ -191,7 +191,7 @@ fi
 success "Latest release: ${BOLD}${RELEASE_NAME:-$TAG}${RESET} (${TAG})"
 
 # ── 9. Decide download strategy ───────────────────────────────────────────────
-# Release binaries are musl builds — download them directly.
+# Release binaries are musl builds - download them directly.
 # Fall back to source build only if the asset is missing from the release
 # (e.g. a dev build that pre-dates the musl pipeline).
 BUILD_STRATEGY="download"
@@ -199,7 +199,7 @@ BUILD_STRATEGY="download"
 # Check all expected binaries exist as release assets
 for bin in "${BINARIES[@]}"; do
     if ! echo "$ASSET_NAMES" | grep -qF "${bin}"; then
-        warn "'${bin}' not found in release assets — will build from source."
+        warn "'${bin}' not found in release assets - will build from source."
         BUILD_STRATEGY="source"
         break
     fi
@@ -231,7 +231,7 @@ download_binary() {
 }
 
 do_source_build() {
-    warn "Building from source — this may take a few minutes..."
+    warn "Building from source - this may take a few minutes..."
     ensure_rust
 
     # Add the fully-static musl target so the result has no GLIBC dependency
@@ -286,7 +286,7 @@ case "$BUILD_STRATEGY" in
         FAILED=false
         for bin in "${BINARIES[@]}"; do
             if ! download_binary "$bin" "$bin"; then
-                warn "'${bin}' download failed — falling back to source build."
+                warn "'${bin}' download failed - falling back to source build."
                 FAILED=true
                 break
             fi
@@ -306,7 +306,7 @@ esac
 ensure_rust
 
 if ! command -v cc &>/dev/null && ! command -v gcc &>/dev/null; then
-    info "C linker not found — installing gcc..."
+    info "C linker not found - installing gcc..."
     _install_pkg gcc
 fi
 
@@ -336,7 +336,7 @@ done
 ALL_OK=true
 for bin in "${BINARIES[@]}"; do
     if ! command -v "$bin" &>/dev/null; then
-        warn "'${bin}' not found on PATH — ${INSTALL_DIR} may not be in your PATH."
+        warn "'${bin}' not found on PATH - ${INSTALL_DIR} may not be in your PATH."
         ALL_OK=false
     fi
 done
@@ -353,7 +353,7 @@ if $RUST_JUST_INSTALLED; then
     if [[ -n "$RC" && -f "$RC" ]]; then
         # shellcheck source=/dev/null
         source "$RC" 2>/dev/null || true
-        info "Sourced ${RC} — Rust is now active in this session."
+        info "Sourced ${RC} - Rust is now active in this session."
     fi
 fi
 
@@ -363,9 +363,9 @@ echo -e "${GREEN}${BOLD}╔═════════════════�
 echo -e "${GREEN}${BOLD}║     Fractal installed successfully!      ║${RESET}"
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════╝${RESET}"
 echo ""
-echo -e "  ${BOLD}fractal-compiler${RESET} file.fr          — compile"
-echo -e "  ${BOLD}fractal-compiler${RESET} debug file.fr    — compile with debug info"
-echo -e "  ${BOLD}fractal-editor${RESET}                    — launch the editor"
+echo -e "  ${BOLD}fractal-compiler${RESET} file.fr          - compile"
+echo -e "  ${BOLD}fractal-compiler${RESET} debug file.fr    - compile with debug info"
+echo -e "  ${BOLD}fractal-editor${RESET}                    - launch the editor"
 echo ""
 
 if ! $ALL_OK; then

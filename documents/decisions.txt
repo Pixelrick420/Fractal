@@ -5,7 +5,7 @@
         3. char : 32 bit character (UTF-32 encoding)
         4. boolean : true or false
         5. void : the null type; !null is its only value, and :void is only
-           valid as a function return type — it cannot be used for variables,
+           valid as a function return type - it cannot be used for variables,
            parameters, array/list element types, or struct fields
 
     b) iterable
@@ -33,8 +33,8 @@
         2. '\n' -> escape sequence
 
     d) boolean
-        1. true  -> boolean true  (bare literal — NO ! prefix)
-        2. false -> boolean false (bare literal — NO ! prefix)
+        1. true  -> boolean true  (bare literal - NO ! prefix)
+        2. false -> boolean false (bare literal - NO ! prefix)
         Note: !true / !false are parse errors; the lexer explicitly rejects them
         and emits an error directing the user to write true / false directly.
 
@@ -80,7 +80,7 @@
                print(a);
            }
        Note: indentation style is NOT enforced by the compiler (no warnings
-       are issued for misaligned indentation — this was listed in earlier docs
+       are issued for misaligned indentation - this was listed in earlier docs
        but is not implemented).
 
     6. !start and !end are required. Only code between them is compiled.
@@ -96,7 +96,7 @@
            !for (:int j, 0, 10, 1) { }   # ok
        A pre-declared loop variable can be reused by omitting the type:
            :int i = 0;
-           !for (i, 0, 10, 1) { }        # ok — reuses existing `i`
+           !for (i, 0, 10, 1) { }        # ok - reuses existing `i`
 
     9. !func definitions must appear at the top level, outside any !if, !for,
        !while, or other !func body. Nesting a !func inside a block is a parse
@@ -112,7 +112,7 @@
         compiler warning (not an error) suggesting an explicit initialiser.
 
     11. !exit terminates the program immediately with an integer exit code.
-        It can appear anywhere — inside or outside functions.
+        It can appear anywhere - inside or outside functions.
             !exit 0;   # ok
             !exit 1;   # ok
 
@@ -158,8 +158,8 @@
         1. &  (bitwise AND)
         2. |  (bitwise OR)
         3. ^  (bitwise XOR)
-        4. << (left shift  — parsed as two consecutive < tokens)
-        5. >> (right shift — parsed as two consecutive > tokens)
+        4. << (left shift  - parsed as two consecutive < tokens)
+        5. >> (right shift - parsed as two consecutive > tokens)
 
     e) logical unary (boolean only)
         1. !not

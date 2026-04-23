@@ -67,7 +67,7 @@ fn module_search(
                 );
                 print_location(current_file, Some(import_line));
                 print_hint(&format!(
-                    "only `.fr` source files can be imported — \
+                    "only `.fr` source files can be imported - \
                      rename the file to have a `.fr` extension, \
                      or remove `.{ext}` from the import path (the compiler adds `.fr` automatically)"
                 ));
@@ -97,7 +97,7 @@ fn module_search(
                 );
                 print_location(current_file, Some(import_line));
                 print_hint(&format!(
-                    "the file was found but could not be read — \
+                    "the file was found but could not be read - \
                      check that the process has read permission on this file; OS error: {e}"
                 ));
                 blank_line();
@@ -116,7 +116,7 @@ fn module_search(
             caret = "^".repeat(module_name.len())
         );
         print_hint(&format!(
-            "the path `{display}` does not exist — \
+            "the path `{display}` does not exist - \
              check for typos in the filename, and note that paths are resolved \
              relative to the importing file, not the working directory"
         ));
@@ -137,7 +137,7 @@ fn module_search(
                 );
                 print_location(current_file, Some(import_line));
                 print_hint(&format!(
-                    "the module file was found at `{lib_path}` but could not be read — \
+                    "the module file was found at `{lib_path}` but could not be read - \
                      check file permissions; OS error: {e}"
                 ));
                 blank_line();
@@ -156,7 +156,7 @@ fn module_search(
                 caret = "^".repeat(module_name.len())
             );
             print_hint(&format!(
-                "`{module_name}` is not in the standard library — \
+                "`{module_name}` is not in the standard library - \
                  if this is a local file, quote the path: `!import \"{module_name}.fr\";` \
                  so it is resolved relative to the current file instead"
             ));
@@ -433,7 +433,7 @@ fn traverse(
                         pad = " ".repeat(8 + module_name.len())
                     );
                     print_hint(&format!(
-                        "every import statement must end with a semicolon — \
+                        "every import statement must end with a semicolon - \
                          write it as: `!import {module_name};`"
                     ));
                     blank_line();
@@ -456,7 +456,7 @@ fn traverse(
                         caret = "^".repeat(module_name.len())
                     );
                     print_hint(
-                        "local file paths must be in double quotes: `!import \"./mymod\";` — \
+                        "local file paths must be in double quotes: `!import \"./mymod\";` - \
                          standard library module names must start with a letter or `_`: `!import math;`",
                     );
                     blank_line();
@@ -484,7 +484,7 @@ fn traverse(
                                 "       \x1b[1;31m└─ {resolved_path} ↩ already in the chain above\x1b[0m"
                             );
                             print_hint(
-                                "a file cannot directly or transitively import itself — \
+                                "a file cannot directly or transitively import itself - \
                                  extract the shared code into a separate module that neither file imports"
                             );
                             blank_line();

@@ -378,7 +378,7 @@ fn render_search_header(ui: &mut egui::Ui, t: &Theme, query: &str, chapter: Chap
     note(
         ui,
         &format!(
-            "Showing chapter \"{}\" — keywords matching \"{}\" highlighted in sidebar.",
+            "Showing chapter \"{}\" - keywords matching \"{}\" highlighted in sidebar.",
             chapter.label(),
             query
         ),
@@ -616,11 +616,7 @@ fn render_quick_reference(ui: &mut egui::Ui, t: &Theme) {
 
     rule(ui, t);
     h2(ui, "Program Structure", t);
-    code(
-        ui,
-        "!start\n    # your code here\n!end",
-        t,
-    );
+    code(ui, "!start\n    # your code here\n!end", t);
 
     rule(ui, t);
     h2(ui, "Keywords", t);
@@ -682,11 +678,7 @@ fn render_quick_reference(ui: &mut egui::Ui, t: &Theme) {
 
     rule(ui, t);
     h2(ui, "Type Casting", t);
-    para(
-        ui,
-        "Use :Type(expression) to convert between types:",
-        t,
-    );
+    para(ui, "Use :Type(expression) to convert between types:", t);
     code(
         ui,
         ":int n = :int(3.99);    # 3\n:float f = :float(5);    # 5.0\n:char c = :char(65);     # 'A'",
@@ -725,27 +717,23 @@ fn render_getting_started(ui: &mut egui::Ui, t: &Theme) {
     h1(ui, "Getting Started", t);
     para(
         ui,
-        "Welcome to Fractal — a statically-typed, strongly-typed language designed for \
+        "Welcome to Fractal - a statically-typed, strongly-typed language designed for \
         clarity and correctness.",
         t,
     );
 
     rule(ui, t);
     h2(ui, "Hello World", t);
-    para(ui, "Every program must begin with !start and end with !end.", t);
-    code(
+    para(
         ui,
-        "!start\n    print(\"Hello, World!\\n\");\n!end",
+        "Every program must begin with !start and end with !end.",
         t,
     );
+    code(ui, "!start\n    print(\"Hello, World!\\n\");\n!end", t);
 
     rule(ui, t);
     h2(ui, "Variables & Functions", t);
-    para(
-        ui,
-        "A simple program with variables and a function:",
-        t,
-    );
+    para(ui, "A simple program with variables and a function:", t);
     code(
         ui,
         "!start\n    :int x = 10;\n    :int y = 20;\n\n    !func sum(:int a, :int b) -> :int {\n        !return a + b;\n    }\n\n    print(\"{} + {} = {}\", x, y, sum(x, y));\n!end",
@@ -754,11 +742,7 @@ fn render_getting_started(ui: &mut egui::Ui, t: &Theme) {
 
     rule(ui, t);
     h2(ui, "Loops & Conditionals", t);
-    para(
-        ui,
-        "Using !for loop and !if statement:",
-        t,
-    );
+    para(ui, "Using !for loop and !if statement:", t);
     code(
         ui,
         "!start\n    :int total = 0;\n\n    !for (:int i, 1, 6, 1) {\n        !if (i % 2 == 0) {\n            total = total + i;\n        }\n    }\n\n    print(\"Sum of evens 1-5: {}\", total);\n!end",
@@ -767,11 +751,7 @@ fn render_getting_started(ui: &mut egui::Ui, t: &Theme) {
 
     rule(ui, t);
     h2(ui, "Why Fractal?", t);
-    para(
-        ui,
-        "Fractal was built around three principles:",
-        t,
-    );
+    para(ui, "Fractal was built around three principles:", t);
     kv2(
         ui,
         "philosophy",
@@ -781,10 +761,7 @@ fn render_getting_started(ui: &mut egui::Ui, t: &Theme) {
                 "No implicit casts",
                 "Every type conversion is explicit with :Type(expr)",
             ),
-            (
-                "Compile-time safety",
-                "Type errors caught before running",
-            ),
+            ("Compile-time safety", "Type errors caught before running"),
             (
                 "Minimal syntax",
                 "Keywords use ! prefix, never conflict with variables",
@@ -803,19 +780,11 @@ fn render_getting_started(ui: &mut egui::Ui, t: &Theme) {
 
     rule(ui, t);
     h2(ui, "Importing Files", t);
-    code(
-        ui,
-        "!import \"math\";\n!import \"./utils.fr\";",
-        t,
-    );
+    code(ui, "!import \"math\";\n!import \"./utils.fr\";", t);
 
     rule(ui, t);
     h2(ui, "Compiler Errors", t);
-    para(
-        ui,
-        "The compiler catches type errors at compile time:",
-        t,
-    );
+    para(ui, "The compiler catches type errors at compile time:", t);
     code(
         ui,
         "!start\n    :int a = 10;\n    :float b = 3.0;\n\n    # ERROR: cannot assign float to int\n    :int c = b;\n\n    # CORRECT: use explicit cast\n    :int d = :int(b);   # 3\n!end",
@@ -861,7 +830,7 @@ fn render_types_variables(ui: &mut egui::Ui, t: &Theme) {
             (":float", "64-bit IEEE 754 float", "0.0"),
             (":char", "Unicode character", "'\\0'"),
             (":boolean", "true or false", "false"),
-            (":void", "Null type", "—"),
+            (":void", "Null type", "-"),
         ],
         t,
     );
@@ -898,10 +867,7 @@ fn render_types_variables(ui: &mut egui::Ui, t: &Theme) {
     shortcuts_table(
         ui,
         "float_lit",
-        &[
-            ("1.5", "Plain"),
-            ("1.5e6", "Scientific"),
-        ],
+        &[("1.5", "Plain"), ("1.5e6", "Scientific")],
         t,
     );
 
@@ -915,11 +881,7 @@ fn render_types_variables(ui: &mut egui::Ui, t: &Theme) {
 
     rule(ui, t);
     h2(ui, "Type Casting", t);
-    para(
-        ui,
-        "Use :Type(expression) syntax:",
-        t,
-    );
+    para(ui, "Use :Type(expression) syntax:", t);
     kv2(
         ui,
         "casts",
@@ -998,11 +960,7 @@ fn render_operators(ui: &mut egui::Ui, t: &Theme) {
         ui,
         "logical",
         ["Operator", "Description"],
-        &[
-            ("!not", "NOT"),
-            ("!and", "AND"),
-            ("!or", "OR"),
-        ],
+        &[("!not", "NOT"), ("!and", "AND"), ("!or", "OR")],
         t,
     );
     code(
@@ -1128,11 +1086,7 @@ fn render_functions_control(ui: &mut egui::Ui, t: &Theme) {
 
     rule(ui, t);
     h2(ui, "Recursion", t);
-    para(
-        ui,
-        "Functions can call themselves:",
-        t,
-    );
+    para(ui, "Functions can call themselves:", t);
     code(
         ui,
         "!func factorial(:int n) -> :int {\n    !if (n <= 1) { !return 1; }\n    !return n * factorial(n - 1);\n}\n\nprint(\"{}\", factorial(5));  # 120",
@@ -1186,11 +1140,7 @@ fn render_structs(ui: &mut egui::Ui, t: &Theme) {
 
     rule(ui, t);
     h2(ui, "Member Access", t);
-    code(
-        ui,
-        ":float x = p::x;\n:float y = p::y;",
-        t,
-    );
+    code(ui, ":float x = p::x;\n:float y = p::y;", t);
 
     rule(ui, t);
     h2(ui, "Structs in Functions", t);
@@ -1215,7 +1165,7 @@ fn render_structs(ui: &mut egui::Ui, t: &Theme) {
 
     warning(
         ui,
-        "Declaring a struct without an initializer produces a warning — structs have no default value.",
+        "Declaring a struct without an initializer produces a warning - structs have no default value.",
         t,
     );
 }
@@ -1234,11 +1184,7 @@ fn render_modules(ui: &mut egui::Ui, t: &Theme) {
 
     rule(ui, t);
     h2(ui, "Defining a Module", t);
-    para(
-        ui,
-        "A module wraps related code:",
-        t,
-    );
+    para(ui, "A module wraps related code:", t);
     code(
         ui,
         "!module Math {\n    :float pi = 3.14159;\n\n    !func square(:int n) -> :int {\n        !return n * n;\n    }\n}",
@@ -1247,24 +1193,12 @@ fn render_modules(ui: &mut egui::Ui, t: &Theme) {
 
     rule(ui, t);
     h2(ui, "Importing Files", t);
-    para(
-        ui,
-        "Use !import to bring in another file:",
-        t,
-    );
-    code(
-        ui,
-        "!import \"./math.fr\";\n!import \"utils\";",
-        t,
-    );
+    para(ui, "Use !import to bring in another file:", t);
+    code(ui, "!import \"./math.fr\";\n!import \"utils\";", t);
 
     rule(ui, t);
     h2(ui, "Module Example", t);
-    para(
-        ui,
-        "File: constants.fr",
-        t,
-    );
+    para(ui, "File: constants.fr", t);
     code(
         ui,
         "!start\n    :float golden_ratio = 1.618;\n    :float e = 2.718;\n!end",
@@ -1306,11 +1240,7 @@ fn render_modules(ui: &mut egui::Ui, t: &Theme) {
 
 fn render_stdlib(ui: &mut egui::Ui, t: &Theme) {
     h1(ui, "Standard Library", t);
-    para(
-        ui,
-        "Built-in functions for I/O and collections.",
-        t,
-    );
+    para(ui, "Built-in functions for I/O and collections.", t);
 
     rule(ui, t);
     h2(ui, "I/O Functions", t);
@@ -1323,11 +1253,7 @@ fn render_stdlib(ui: &mut egui::Ui, t: &Theme) {
     );
 
     h3(ui, "input", t);
-    code(
-        ui,
-        ":int n;\ninput(\"{}\", n);",
-        t,
-    );
+    code(ui, ":int n;\ninput(\"{}\", n);", t);
 
     rule(ui, t);
     h2(ui, "List Functions", t);

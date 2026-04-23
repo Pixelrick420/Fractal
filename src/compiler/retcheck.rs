@@ -84,7 +84,7 @@ pub fn check_function_returns(
         errors.push(format!(
             "function `{}` does not return a value on all code paths\n   \
              note: every branch of a non-`:void` function must end with `!return <expr>;`\n   \
-             note: a bare `!if` without a matching `!else` is not sufficient — \
+             note: a bare `!if` without a matching `!else` is not sufficient - \
              add an `!else` branch that also returns, or add a `!return` after the `!if`",
             func_name
         ));

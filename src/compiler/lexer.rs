@@ -532,12 +532,12 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
             if matches!(result, TokenType::NoMatch) {
                 let hint = if buffer == "true" || buffer == "false" {
                     format!(
-                        "`!{buffer}` is not valid — boolean literals do not use the `!` prefix; \
+                        "`!{buffer}` is not valid - boolean literals do not use the `!` prefix; \
                          write `{buffer}` directly"
                     )
                 } else if buffer.len() >= 3 {
                     if let Some(close) = closest_keyword(&buffer) {
-                        format!("unknown keyword `!{buffer}` — did you mean `!{close}`?")
+                        format!("unknown keyword `!{buffer}` - did you mean `!{close}`?")
                     } else {
                         format!(
                             "unknown keyword `!{buffer}`; valid keywords: \
@@ -607,7 +607,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
             if matches!(result, TokenType::NoMatch) {
                 let hint = if buffer.len() >= 3 {
                     if let Some(close) = closest_type(&buffer) {
-                        format!("unknown type `:{buffer}` — did you mean `:{close}`?")
+                        format!("unknown type `:{buffer}` - did you mean `:{close}`?")
                     } else {
                         format!("unknown type `:{buffer}`; valid primitive types: \\
                              int, float, char, boolean, void; generic: array<T,N>, list<T>, struct<n>")
@@ -673,7 +673,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                             emit_error(program, &map_file, byte_off!(index - 1), 2, "E006",
                                 "unnecessary escape `\\'` in string literal",
                                 "invalid escape",
-                                "inside \"...\" strings, `'` does not need escaping — write it as `'` directly");
+                                "inside \"...\" strings, `'` does not need escaping - write it as `'` directly");
                             had_error = true;
                             '\''
                         }
@@ -789,7 +789,7 @@ pub fn tokenize_with_source(program: &str, source_file: &str) -> Vec<Token> {
                                 "E006",
                                 "unnecessary escape `\\\"` in char literal",
                                 "invalid escape",
-                                "inside '...' char literals, `\"` does not need escaping — write it as `\"` directly",
+                                "inside '...' char literals, `\"` does not need escaping - write it as `\"` directly",
                             );
                             had_error = true;
                             '"'

@@ -879,24 +879,24 @@ impl Parser {
 
     fn keyword_hint(name: &str) -> Option<&'static str> {
         match name {
-            "if" => Some("`if` is not valid here — did you mean `!if`?"),
-            "elif" => Some("`elif` is not valid here — did you mean `!elif`?"),
-            "else" => Some("`else` is not valid here — did you mean `!else`?"),
-            "for" => Some("`for` is not valid here — did you mean `!for`?"),
-            "while" => Some("`while` is not valid here — did you mean `!while`?"),
-            "func" => Some("`func` is not valid here — did you mean `!func`?"),
-            "return" => Some("`return` is not valid here — did you mean `!return`?"),
-            "break" => Some("`break` is not valid here — did you mean `!break`?"),
-            "continue" => Some("`continue` is not valid here — did you mean `!continue`?"),
-            "import" => Some("`import` is not valid here — did you mean `!import`?"),
-            "struct" => Some("`struct` is not valid here — did you mean `:struct`?"),
-            "int" => Some("`int` is not valid here — did you mean `:int`?"),
-            "float" => Some("`float` is not valid here — did you mean `:float`?"),
-            "char" => Some("`char` is not valid here — did you mean `:char`?"),
-            "boolean" => Some("`boolean` is not valid here — did you mean `:boolean`?"),
-            "void" => Some("`void` is not valid here — did you mean `:void`?"),
-            "array" => Some("`array` is not valid here — did you mean `:array`?"),
-            "list" => Some("`list` is not valid here — did you mean `:list`?"),
+            "if" => Some("`if` is not valid here - did you mean `!if`?"),
+            "elif" => Some("`elif` is not valid here - did you mean `!elif`?"),
+            "else" => Some("`else` is not valid here - did you mean `!else`?"),
+            "for" => Some("`for` is not valid here - did you mean `!for`?"),
+            "while" => Some("`while` is not valid here - did you mean `!while`?"),
+            "func" => Some("`func` is not valid here - did you mean `!func`?"),
+            "return" => Some("`return` is not valid here - did you mean `!return`?"),
+            "break" => Some("`break` is not valid here - did you mean `!break`?"),
+            "continue" => Some("`continue` is not valid here - did you mean `!continue`?"),
+            "import" => Some("`import` is not valid here - did you mean `!import`?"),
+            "struct" => Some("`struct` is not valid here - did you mean `:struct`?"),
+            "int" => Some("`int` is not valid here - did you mean `:int`?"),
+            "float" => Some("`float` is not valid here - did you mean `:float`?"),
+            "char" => Some("`char` is not valid here - did you mean `:char`?"),
+            "boolean" => Some("`boolean` is not valid here - did you mean `:boolean`?"),
+            "void" => Some("`void` is not valid here - did you mean `:void`?"),
+            "array" => Some("`array` is not valid here - did you mean `:array`?"),
+            "list" => Some("`list` is not valid here - did you mean `:list`?"),
             _ => None,
         }
     }
@@ -992,7 +992,7 @@ impl Parser {
                 }
                 if matches!(self.peek(), Some(TokenType::EndL)) {
                     return Err(self.err(
-                        "bare `!return;` is not valid — a return value is required\n   \
+                        "bare `!return;` is not valid - a return value is required\n   \
                          note: every non-`:void` function must return a value: `!return <expr>;`\n   \
                          note: to return from a `:void` function use `!return !null;`",
                     ));
@@ -1114,7 +1114,7 @@ impl Parser {
         if let Some(op) = compound_op {
             return Err(self.err(format!(
                 "`{name}` has not been declared yet, so `{op}` is not valid here\n   \
-                 note: `{op}` requires the variable to already exist — \
+                 note: `{op}` requires the variable to already exist - \
                  you cannot declare and compound-assign in one step\n   \
                  hint: to declare with an initial value use `=`:  `:int {name} = <expr>;`\n   \
                  hint: if `{name}` was declared earlier, remove the type prefix: `{name} {op} <expr>;`"
@@ -1668,7 +1668,7 @@ impl Parser {
                 return Err(self.err(
                     "trailing comma is not allowed in an argument list\n   \
                      note: remove the `,` after the last argument\n   \
-                     note: valid call: `func(a, b, c)` — not `func(a, b, c,)`",
+                     note: valid call: `func(a, b, c)` - not `func(a, b, c,)`",
                 ));
             }
             args.push(self.parse_expression()?);

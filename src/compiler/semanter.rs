@@ -493,7 +493,7 @@ impl Analyzer {
                     let suggestion = suggest_similar(name, self.scopes.all_names());
                     let msg = match suggestion {
                         Some(ref s) => format!(
-                            "undefined variable `{}`\nhint: a variable named `{}` is in scope — did you mean `{}`?",
+                            "undefined variable `{}`\nhint: a variable named `{}` is in scope - did you mean `{}`?",
                             name, s, s
                         ),
                         None => format!(
@@ -822,7 +822,7 @@ impl Analyzer {
                                         if !matches!(first_arg, ParseNode::StringLit(_, _)) {
                                             self.error_at(*line,
                                                 "first argument to `print` must be a string literal; \
-                                                 e.g. `print(\"{}\", value)` — a variable of type \
+                                                 e.g. `print(\"{}\", value)` - a variable of type \
                                                  `:array<:char>` is not accepted as a format string"
                                                     .to_string(),
                                             );
@@ -849,12 +849,12 @@ impl Analyzer {
                                                                 if steps.last().map_or(false, |s| matches!(s, AccessStep::Call(_))) =>
                                                             {
                                                                 format!(
-                                                                    "\nnote: `{}(...)` returns `:void` — it produces no value and cannot be printed\n\
+                                                                    "\nnote: `{}(...)` returns `:void` - it produces no value and cannot be printed\n\
                                                                      hint: call `{}(...)` on its own line as a statement, not as an argument to `print`",
                                                                     base, base
                                                                 )
                                                             }
-                                                            _ => "\nnote: `:void` means the expression produces no value — only functions that return a value can be printed".to_string(),
+                                                            _ => "\nnote: `:void` means the expression produces no value - only functions that return a value can be printed".to_string(),
                                                         }
                                                     } else {
                                                         "\nnote: `:void` means the expression produces no value".to_string()
@@ -867,7 +867,7 @@ impl Analyzer {
                                                 }
                                                 SemType::Struct(sname) => format!(
                                                     "`print` argument {} has type `:struct<{}>`, which cannot be printed directly\n\
-                                                     note: structs are composite types — `print` only accepts `:int`, `:float`, `:char`, and `:boolean` values\n\
+                                                     note: structs are composite types - `print` only accepts `:int`, `:float`, `:char`, and `:boolean` values\n\
                                                      hint: access a printable field instead, e.g. `print(\"{{}}\", {}::field_name)`\n\
                                                      hint: to print a numeric field from `{}`, use `{}::field_name` as the argument",
                                                     i + 1, sname,
@@ -888,14 +888,14 @@ impl Analyzer {
                                                 ),
                                                 SemType::List { elem: _ } => format!(
                                                     "`print` argument {} has type `{}`, which cannot be printed directly\n\
-                                                     note: lists are not scalar values — `print` only accepts `:int`, `:float`, `:char`, and `:boolean`\n\
+                                                     note: lists are not scalar values - `print` only accepts `:int`, `:float`, `:char`, and `:boolean`\n\
                                                      hint: to print a specific element, index into it: e.g. `print(\"{{}}\", my_list[0])`\n\
                                                      hint: to print all elements, use a `!for` loop over the list",
                                                     i + 1, at.display()
                                                 ),
                                                 SemType::Array { elem: _, size } => format!(
                                                     "`print` argument {} has type `{}`, which cannot be printed directly\n\
-                                                     note: arrays are not scalar values — `print` only accepts `:int`, `:float`, `:char`, and `:boolean`\n\
+                                                     note: arrays are not scalar values - `print` only accepts `:int`, `:float`, `:char`, and `:boolean`\n\
                                                      hint: to print a specific element, index into it: e.g. `print(\"{{}}\", my_array[0])`\n\
                                                      hint: to print all {} elements, use a `!for` loop",
                                                     i + 1, at.display(), size
@@ -1038,7 +1038,7 @@ impl Analyzer {
                             } else {
                                 if self.scopes.lookup(&func_name).is_some() {
                                     self.error_at(*line, format!(
-                                        "`{}` is not a function and cannot be called\nnote: `{}` is declared as a variable — did you mean to read its value instead of calling it?",
+                                        "`{}` is not a function and cannot be called\nnote: `{}` is declared as a variable - did you mean to read its value instead of calling it?",
                                         func_name, func_name
                                     ));
                                 } else {
@@ -1046,7 +1046,7 @@ impl Analyzer {
                                         suggest_similar(&func_name, self.scopes.all_names());
                                     let msg = match suggestion {
                                         Some(ref s) => format!(
-                                            "undefined function `{}`\nhint: a name `{}` is in scope — did you mean to call `{}`?",
+                                            "undefined function `{}`\nhint: a name `{}` is in scope - did you mean to call `{}`?",
                                             func_name, s, s
                                         ),
                                         None => format!(
@@ -1381,7 +1381,7 @@ impl Analyzer {
                 }
                 if lt.is_numeric() && rt.is_numeric() && lt != rt {
                     self.error_at(*line, format!(
-                        "type mismatch in arithmetic: `{}` + `{}` — operands must be the same type\nhint: use an explicit cast: `:{}(expr)` to convert before the operation",
+                        "type mismatch in arithmetic: `{}` + `{}` - operands must be the same type\nhint: use an explicit cast: `:{}(expr)` to convert before the operation",
                         lt.display(),
                         rt.display(),
                         if matches!(lt, SemType::Float) { "int" } else { "float" }
@@ -1457,7 +1457,7 @@ impl Analyzer {
                 }
                 if lt.is_numeric() && rt.is_numeric() && lt != rt {
                     self.error_at(*line, format!(
-                        "type mismatch in arithmetic: `{}` * `{}` — operands must be the same type\nhint: use an explicit cast: `:{}(expr)` to convert before the operation",
+                        "type mismatch in arithmetic: `{}` * `{}` - operands must be the same type\nhint: use an explicit cast: `:{}(expr)` to convert before the operation",
                         lt.display(),
                         rt.display(),
                         if matches!(lt, SemType::Float) { "int" } else { "float" }
@@ -1680,7 +1680,7 @@ impl Analyzer {
                         if is_builtin {
                             self.error(format!(
                                 "function `{}` is already defined in this scope\n\
-                                 hint: a built-in function named `{}` exists — \
+                                 hint: a built-in function named `{}` exists - \
                                  consider renaming your function to avoid the conflict",
                                 name, name
                             ));
@@ -1912,7 +1912,7 @@ impl Analyzer {
                 }
                 if self.scopes.defined_in_current(name) {
                     self.error_at(*line, format!(
-                        "variable `{}` is already declared in this scope\nnote: each variable name must be unique within a block — choose a different name, or remove the duplicate declaration",
+                        "variable `{}` is already declared in this scope\nnote: each variable name must be unique within a block - choose a different name, or remove the duplicate declaration",
                         name
                     ));
                 } else {
@@ -2081,7 +2081,7 @@ impl Analyzer {
                     let suggestion = suggest_similar(struct_name, self.scopes.all_names());
                     let msg = match suggestion {
                         Some(ref s) => format!(
-                            "undefined struct type `{}`\nhint: a type named `{}` is in scope — did you mean `:struct<{}>`?",
+                            "undefined struct type `{}`\nhint: a type named `{}` is in scope - did you mean `:struct<{}>`?",
                             struct_name, s, s
                         ),
                         None => format!(
@@ -2241,7 +2241,7 @@ impl Analyzer {
                             *line,
                             format!(
                                 "type mismatch in {}: left is `{}`, right is `{}` \
-                             — operands must be the same type; use an explicit cast",
+                             - operands must be the same type; use an explicit cast",
                                 op_str,
                                 lv_ty.display(),
                                 rv_ty.display()
@@ -2380,7 +2380,7 @@ impl Analyzer {
                     self.error_at(
                         *line,
                         format!(
-                            "variable `{}` is already declared in an outer scope — \
+                            "variable `{}` is already declared in an outer scope - \
                             `!for` loop variable cannot shadow an existing variable",
                             var_name
                         ),
@@ -2455,7 +2455,7 @@ impl Analyzer {
                         );
                     }
                 } else {
-                    self.error_at(*line, "`!return` used outside of a function\nnote: `!return` can only appear inside a `!func` body — did you accidentally place it at the top level?");
+                    self.error_at(*line, "`!return` used outside of a function\nnote: `!return` can only appear inside a `!func` body - did you accidentally place it at the top level?");
                 }
             }
 

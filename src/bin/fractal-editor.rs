@@ -527,7 +527,7 @@ impl FractalEditor {
                     self.debug_binary_running = true;
                     self.debug_jsonl_path = Some(jsonl_path);
                     self.success_message =
-                        Some("Debug session started — F5 to step, Shift+F5 to stop.".into());
+                        Some("Debug session started - F5 to step, Shift+F5 to stop.".into());
                 }
                 CompileResult::Error(msg) => {
                     if !msg.trim().is_empty() {

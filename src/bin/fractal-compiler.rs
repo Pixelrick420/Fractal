@@ -68,7 +68,7 @@ fn main() {
     let processed_program = preprocessor::preprocess(&contents, source_file);
 
     if DEBUG {
-        section("STAGE 1 — PREPROCESSOR OUTPUT");
+        section("STAGE 1 - PREPROCESSOR OUTPUT");
         for (i, line) in processed_program.lines().enumerate() {
             eprintln!("{:>4} │ {}", i + 1, line);
         }
@@ -77,19 +77,19 @@ fn main() {
     let tokens = lexer::tokenize_with_source(&processed_program, source_file);
 
     if DEBUG {
-        section("STAGE 2 — LEXER TOKENS");
+        section("STAGE 2 - LEXER TOKENS");
     }
 
     match parser::parse_with_source(tokens, source_file) {
         Ok(node) => {
             if DEBUG {
-                section("STAGE 3 — PARSE TREE");
+                section("STAGE 3 - PARSE TREE");
             }
 
             let result = analyze(&node);
 
             if DEBUG {
-                section("STAGE 4 — SEMANTIC ANALYSIS");
+                section("STAGE 4 - SEMANTIC ANALYSIS");
             }
             result.print_errors();
             if DEBUG {
@@ -114,7 +114,7 @@ fn main() {
             };
 
             if DEBUG {
-                section("STAGE 5 — GENERATED RUST CODE");
+                section("STAGE 5 - GENERATED RUST CODE");
                 for (i, line) in rs_code.lines().enumerate() {
                     eprintln!("{:>4} │ {}", i + 1, line);
                 }
@@ -133,7 +133,7 @@ fn main() {
             };
 
             if DEBUG {
-                section("STAGE 6 — RUSTC");
+                section("STAGE 6 - RUSTC");
             }
 
             let crate_name = Path::new(source_file)
@@ -177,7 +177,7 @@ fn main() {
                     }
                 }
                 Ok(_) => {
-                    print_error("rustc reported errors — this is likely a compiler bug");
+                    print_error("rustc reported errors - this is likely a compiler bug");
                     eprintln!(
                         " \x1b[1;34m  =\x1b[0m \x1b[1;36mnote\x1b[0m: the generated Rust source has been kept at `{}` for inspection",
                         out_path.display()

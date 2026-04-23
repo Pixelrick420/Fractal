@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const godboltResp = await fetchImpl(
-      "https://godbolt.org/api/compiler/rust/compile",
+      "https://godbolt.org/api/compiler/r1880/compile",
       {
         method: "POST",
         headers: {
@@ -142,15 +142,14 @@ export async function POST(request: NextRequest) {
         },
         body: JSON.stringify({
           source: rustSource,
+          compiler: "r1880",
           options: {
             userArguments: "",
             executeParameters: {
-              args: [],
+              args: "",
               stdin: "",
             },
-            compilerOptions: {
-              executorRequest: true,
-            },
+            compilerOptions: {},
             filters: {
               execute: true,
             },
@@ -158,7 +157,7 @@ export async function POST(request: NextRequest) {
             libraries: [],
           },
           lang: "rust",
-          allowStoreCodeDebug: true,
+          allowStoreCodeDebug: false,
         }),
       },
     );
@@ -170,24 +169,25 @@ export async function POST(request: NextRequest) {
     const result = (await godboltResp.json()) as {
       stdout?: Array<{ text: string }>;
       stderr?: Array<{ text: string }>;
-      buildResult?: { stderr?: Array<{ text: string }> };
+      execResult?: {
+        stdout?: Array<{ text: string }>;
+        stderr?: Array<{ text: string }>;
+        code?: number;
+      };
       code?: number;
     };
 
-    const stdout = (result.stdout ?? [])
-      .map((l) => l.text)
-      .join("\n")
-      .trim();
-    const stderr = (result.stderr ?? [])
-      .map((l) => l.text)
-      .join("\n")
-      .trim();
-    const buildErr = (result.buildResult?.stderr ?? [])
+    const stdout = (result.execResult?.stdout ?? result.stdout ?? [])
       .map((l) => l.text)
       .join("\n")
       .trim();
 
-    if (buildErr) {
+    const buildErr = (result.stderr ?? [])
+      .map((l) => l.text)
+      .join("\n")
+      .trim();
+
+    if (buildErr && result.code !== 0) {
       return NextResponse.json({
         output: "",
         compiled: false,
@@ -198,7 +198,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       output: stdout || "(no output)",
       compiled: true,
-      error: stderr || null,
+      error: null,
     });
   } catch (err: any) {
     return NextResponse.json({

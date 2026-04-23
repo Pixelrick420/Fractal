@@ -1,21 +1,10 @@
 "use client";
-import { useState, useRef } from "react";
-import Editor from "@monaco-editor/react";
+import { useState, useCallback } from "react";
+import Editor, { OnMount } from "@monaco-editor/react";
+import { Info, AlertTriangle, Lightbulb } from "lucide-react";
 import Navbar from "../../components/Navbar";
-import styles from "../docs/docs.module.css";
-import {
-  BookOpen,
-  Code2,
-  Variable,
-  Hash,
-  List,
-  Brackets,
-  Repeat,
-  Import,
-  ChevronRight,
-  AlertCircle,
-  Info,
-} from "lucide-react";
+import styles from "./docs.module.css";
+import type { languages } from "monaco-editor";
 
 const KEYWORDS = [
   "start",
@@ -38,7 +27,6 @@ const KEYWORDS = [
   "not",
   "null",
 ];
-
 const TYPES = [
   "int",
   "float",
@@ -50,435 +38,337 @@ const TYPES = [
   "void",
 ];
 
-type TableData = { title: string; headers: string[]; rows: string[][] };
+// ── Docs data ─────────────────────────────────────────────
+type NoteKind = "info" | "warning" | "tip";
 
-type Section = {
+interface Note {
+  kind: NoteKind;
+  text: string;
+}
+
+interface TableRow {
+  col1: string;
+  col2: string;
+  col3?: string;
+}
+
+interface DocSection {
   id: string;
+  label: string;
+  tag: string;
   title: string;
-  icon: any;
   description: string;
+  tables: { title: string; headers: string[]; rows: TableRow[] }[];
+  notes: Note[];
+  codeFile: string;
   code: string;
-  notes?: { type: "note" | "warning"; text: string }[];
-  tables?: TableData[];
-};
+}
 
-const SECTIONS: Section[] = [
+const DOCS: DocSection[] = [
   {
-    id: "quick-reference",
-    title: "Quick Reference",
-    icon: BookOpen,
+    id: "variables",
+    label: "Variables",
+    tag: "Core",
+    title: "Variables & Types",
     description:
-      "This page provides a quick syntax overview. Click chapters in the sidebar for detailed documentation.",
-    code: `!start
-    # your code here
-!end`,
+      "Fractal uses a prefix-based declaration syntax. Variables are declared with a colon followed by the type, making the type immediately visible at the declaration site.",
     tables: [
       {
-        title: "Keywords",
-        headers: ["Keyword", "Description"],
+        title: "Primitive Types",
+        headers: ["Type", "Description", "Example"],
         rows: [
-          ["!start / !end", "Program delimiters"],
-          ["!func", "Declare a function"],
-          ["!if / !elif / !else", "Conditional"],
-          ["!for", "Counted loop"],
-          ["!while", "Condition loop"],
-          ["!return", "Return from function"],
-          ["!break / !continue", "Loop control"],
-          ["!import", "Import another file"],
-          ["!module", "Define a module"],
-          ["!exit", "Terminate program"],
-        ],
-      },
-      {
-        title: "Types",
-        headers: ["Type", "Description"],
-        rows: [
-          [":int", "64-bit integer"],
-          [":float", "64-bit float"],
-          [":char", "Unicode character"],
-          [":boolean", "true or false"],
-          [":void", "Null type"],
-          [":array<T, N>", "Fixed array"],
-          [":list<T>", "Dynamic list"],
-          [":struct<Name>", "User struct"],
-        ],
-      },
-      {
-        title: "Operators",
-        headers: ["Operator", "Description"],
-        rows: [
-          ["+ - * / %", "Arithmetic"],
-          ["& | ^ ~", "Bitwise"],
-          ["!not !and !or", "Logical"],
-          ["== ~= > < >= <=", "Comparison"],
-          ["+= -= *= /= %=", "Compound assign"],
-          ["::", "Struct member"],
-          ["->", "Return type"],
-        ],
-      },
-    ],
-  },
-  {
-    id: "getting-started",
-    title: "Getting Started",
-    icon: BookOpen,
-    description:
-      "Welcome to Fractal - a statically-typed, strongly-typed language designed for clarity and correctness.\n\nEvery program must begin with !start and end with !end.",
-    code: `!start
-    print("Hello, World!\\n");
-!end
-
-# Variables & Functions
-!start
-    :int x = 10;
-    :int y = 20;
-
-    !func sum(:int a, :int b) -> :int {
-        !return a + b;
-    }
-
-    print("{} + {} = {}", x, y, sum(x, y));
-!end
-
-# Loops & Conditionals
-!start
-    :int total = 0;
-
-    !for (:int i, 1, 6, 1) {
-        !if (i % 2 == 0) {
-            total = total + i;
-        }
-    }
-
-    print("Sum of evens 1-5: {}", total);
-!end`,
-    notes: [
-      {
-        type: "note",
-        text: "Fractal was built around three principles: No implicit casts (every type conversion is explicit with :Type(expr)), Compile-time safety (type errors caught before running), Minimal syntax (keywords use ! prefix, never conflict with variables).",
-      },
-    ],
-  },
-  {
-    id: "types-variables",
-    title: "Types & Variables",
-    icon: Variable,
-    description:
-      "Fractal is statically typed. Every variable must have an explicit type annotation.\n\nType names always start with : (colon).",
-    code: `# Simple types
-:int     count = 42;
-:float   ratio = 0.618;
-:char    letter = 'F';
-:boolean flag = true;
-
-# Default values
-:int zero;     # 0
-:float f;      # 0.0
-
-# Collection types
-:array<:int, 100> numbers;
-:list<:float> floats;
-
-# Type casting
-:float f = :float(42);    # 42.0
-:int n = :int(3.99);     # 3
-:char c = :char(65);      # 'A'
-
-# Indexing
-:int first = arr[0];`,
-    notes: [
-      {
-        type: "note",
-        text: "Integer literals: 255 (decimal), 0xFF (hexadecimal), 0b1111 (binary), 0o377 (octal).",
-      },
-      {
-        type: "note",
-        text: "Float literals: 1.5 (plain), 1.5e6 (scientific).",
-      },
-      {
-        type: "note",
-        text: "Default values: :int = 0, :float = 0.0, :char = '\\0', :boolean = false.",
-      },
-    ],
-    tables: [
-      {
-        title: "Simple Types",
-        headers: ["Type", "Description", "Default"],
-        rows: [
-          [":int", "64-bit signed integer", "0"],
-          [":float", "64-bit IEEE 754 float", "0.0"],
-          [":char", "Unicode character", "'\\0'"],
-          [":boolean", "true or false", "false"],
-          [":void", "Null type", "-"],
+          { col1: ":int", col2: "32-bit signed integer", col3: ":int x = 42;" },
+          {
+            col1: ":float",
+            col2: "64-bit floating point",
+            col3: ":float pi = 3.14;",
+          },
+          {
+            col1: ":char",
+            col2: "Single UTF-8 character",
+            col3: ":char c = 'a';",
+          },
+          {
+            col1: ":boolean",
+            col2: "true or false",
+            col3: ":boolean ok = true;",
+          },
         ],
       },
       {
         title: "Collection Types",
-        headers: ["Type", "Description"],
+        headers: ["Type", "Description", "Example"],
         rows: [
-          [":array<T, N>", "Fixed-size array of N elements"],
-          [":list<T>", "Dynamic list"],
-        ],
-      },
-      {
-        title: "Type Casting",
-        headers: ["Cast", "Effect"],
-        rows: [
-          [":int(expr)", "Convert to int (truncates)"],
-          [":float(expr)", "Convert to float"],
-          [":char(expr)", "Convert to char"],
-          [":boolean(expr)", "Convert to boolean"],
+          {
+            col1: ":array",
+            col2: "Fixed-size typed array",
+            col3: ":array<int> nums = [1,2,3];",
+          },
+          {
+            col1: ":list",
+            col2: "Dynamic growable list",
+            col3: ":list<int> xs = [];",
+          },
+          {
+            col1: ":struct",
+            col2: "Named field composite",
+            col3: "struct Point { ... }",
+          },
         ],
       },
     ],
-  },
-  {
-    id: "operators",
-    title: "Operators",
-    icon: Hash,
-    description:
-      "Fractal uses ~= for not-equal and ! prefix for logical operators.\n\nAll operators follow standard precedence rules.",
-    code: `# Arithmetic
-+ - * / %
-
-# Comparison
-== ~= < > <= >=
-
-# Logic
-!and !or !not
-
-# Bitwise
-& | ^ ~
-
-# Assignment
-+= -= *= /= %=
-
-# Casting (explicit conversion)
-:int x = :int(5.7);  # 5
-:float y = :float(5);  # 5.0`,
-  },
-  {
-    id: "control-flow",
-    title: "Control Flow",
-    icon: Repeat,
-    description:
-      "Fractal has !func, !if, !for, and !while. All blocks use curly braces.\n\nFunction definitions must appear at the top level, not inside any block.",
-    code: `# Functions
-!func add(:int a, :int b) -> :int {
-    !return a + b;
-}
-
-!func greet(:char name) -> :void {
-    print("Hello {}\\n", name);
-}
-
-# Conditionals
-!if (x > 0) {
-    print("positive\\n");
-}
-!elif (x < 0) {
-    print("negative\\n");
-}
-!else {
-    print("zero\\n");
-}
-
-# For Loop
-!for (:int i, 0, 10, 1) {
-    print("{}", i);
-}
-
-# While Loop
-:int n = 10;
-!while (n > 0) {
-    print("{}", n);
-    n = n - 1;
-}
-
-# Break & Continue
-!for (:int i, 0, 100, 1) {
-    !if (i == 42) { !break; }
-}
-
-!for (:int i, 0, 10, 1) {
-    !if (i % 2 == 0) { !continue; }
-    print("{}", i);  # prints 1,3,5,7,9
-}
-
-# Recursion
-!func factorial(:int n) -> :int {
-    !if (n <= 1) { !return 1; }
-    !return n * factorial(n - 1);
-}
-
-# Variable Scope
-:int global = 10;
-!if (true) {
-    :int local = 20;
-    global = local;
-}`,
     notes: [
       {
-        type: "warning",
-        text: "The opening { must be on the same line as the condition.",
+        kind: "info",
+        text: "All variables must be declared before use. Fractal has no implicit type coercion.",
       },
       {
-        type: "note",
-        text: "The loop variable must be :int and must not shadow outer variables.",
+        kind: "tip",
+        text: "Use :int for general counting and indexing; :float when fractional precision matters.",
       },
     ],
+    codeFile: "variables.fr",
+    code: `!start
+    # integer arithmetic
+    :int x = 10;
+    :int y = 20;
+    :int sum = x + y;
+    print("Sum: {}", sum);
+
+    # floats
+    :float pi = 3.14159;
+    :float area = pi * 5.0 * 5.0;
+    print("Area: {:.2}", area);
+
+    # boolean
+    :boolean big = sum > 25;
+    print("Big? {}", big);
+!end`,
+  },
+  {
+    id: "control",
+    label: "Control Flow",
+    tag: "Core",
+    title: "Control Flow",
+    description:
+      "Fractal supports familiar control flow constructs — if/elif/else, while loops, and for loops — with a clean block syntax using curly braces.",
+    tables: [
+      {
+        title: "Branching",
+        headers: ["Construct", "Description"],
+        rows: [
+          {
+            col1: "if (cond) { }",
+            col2: "Execute block when condition is true",
+          },
+          { col1: "elif (cond) { }", col2: "Else-if branch" },
+          { col1: "else { }", col2: "Fallback branch" },
+        ],
+      },
+      {
+        title: "Loops",
+        headers: ["Construct", "Description"],
+        rows: [
+          { col1: "while (cond) { }", col2: "Repeat while condition holds" },
+          { col1: "for i in 0..n { }", col2: "Iterate over a range" },
+          { col1: "break", col2: "Exit the nearest loop immediately" },
+          { col1: "continue", col2: "Skip to the next loop iteration" },
+        ],
+      },
+    ],
+    notes: [
+      {
+        kind: "info",
+        text: "Conditions do not require parentheses but they are accepted. The body braces are always required.",
+      },
+      {
+        kind: "warning",
+        text: "Fractal does not have a switch/match statement yet. Use if/elif chains instead.",
+      },
+    ],
+    codeFile: "control.fr",
+    code: `!start
+    :int n = 10;
+    :int i = 0;
+
+    while (i < n) {
+        if (i % 2 == 0) {
+            print("{} is even", i);
+        } elif (i == 7) {
+            print("lucky seven!");
+        } else {
+            print("{} is odd", i);
+        }
+        i = i + 1;
+    }
+!end`,
+  },
+  {
+    id: "functions",
+    label: "Functions",
+    tag: "Core",
+    title: "Functions",
+    description:
+      "Functions are declared with the func keyword. Parameters are typed inline and the return type follows a thin arrow. Fractal functions are first-class values.",
+    tables: [
+      {
+        title: "Syntax",
+        headers: ["Element", "Description"],
+        rows: [
+          { col1: "func name(...)", col2: "Function declaration" },
+          { col1: "-> type", col2: "Explicit return type (void if omitted)" },
+          { col1: "return val;", col2: "Return a value from the function" },
+          { col1: ":void", col2: "Functions that produce no value" },
+        ],
+      },
+    ],
+    notes: [
+      {
+        kind: "tip",
+        text: "Functions can be declared anywhere inside a !start/!end block and called before their textual position.",
+      },
+      {
+        kind: "info",
+        text: "Recursive functions are fully supported. Stack depth is limited by the system stack.",
+      },
+    ],
+    codeFile: "functions.fr",
+    code: `!start
+    func add(a: int, b: int) -> int {
+        return a + b;
+    }
+
+    func greet(name: char) -> void {
+        print("Hello, {}!", name);
+    }
+
+    func factorial(n: int) -> int {
+        if (n <= 1) { return 1; }
+        return n * factorial(n - 1);
+    }
+
+    :int result = add(3, 4);
+    print("3 + 4 = {}", result);
+    print("10! = {}", factorial(10));
+    greet('W');
+!end`,
   },
   {
     id: "structs",
+    label: "Structs",
+    tag: "Core",
     title: "Structs",
-    icon: Brackets,
     description:
-      "User-defined types that group related fields. Members accessed with ::.\n\nStructs enable creating complex data types for your program.",
-    code: `# Defining Structs
-:struct<Vec2> {
-    :float x;
-    :float y;
-};
-
-:struct<Rect> {
-    :float x;
-    :float y;
-    :float w;
-    :float h;
-};
-
-# Nested Structs
-:struct<Particle> {
-    :struct<Vec2> pos;
-    :struct<Vec2> vel;
-    :float mass;
-};
-
-# Initialisation
-:struct<Vec2> origin = { x = 0.0, y = 0.0 };
-:struct<Vec2> p = { x = 3.0, y = 4.0 };
-
-# Member Access
-:float x = p::x;
-:float y = p::y;
-
-# Structs in Functions
-!func distance(:struct<Vec2> a, :struct<Vec2> b) -> :float {
-    :float dx = b::x - a::x;
-    :float dy = b::y - a::y;
-    !return :float(dx * dx + dy * dy);
-}
-
-# Self-Referential (linked structures)
-:struct<Node> {
-    :int value;
-    :struct<Node> next;
-};
-
-:struct<Node> head = { value = 1, next = !null };
-head::next = { value = 2, next = !null };`,
-    notes: [
-      {
-        type: "warning",
-        text: "Declaring a struct without an initializer produces a warning - structs have no default value.",
-      },
-    ],
-  },
-  {
-    id: "builtins",
-    title: "Standard Library",
-    icon: List,
-    description:
-      "Built-in functions available in every Fractal program.\n\nThese functions are available without importing anything.",
-    code: `# Output
-print("{}", value);
-input()
-
-# List operations
-append(list, value)
-pop(list)
-insert(list, index, value)
-delete(list, index)
-find(list, value)
-
-# Other
-len(array_or_list)
-abs(number)
-sqrt(number)
-pow(base, exp)
-floor(float)
-ceil(float)
-min(a, b)
-max(a, b)
-
-# String operations
-len(str)
-substring(str, start, end)
-starts_with(str, prefix)
-ends_with(str, suffix)
-replace(str, old, new)
-split(str, delimiter)
-
-# Type checking
-typeof(value)`,
+      "Structs group related data under a single named type. Fields are accessed with the dot operator. Structs are value types — assignment copies the entire struct.",
     tables: [
       {
-        title: "Output Functions",
-        headers: ["Function", "Description"],
+        title: "Struct Operations",
+        headers: ["Syntax", "Description"],
         rows: [
-          ['print("{}", value)', "Print formatted output"],
-          ["input()", "Read line from stdin"],
-        ],
-      },
-      {
-        title: "List Operations",
-        headers: ["Function", "Description"],
-        rows: [
-          ["append(list, value)", "Add to end"],
-          ["pop(list)", "Remove last element"],
-          ["insert(list, i, v)", "Insert at index"],
-          ["delete(list, i)", "Delete at index"],
-          ["find(list, value)", "Find index of value"],
-        ],
-      },
-      {
-        title: "Math Functions",
-        headers: ["Function", "Description"],
-        rows: [
-          ["abs(n)", "Absolute value"],
-          ["sqrt(n)", "Square root"],
-          ["pow(b, e)", "Base to exponent"],
-          ["floor(f)", "Round down"],
-          ["ceil(f)", "Round up"],
-          ["min(a, b)", "Smaller value"],
-          ["max(a, b)", "Larger value"],
-        ],
-      },
-      {
-        title: "String Functions",
-        headers: ["Function", "Description"],
-        rows: [
-          ["len(str)", "String length"],
-          ["substring(s, start, end)", "Slice string"],
-          ["starts_with(s, p)", "Check prefix"],
-          ["ends_with(s, p)", "Check suffix"],
-          ["replace(s, old, new)", "Replace text"],
-          ["split(s, delim)", "Split by delimiter"],
+          { col1: "struct Name { }", col2: "Declare a new struct type" },
+          {
+            col1: "field: type",
+            col2: "Typed field declaration inside struct",
+          },
+          { col1: "val.field", col2: "Field access" },
+          { col1: "val.field = x;", col2: "Field assignment" },
         ],
       },
     ],
+    notes: [
+      {
+        kind: "info",
+        text: "Structs can be nested — a field may itself be a struct type.",
+      },
+      {
+        kind: "warning",
+        text: "Circular struct references are not supported in the current version.",
+      },
+    ],
+    codeFile: "structs.fr",
+    code: `!start
+    struct Point {
+        x: int,
+        y: int,
+    }
+
+    struct Rect {
+        origin: Point,
+        width: int,
+        height: int,
+    }
+
+    :Point p = Point { x: 10, y: 20 };
+    print("Point: ({}, {})", p.x, p.y);
+
+    :Rect r = Rect {
+        origin: p,
+        width: 100,
+        height: 50,
+    };
+    :int area = r.width * r.height;
+    print("Area: {}", area);
+!end`,
+  },
+  {
+    id: "modules",
+    label: "Modules",
+    tag: "Advanced",
+    title: "Modules & Imports",
+    description:
+      "Fractal organises code into modules. Use the import keyword to bring in another file. Symbols are accessed via the module name with the :: operator.",
+    tables: [
+      {
+        title: "Module System",
+        headers: ["Keyword", "Description"],
+        rows: [
+          { col1: "module name", col2: "Declare this file as a named module" },
+          { col1: "import path", col2: "Import another Fractal file by path" },
+          { col1: "mod::symbol", col2: "Access an exported symbol" },
+        ],
+      },
+    ],
+    notes: [
+      {
+        kind: "info",
+        text: "Circular imports are detected at compile time and result in a hard error.",
+      },
+      {
+        kind: "tip",
+        text: "Keep one module per file and name the file to match the module name for clarity.",
+      },
+    ],
+    codeFile: "main.fr",
+    code: `# math.fr
+module math
+
+func square(n: int) -> int {
+    return n * n;
+}
+
+# main.fr
+import "math.fr"
+
+!start
+    :int x = math::square(9);
+    print("9² = {}", x);
+!end`,
   },
 ];
 
+// ── Component ─────────────────────────────────────────────
 export default function DocsPage() {
-  const [activeSection, setActiveSection] = useState("quick-reference");
-  const editorRef = useRef<any>(null);
+  const [active, setActive] = useState<string>(DOCS[0].id);
 
-  const currentSection =
-    SECTIONS.find((s) => s.id === activeSection) || SECTIONS[0];
+  const doc = DOCS.find((d) => d.id === active) ?? DOCS[0];
 
-  const handleEditorMount = (editor: any, monaco: any) => {
-    editorRef.current = editor;
+  const handleEditorMount: OnMount = useCallback((_editor, monaco) => {
+    if (
+      monaco.languages
+        .getLanguages()
+        .some((l: languages.ILanguageExtensionPoint) => l.id === "fractal")
+    )
+      return;
 
     monaco.languages.register({ id: "fractal" });
     monaco.languages.setMonarchTokensProvider("fractal", {
@@ -506,7 +396,7 @@ export default function DocsPage() {
       },
     });
 
-    monaco.editor.defineTheme("fractal-dark", {
+    monaco.editor.defineTheme("fractal-docs", {
       base: "vs-dark",
       inherit: true,
       rules: [
@@ -517,126 +407,160 @@ export default function DocsPage() {
         { token: "string", foreground: "a5d6ff" },
         { token: "comment", foreground: "6a7f9e", fontStyle: "italic" },
         { token: "operator", foreground: "d2a8ff" },
+        { token: "delimiter", foreground: "d2a8ff" },
       ],
       colors: {
-        "editor.background": "#0e1117",
+        "editor.background": "#080b10",
         "editor.foreground": "#e2e8f6",
-        "editor.lineHighlightBackground": "#121723",
+        "editor.lineHighlightBackground": "#0d1219",
         "editorCursor.foreground": "#15ce43",
+        "editor.selectionBackground": "#252d4480",
+        "editorLineNumber.foreground": "#2a3348",
+        "editorLineNumber.activeForeground": "#4a5568",
+        "editorGutter.background": "#080b10",
       },
     });
-    monaco.editor.setTheme("fractal-dark");
+
+    monaco.editor.setTheme("fractal-docs");
+  }, []);
+
+  const noteIcon = (kind: NoteKind) => {
+    if (kind === "warning") return <AlertTriangle size={14} />;
+    if (kind === "tip") return <Lightbulb size={14} />;
+    return <Info size={14} />;
   };
+
+  const noteClass = (kind: NoteKind) =>
+    kind === "warning"
+      ? styles.noteWarning
+      : kind === "tip"
+        ? styles.noteTip
+        : styles.noteInfo;
+
+  const Items = DOCS;
 
   return (
     <div className={styles.root}>
       <Navbar />
-      <div className={styles.main}>
-        <div className={styles.sidebar}>
-          <nav className={styles.nav}>
-            {SECTIONS.map(({ id, title, icon: Icon }) => (
-              <button
-                key={id}
-                className={`${styles.navItem} ${activeSection === id ? styles.navItemActive : ""}`}
-                onClick={() => setActiveSection(id)}
-              >
-                <Icon size={16} />
-                {title}
-                {activeSection === id && (
-                  <ChevronRight size={14} className={styles.navArrow} />
-                )}
-              </button>
-            ))}
-          </nav>
-        </div>
 
-        <div className={styles.content}>
-          <div className={styles.titleArea}>
-            <h1 className={styles.title}>{currentSection.title}</h1>
-            <p className={styles.description}>
-              {currentSection.description.split("\n\n").map((line, i, arr) => (
-                <span key={i}>
-                  {line}
-                  {i < arr.length - 1 && <br />}
-                  {i < arr.length - 1 && <br />}
-                </span>
+      <div className={styles.main}>
+        {/* Sidebar */}
+        <aside className={styles.sidebar}>
+          <div className={styles.sidebarHeader}>
+            <span className={styles.sidebarLabel}>Documentation</span>
+          </div>
+          <nav className={styles.nav}>
+            <div className={styles.navGroup}>
+              {Items.map((d) => (
+                <button
+                  key={d.id}
+                  className={`${styles.navItem} ${active === d.id ? styles.navItemActive : ""}`}
+                  onClick={() => setActive(d.id)}
+                >
+                  <span className={styles.navDot} />
+                  {d.label}
+                </button>
               ))}
-            </p>
+            </div>
+          </nav>
+        </aside>
+
+        {/* Content */}
+        <main className={styles.content}>
+          {/* Title */}
+          <div className={styles.titleArea}>
+            <div className={styles.titleMeta}>
+              <span className={styles.titleTag}>{doc.tag}</span>
+            </div>
+            <h1 className={styles.title}>{doc.title}</h1>
+            <p className={styles.description}>{doc.description}</p>
           </div>
 
-          {currentSection.tables && currentSection.tables.length > 0 && (
-            <div className={styles.tablesArea}>
-              {currentSection.tables.map((table, i) => (
-                <div key={i} className={styles.tableSection}>
-                  <h3 className={styles.tableTitle}>{table.title}</h3>
+          <div className={styles.body}>
+            {/* Tables */}
+            {doc.tables.map((t) => (
+              <div key={t.title} className={styles.section}>
+                <h2 className={styles.sectionTitle}>{t.title}</h2>
+                <div className={styles.tableWrap}>
                   <table className={styles.table}>
                     <thead>
                       <tr>
-                        {table.headers.map((h, j) => (
-                          <th key={j}>{h}</th>
+                        {t.headers.map((h) => (
+                          <th key={h}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {table.rows.map((row, j) => (
-                        <tr key={j}>
-                          {row.map((cell, k) => (
-                            <td key={k}>{cell}</td>
-                          ))}
+                      {t.rows.map((row, i) => (
+                        <tr key={i}>
+                          <td>{row.col1}</td>
+                          <td>{row.col2}</td>
+                          {row.col3 !== undefined && <td>{row.col3}</td>}
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            ))}
 
-          {currentSection.notes && currentSection.notes.length > 0 && (
-            <div className={styles.notesArea}>
-              {currentSection.notes.map((note, i) => (
-                <div
-                  key={i}
-                  className={`${styles.note} ${note.type === "warning" ? styles.noteWarning : styles.noteInfo}`}
-                >
-                  {note.type === "warning" ? (
-                    <AlertCircle size={16} className={styles.noteIcon} />
-                  ) : (
-                    <Info size={16} className={styles.noteIcon} />
-                  )}
-                  <span>{note.text}</span>
+            {/* Notes */}
+            {doc.notes.length > 0 && (
+              <div className={styles.section}>
+                <h2 className={styles.sectionTitle}>Notes</h2>
+                <div className={styles.notes}>
+                  {doc.notes.map((n, i) => (
+                    <div
+                      key={i}
+                      className={`${styles.note} ${noteClass(n.kind)}`}
+                    >
+                      <span className={styles.noteIcon}>
+                        {noteIcon(n.kind)}
+                      </span>
+                      <span className={styles.noteText}>{n.text}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            )}
 
-          <div className={styles.codeArea}>
-            <div className={styles.codeHeader}>
-              <span className={styles.fileName}>example.fr</span>
-            </div>
-            <div className={styles.editorWrapper}>
-              <Editor
-                height="100%"
-                defaultLanguage="fractal"
-                value={currentSection.code}
-                onMount={handleEditorMount}
-                loading={<div className={styles.loading}>Loading...</div>}
-                options={{
-                  readOnly: true,
-                  minimap: { enabled: false },
-                  fontSize: 13,
-                  fontFamily: '"DM Mono", monospace',
-                  lineNumbers: "on",
-                  lineHeight: 22,
-                  padding: { top: 12, bottom: 12 },
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  wordWrap: "on",
-                }}
-              />
+            {/* Code example */}
+            <div className={styles.codeSection}>
+              <h2 className={styles.sectionTitle}>Example</h2>
+              <div className={styles.codeHeader}>
+                <span className={styles.codeFileName}>{doc.codeFile}</span>
+                <span className={styles.codeLang}>Fractal</span>
+              </div>
+              <div className={styles.editorWrapper}>
+                <Editor
+                  height="100%"
+                  defaultLanguage="fractal"
+                  value={doc.code}
+                  onMount={handleEditorMount}
+                  loading={<div className={styles.loading}>Loading…</div>}
+                  options={{
+                    readOnly: true,
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    fontFamily: '"DM Mono", "Fira Code", monospace',
+                    lineNumbers: "on",
+                    lineHeight: 22,
+                    padding: { top: 16, bottom: 16 },
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true,
+                    tabSize: 4,
+                    wordWrap: "on",
+                    renderLineHighlight: "line",
+                    scrollbar: { verticalScrollbarSize: 4 },
+                    domReadOnly: true,
+                    cursorStyle: "line",
+                    renderValidationDecorations: "off",
+                  }}
+                />
+              </div>
             </div>
           </div>
-        </div>
+        </main>
       </div>
     </div>
   );

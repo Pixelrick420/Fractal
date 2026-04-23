@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useCallback } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
-import { Play, RotateCcw, Copy, Check } from "lucide-react";
+import { Play, RotateCcw, Copy, Check, Terminal, Zap } from "lucide-react";
 import Navbar from "../../components/Navbar";
 import styles from "./demo.module.css";
 
@@ -71,25 +71,18 @@ function formatCode(src: string): string {
       output.push("");
       continue;
     }
-
     if (t === "!start") {
       output.push("    ".repeat(depth) + t);
       depth++;
       continue;
     }
-
     if (t === "!end") {
       depth = Math.max(0, depth - 1);
       output.push("    ".repeat(depth) + t);
       continue;
     }
-
-    if (t.startsWith("}")) {
-      depth = Math.max(0, depth - 1);
-    }
-
+    if (t.startsWith("}")) depth = Math.max(0, depth - 1);
     output.push("    ".repeat(depth) + t);
-
     const opens = (t.match(/\{/g) || []).length;
     const closes = (t.match(/\}/g) || []).length;
     depth += opens - closes;
@@ -103,6 +96,8 @@ export default function DemoPage() {
   const [output, setOutput] = useState("");
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [hasRun, setHasRun] = useState(false);
+  const [isError, setIsError] = useState(false);
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
 
@@ -151,17 +146,19 @@ export default function DemoPage() {
         { token: "delimiter", foreground: "d2a8ff" },
       ],
       colors: {
-        "editor.background": "#0e1117",
+        "editor.background": "#080b10",
         "editor.foreground": "#e2e8f6",
-        "editor.lineHighlightBackground": "#121723",
+        "editor.lineHighlightBackground": "#0d1219",
         "editorCursor.foreground": "#15ce43",
         "editor.selectionBackground": "#252d4480",
+        "editorLineNumber.foreground": "#2a3348",
+        "editorLineNumber.activeForeground": "#4a5568",
+        "editorGutter.background": "#080b10",
       },
     });
 
     monaco.editor.setTheme("fractal-dark");
 
-    // Disable drag and drop to prevent Monaco issues
     editor.updateOptions({
       dragAndDrop: false,
       cursorBlinking: "smooth",
@@ -172,9 +169,11 @@ export default function DemoPage() {
   const handleRun = async () => {
     const formatted = formatCode(code);
     setCode(formatted);
-
     setLoading(true);
     setOutput("");
+    setIsError(false);
+    setHasRun(true);
+
     try {
       const response = await fetch("/api/run", {
         method: "POST",
@@ -183,12 +182,14 @@ export default function DemoPage() {
       });
       const data = await response.json();
       if (data.error) {
-        setOutput(`Error: ${data.error}`);
+        setOutput(data.error);
+        setIsError(true);
       } else {
         setOutput(data.output || "(no output)");
       }
     } catch {
-      setOutput("Error: Failed to run code");
+      setOutput("Failed to connect to runtime.");
+      setIsError(true);
     }
     setLoading(false);
   };
@@ -196,6 +197,8 @@ export default function DemoPage() {
   const handleReset = () => {
     setCode(INITIAL_CODE);
     setOutput("");
+    setHasRun(false);
+    setIsError(false);
   };
 
   const handleCopy = () => {
@@ -208,51 +211,69 @@ export default function DemoPage() {
     <div className={styles.root}>
       <Navbar />
 
-      <div className={styles.container}>
-        <div className={styles.editorPane}>
-          <div className={styles.editorHeader}>
-            <span className={styles.fileName}>demo.fr</span>
-            <div className={styles.editorActions}>
+      <div className={styles.workspace}>
+        {/* Editor pane */}
+        <div className={styles.pane}>
+          <div className={styles.paneHeader}>
+            <div className={styles.paneHeaderLeft}>
+              <div className={styles.trafficLights}>
+                <span className={styles.tlRed} />
+                <span className={styles.tlYellow} />
+                <span className={styles.tlGreen} />
+              </div>
+              <span className={styles.fileName}>demo.fr</span>
+            </div>
+            <div className={styles.actions}>
               <button
                 className={styles.iconBtn}
                 onClick={handleCopy}
                 title="Copy code"
               >
-                {copied ? <Check size={14} /> : <Copy size={14} />}
+                {copied ? (
+                  <Check size={13} strokeWidth={2.5} />
+                ) : (
+                  <Copy size={13} />
+                )}
               </button>
               <button
                 className={styles.iconBtn}
                 onClick={handleReset}
-                title="Reset code"
+                title="Reset"
               >
-                <RotateCcw size={14} />
+                <RotateCcw size={13} />
               </button>
               <button
                 className={styles.runBtn}
                 onClick={handleRun}
                 disabled={loading}
               >
-                <Play size={14} />
-                {loading ? "Running..." : "Run"}
+                <Play
+                  size={13}
+                  strokeWidth={2.5}
+                  fill={loading ? "transparent" : "currentColor"}
+                />
+                <span>{loading ? "Running…" : "Run"}</span>
               </button>
             </div>
           </div>
 
-          <div className={styles.editorContent}>
+          <div className={styles.editorBody}>
             <Editor
               height="100%"
               defaultLanguage="fractal"
               value={code}
               onChange={(value) => setCode(value || "")}
               onMount={handleEditorMount}
-              loading={<div className={styles.loading}>Loading editor...</div>}
+              loading={
+                <div className={styles.editorLoading}>Loading editor…</div>
+              }
               options={{
                 minimap: { enabled: false },
-                fontSize: 14,
-                fontFamily: '"DM Mono", monospace',
+                fontSize: 13.5,
+                fontFamily: '"DM Mono", "Fira Code", monospace',
                 lineNumbers: "on",
-                lineHeight: 24,
-                padding: { top: 16, bottom: 16 },
+                lineHeight: 22,
+                padding: { top: 20, bottom: 20 },
                 scrollBeyondLastLine: false,
                 automaticLayout: true,
                 tabSize: 4,
@@ -263,18 +284,67 @@ export default function DemoPage() {
                 renderLineHighlight: "line",
                 bracketPairColorization: { enabled: true },
                 fixedOverflowWidgets: true,
+                scrollbar: {
+                  verticalScrollbarSize: 4,
+                  horizontalScrollbarSize: 4,
+                },
               }}
             />
           </div>
         </div>
 
-        <div className={styles.outputPane}>
-          <div className={styles.outputHeader}>
-            <span className={styles.outputTitle}>Output</span>
+        {/* Output pane */}
+        <div className={styles.pane}>
+          <div className={styles.paneHeader}>
+            <div className={styles.paneHeaderLeft}>
+              <Terminal size={13} className={styles.termIcon} />
+              <span className={styles.fileName}>output</span>
+            </div>
+            {hasRun && !loading && (
+              <span
+                className={`${styles.statusBadge} ${isError ? styles.statusErr : styles.statusOk}`}
+              >
+                {isError ? "error" : "success"}
+              </span>
+            )}
           </div>
-          <pre className={styles.outputContent}>
-            {output || "Click Run to execute your code..."}
-          </pre>
+
+          <div
+            className={`${styles.terminal} ${loading ? styles.terminalLoading : ""}`}
+          >
+            {loading ? (
+              <div className={styles.loadingState}>
+                <div className={styles.spinner}>
+                  <div className={styles.spinnerRing} />
+                </div>
+                <div className={styles.loadingText}>
+                  <span className={styles.loadingTitle}>
+                    Compiling & running
+                  </span>
+                  <span className={styles.loadingDots}>
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                </div>
+              </div>
+            ) : hasRun ? (
+              <pre
+                className={`${styles.outputPre} ${isError ? styles.outputErr : styles.outputOk}`}
+              >
+                {output}
+              </pre>
+            ) : (
+              <div className={styles.emptyState}>
+                <div className={styles.emptyIcon}>
+                  <Play size={20} />
+                </div>
+                <p className={styles.emptyText}>
+                  Hit <kbd>Run</kbd> to execute your code
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

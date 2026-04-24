@@ -1,5 +1,4 @@
 !start
-    :int x = 10;
-    :float y = 8.0;
-    :int z = x + :int(y);
+    # Test error: bare keyword
+    int x = 5;
 !end

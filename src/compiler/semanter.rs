@@ -63,6 +63,7 @@ pub struct Symbol {
     pub sem_type: SemType,
     pub scope_depth: usize,
     pub origin: String,
+    pub use_count: usize,
 }
 
 impl fmt::Display for Symbol {
@@ -344,6 +345,7 @@ impl Analyzer {
                 sem_type: sem_type_from_btype(&b.ret),
                 scope_depth: 0,
                 origin: "builtin".to_string(),
+                use_count: 0,
             });
         }
         Analyzer {
@@ -380,8 +382,16 @@ impl Analyzer {
         if self.scopes.defined_in_current(&sym.name) {
             return;
         }
+        let mut sym = sym;
+        sym.use_count = 0;
         self.all_symbols.push(sym.clone());
         self.scopes.define(sym);
+    }
+
+    fn add_usage(&mut self, name: &str) {
+        if let Some(sym) = self.all_symbols.iter_mut().find(|s| s.name == name) {
+            sym.use_count += 1;
+        }
     }
 
     fn resolve_type_node(&self, node: &ParseNode) -> SemType {
@@ -523,36 +533,41 @@ impl Analyzer {
                     if let Some(ref qkey) = qualified_key {
                         let t = self.scopes.lookup(qkey).unwrap().sem_type.clone();
                         (t, &steps[1..])
-                    } else {
-                        let (t, _base) = match self.scopes.lookup(base) {
-                            Some(sym) => (sym.sem_type.clone(), false),
-                            None => {
-                                let is_bare_call =
-                                    steps.len() == 1 && matches!(steps[0], AccessStep::Call(_));
-                                if !is_bare_call {
-                                    let qualified = steps
-                                        .iter()
-                                        .take_while(|s| matches!(s, AccessStep::Field(_)))
-                                        .fold(base.clone(), |acc, s| {
-                                            if let AccessStep::Field(f) = s {
-                                                format!("{}::{}", acc, f)
-                                            } else {
-                                                acc
-                                            }
-                                        });
-                                    let suggestion =
-                                        suggest_similar(&qualified, self.scopes.all_names());
-                                    let msg = match suggestion {
-                                        Some(ref s) => format!(
-                                            "undefined identifier `{}`\nhint: did you mean `{}`?",
-                                            qualified, s
-                                        ),
-                                        None => format!("undefined identifier `{}`", qualified),
-                                    };
-                                    self.error_at(*line, msg);
-                                }
-
+} else {
+                        let (t, _base): (SemType, bool) = {
+                            let found_sym = self.scopes.lookup(base);
+                            if let Some(sym) = found_sym {
+                                let st = sym.sem_type.clone();
+                                self.add_usage(base);
+                                (st, false)
+                            } else {
                                 (SemType::Unknown, true)
+                            }
+                        };
+                        if _base {
+                            let is_bare_call =
+                                steps.len() == 1 && matches!(steps[0], AccessStep::Call(_));
+                            if !is_bare_call {
+                                let qualified = steps
+                                    .iter()
+                                    .take_while(|s| matches!(s, AccessStep::Field(_)))
+                                    .fold(base.clone(), |acc, s| {
+                                        if let AccessStep::Field(f) = s {
+                                            format!("{}::{}", acc, f)
+                                        } else {
+                                            acc
+                                        }
+                                    });
+                                let suggestion =
+                                    suggest_similar(&qualified, self.scopes.all_names());
+                                let msg = match suggestion {
+                                    Some(ref s) => format!(
+                                        "undefined identifier `{}`\nhint: did you mean `{}`?",
+                                        qualified, s
+                                    ),
+                                    None => format!("undefined identifier `{}`", qualified),
+                                };
+                                self.error_at(*line, msg);
                             }
                         };
                         (t, steps.as_slice())
@@ -1443,6 +1458,13 @@ impl Analyzer {
                         }
                     }
                 }
+                if matches!(op, MulOp::Div) && matches!(rt, SemType::Float) {
+                    if let ParseNode::FloatLit(val, _) = right.as_ref() {
+                        if *val == 0.0 {
+                            self.error_at(*line, "division by zero is not allowed");
+                        }
+                    }
+                }
                 if !lt.is_numeric() && !matches!(lt, SemType::Unknown) {
                     self.error_at(*line, format!(
                         "multiplicative operand must be numeric (`:int` or `:float`), got `{}`\nnote: only `:int` and `:float` values support `*`, `/`",
@@ -1663,6 +1685,7 @@ impl Analyzer {
                             sem_type: SemType::Struct(name.clone()),
                             scope_depth: self.scope_depth(),
                             origin: self.current_origin.clone(),
+                            use_count: 0,
                         });
                     }
                 }
@@ -1711,6 +1734,7 @@ impl Analyzer {
                         sem_type: ret,
                         scope_depth: self.scope_depth(),
                         origin: format!("func:{}", name),
+                        use_count: 0,
                     });
                 }
                 ParseNode::Module {
@@ -1736,6 +1760,7 @@ impl Analyzer {
                                 sem_type: qualified_sem_type,
                                 scope_depth: self.scope_depth(),
                                 origin: format!("module:{}", name),
+                                use_count: 0,
                             };
                             self.scopes.define(qualified_sym.clone());
                             self.all_symbols.push(qualified_sym);
@@ -1749,6 +1774,7 @@ impl Analyzer {
                             sem_type: SemType::Unknown,
                             scope_depth: self.scope_depth(),
                             origin: format!("module:{}", name),
+                            use_count: 0,
                         });
                     }
                     self.current_origin = saved_origin;
@@ -1790,6 +1816,7 @@ impl Analyzer {
                         sem_type: qualified_sem_type,
                         scope_depth: self.scope_depth(),
                         origin: format!("module:{}", name),
+                        use_count: 0,
                     };
                     self.scopes.define(qualified_sym.clone());
                     self.all_symbols.push(qualified_sym);
@@ -1856,6 +1883,7 @@ impl Analyzer {
                                 sem_type: pt,
                                 scope_depth: self.scope_depth(),
                                 origin: format!("param:{}", name),
+                                use_count: 0,
                             });
                         }
                     }
@@ -1922,6 +1950,7 @@ impl Analyzer {
                         sem_type: decl_ty.clone(),
                         scope_depth: self.scope_depth(),
                         origin: self.current_origin.clone(),
+                        use_count: 0,
                     });
                 }
 
@@ -2103,6 +2132,7 @@ impl Analyzer {
                         sem_type: sem_ty,
                         scope_depth: self.scope_depth(),
                         origin: self.current_origin.clone(),
+                        use_count: 0,
                     });
                 }
                 if let Some(init_expr) = init {
@@ -2122,6 +2152,11 @@ impl Analyzer {
                 line,
                 ..
             } => {
+                if let ParseNode::AccessChain { base, steps, .. } = lvalue.as_ref() {
+                    if steps.is_empty() {
+                        self.add_usage(base);
+                    }
+                }
                 let lv_ty = self.infer_expr(lvalue);
 
                 let is_int_only_op = matches!(
@@ -2393,6 +2428,7 @@ impl Analyzer {
                     sem_type: vt,
                     scope_depth: self.scope_depth(),
                     origin: "loop".to_string(),
+                    use_count: 0,
                 });
                 self.loop_depth += 1;
                 for stmt in body {
@@ -2495,21 +2531,45 @@ impl Analyzer {
                 }
             }
 
-            _ => {}
+_ => {}
         }
+    }
+
+    fn check_unused(&self) -> Vec<SemanticWarning> {
+        let mut warns = Vec::new();
+        for sym in &self.all_symbols {
+            if sym.use_count == 0 && sym.origin != "builtin" {
+                if matches!(sym.kind, SymbolKind::Variable) {
+                    if sym.origin.starts_with("module:") || sym.origin.starts_with("param:") {
+                        continue;
+                    }
+                    warns.push(SemanticWarning {
+                        message: format!(
+                            "variable `{}` is declared but never used",
+                            sym.name
+                        ),
+                        line: None,
+                    });
+                }
+            }
+        }
+        warns
     }
 }
 
 pub fn analyze(root: &ParseNode) -> SemanticResult {
     let mut analyzer = Analyzer::new();
     analyzer.analyze_node(root);
+    let unused_warnings = analyzer.check_unused();
     let mut table = analyzer.all_symbols;
 
     table.retain(|s| s.origin != "builtin");
     table.sort_by(|a, b| a.scope_depth.cmp(&b.scope_depth).then(a.name.cmp(&b.name)));
+    let mut all_warnings = analyzer.warnings;
+    all_warnings.extend(unused_warnings);
     SemanticResult {
         errors: analyzer.errors,
-        warnings: analyzer.warnings,
+        warnings: all_warnings,
         symbol_table: table,
     }
 }

@@ -2368,7 +2368,8 @@ impl CodeGen {
                 if vars.is_empty() {
                     return Some(
                         "{ let mut __ln = String::new(); \
-                         io::stdin().lock().read_line(&mut __ln).unwrap(); }"
+                         io::stdin().lock().read_line(&mut __ln).unwrap(); \
+                         panic!(\"input() requires at least one variable to fill\"); }"
                             .into(),
                     );
                 }

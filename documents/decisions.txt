@@ -230,8 +230,9 @@
         1. print(format_string, ...vars) -> :void
            Prints a formatted string to stdout. Uses {} as a placeholder.
         2. input(format_string, ...vars) -> :void
-           Reads user input, matches against the format string, fills
-           placeholder variables. Type mismatch is a runtime error.
+           REQUIRED: At least one variable must be provided.
+           Reads user input from stdin, parses it based on the variable types,
+           and stores the values in the placeholder variables.
 
     b) array methods
         1. find(arr, value) -> :int

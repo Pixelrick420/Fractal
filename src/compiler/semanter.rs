@@ -1028,7 +1028,7 @@ impl Analyzer {
                                     }
                                 }
 
-                                let is_len = func_name == "len" || func_name.ends_with("::len");
+let is_len = func_name == "len" || func_name.ends_with("::len");
                                 if is_len {
                                     if let Some(at) = arg_types.first() {
                                         if !matches!(
@@ -1040,13 +1040,25 @@ impl Analyzer {
                                             self.error_at(
                                                 *line,
                                                 format!(
-                                                "`len` requires an `:array` or `:list` argument, \
-                                                 got `{}`",
-                                                at.display()
-                                            ),
+                                                    "`len` requires an `:array` or `:list` argument, \
+                                                    got `{}`",
+                                                    at.display()
+                                                ),
                                             );
                                         }
                                     }
+                                }
+
+                                let is_input = func_name == "input" || func_name.ends_with("::input");
+                                if is_input && arg_types.len() < 2 {
+                                    self.error_at(
+                                        *line,
+                                        "`input` requires at least one variable to fill; \
+                                        e.g. `input(\"Enter value: \", my_var)`\n\
+                                        note: the input is stored in the variable, \
+                                        not returned from the function"
+                                            .to_string(),
+                                    );
                                 }
 
                                 ret.clone()

@@ -91,7 +91,7 @@ cargo run --bin fractal-compiler -- path/to/file.fr
 | Function | Description |
 |----------|-------------|
 | `print(format, args...)` | Print formatted output |
-| `input(prompt)` | Read user input |
+| `input(prompt, var, ...)` | Read user input into variable(s) |
 | `append(list, value)` | Add to list |
 | `pop(list)` | Remove last element |
 | `insert(list, index, value)` | Insert at position |

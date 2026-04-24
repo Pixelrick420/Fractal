@@ -1,10 +1,19 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
-import { Play, RotateCcw, Copy, Check, Terminal } from "lucide-react";
+import {
+  Play,
+  RotateCcw,
+  Copy,
+  Check,
+  Terminal,
+  AlertTriangle,
+} from "lucide-react";
 import Navbar from "../../components/Navbar";
 import styles from "./demo.module.css";
 import { parseAnsi } from "../lib/ansi";
+
+const STORAGE_KEY = "fractal_demo_code";
 
 const INITIAL_CODE = `!start
     :int x = 10;
@@ -46,6 +55,15 @@ const TYPES = [
   "struct",
   "void",
 ];
+
+function getSavedCode(): string {
+  if (typeof window === "undefined") return INITIAL_CODE;
+  try {
+    return localStorage.getItem(STORAGE_KEY) ?? INITIAL_CODE;
+  } catch {
+    return INITIAL_CODE;
+  }
+}
 
 function formatCode(src: string): string {
   const expanded: string[] = [];
@@ -93,13 +111,35 @@ function formatCode(src: string): string {
 }
 
 export default function DemoPage() {
-  const [code, setCode] = useState(INITIAL_CODE);
+  const [code, setCode] = useState<string>(INITIAL_CODE);
   const [output, setOutput] = useState("");
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [hasRun, setHasRun] = useState(false);
   const [isError, setIsError] = useState(false);
   const editorRef = useRef<any>(null);
+
+  const usesInput = /\binput\s*\(/.test(code);
+
+  // Hydrate from localStorage after mount (avoids SSR mismatch)
+  useEffect(() => {
+    const saved = getSavedCode();
+    if (saved !== INITIAL_CODE) {
+      setCode(saved);
+    }
+  }, []);
+
+  // Persist to localStorage whenever code changes (debounced 500 ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, code);
+      } catch {
+        // localStorage unavailable — silently ignore
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [code]);
 
   const handleEditorMount: OnMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
@@ -196,6 +236,11 @@ export default function DemoPage() {
     setOutput("");
     setHasRun(false);
     setIsError(false);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
+    }
   };
 
   const handleCopy = () => {
@@ -247,6 +292,16 @@ export default function DemoPage() {
           </button>
         </div>
       </div>
+
+      {usesInput && (
+        <div className={styles.inputWarning}>
+          <AlertTriangle size={14} className={styles.inputWarningIcon} />
+          <span>
+            <strong>No input device detected.</strong> Run the compiler locally
+            to use <code>input()</code>.
+          </span>
+        </div>
+      )}
 
       <div className={styles.workspace}>
         <div className={styles.pane}>

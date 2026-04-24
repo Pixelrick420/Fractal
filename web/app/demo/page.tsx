@@ -100,11 +100,17 @@ function formatCode(src: string): string {
       output.push("    ".repeat(depth) + t);
       continue;
     }
-    if (t.startsWith("}")) depth = Math.max(0, depth - 1);
-    output.push("    ".repeat(depth) + t);
     const opens = (t.match(/\{/g) || []).length;
     const closes = (t.match(/\}/g) || []).length;
-    depth += opens - closes;
+    let effectiveDepth: number;
+    if (t.startsWith("}")) {
+      effectiveDepth = Math.max(0, depth - closes);
+      depth = effectiveDepth + opens;
+    } else {
+      effectiveDepth = depth;
+      depth = Math.max(0, depth + opens - closes);
+    }
+    output.push("    ".repeat(effectiveDepth) + t);
   }
 
   return output.join("\n");

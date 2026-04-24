@@ -1,10 +1,10 @@
 "use client";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import Editor, { OnMount } from "@monaco-editor/react";
+import Editor, { OnMount, BeforeMount } from "@monaco-editor/react";
+import * as monaco from "monaco-editor";
 import { Info, AlertTriangle, Lightbulb } from "lucide-react";
 import Navbar from "../../components/Navbar";
 import styles from "./docs.module.css";
-import type { languages } from "monaco-editor";
 import docsJson from "./docs.json";
 
 const KEYWORDS = [
@@ -73,13 +73,82 @@ interface Chapter {
 
 const chapters = (docsJson as any).chapters as Chapter[];
 
+let fractalReady = false;
+const handleBeforeMount: BeforeMount = (monaco) => {
+  if (fractalReady) {
+    monaco.editor.setTheme("fractal-docs");
+    return;
+  }
+  fractalReady = true;
+
+  if (
+    !monaco.languages
+      .getLanguages()
+      .some((l: monaco.languages.ILanguageExtensionPoint) => l.id === "fractal")
+  ) {
+    monaco.languages.register({ id: "fractal" });
+    monaco.languages.setMonarchTokensProvider("fractal", {
+      keywords: KEYWORDS,
+      typeKeywords: TYPES,
+      tokenizer: {
+        root: [
+          [/#.*$/, "comment"],
+          [/"[^"]*"/, "string"],
+          [/'[^']*'/, "string"],
+          [/::/, "delimiter"],
+          [
+            /[:!][a-zA-Z_]\w*/,
+            {
+              cases: {
+                "@keywords": "keyword",
+                "@typeKeywords": "type",
+                "@default": "identifier",
+              },
+            },
+          ],
+          [/[+\-*/%=<>&|^~]+/, "operator"],
+          [/\d+/, "number"],
+        ],
+      },
+    });
+  }
+
+  monaco.editor.defineTheme("fractal-docs", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [
+      { token: "keyword", foreground: "ff7b72", fontStyle: "bold" },
+      { token: "type", foreground: "79c0ff" },
+      { token: "identifier", foreground: "ffa657" },
+      { token: "number", foreground: "a5d6a7" },
+      { token: "string", foreground: "a5d6ff" },
+      { token: "comment", foreground: "6a7f9e", fontStyle: "italic" },
+      { token: "operator", foreground: "d2a8ff" },
+      { token: "delimiter", foreground: "d2a8ff" },
+    ],
+    colors: {
+      "editor.background": "#080b10",
+      "editor.foreground": "#e2e8f6",
+      "editor.lineHighlightBackground": "#0d1219",
+      "editorCursor.foreground": "#15ce43",
+      "editor.selectionBackground": "#252d4480",
+      "editorLineNumber.foreground": "#2a3348",
+      "editorLineNumber.activeForeground": "#4a5568",
+      "editorGutter.background": "#080b10",
+    },
+  });
+
+  monaco.editor.setTheme("fractal-docs");
+};
+
+// ── CodeExample ───────────────────────────────────────────────────────────────
+
 interface CodeExampleProps {
   code: string;
   title?: string;
-  onMount: OnMount;
 }
 
-function CodeExample({ code, title, onMount }: CodeExampleProps) {
+function CodeExample({ code, title }: CodeExampleProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [editorHeight, setEditorHeight] = useState(80);
 
@@ -103,6 +172,12 @@ function CodeExample({ code, title, onMount }: CodeExampleProps) {
     return () => observer.disconnect();
   }, [code]);
 
+  // onMount is only needed to guarantee the theme is applied even if
+  // beforeMount somehow ran before defineTheme completed (edge-case safety).
+  const handleMount: OnMount = useCallback((_editor, monaco) => {
+    monaco.editor.setTheme("fractal-docs");
+  }, []);
+
   return (
     <div className={styles.codeSection}>
       {title && <h2 className={styles.sectionTitle}>{title}</h2>}
@@ -119,7 +194,9 @@ function CodeExample({ code, title, onMount }: CodeExampleProps) {
           height="100%"
           defaultLanguage="fractal"
           value={code}
-          onMount={onMount}
+          theme="fractal-docs" // ← explicit theme: no flash
+          beforeMount={handleBeforeMount} // ← defines theme before first paint
+          onMount={handleMount} // ← safety net
           loading={<div className={styles.loading}>Loading…</div>}
           options={{
             readOnly: true,
@@ -148,6 +225,8 @@ function CodeExample({ code, title, onMount }: CodeExampleProps) {
   );
 }
 
+// ── DocsPage ──────────────────────────────────────────────────────────────────
+
 export default function DocsPage() {
   const [active, setActive] = useState<string>(
     chapters[0]?.id ?? "quick_reference",
@@ -157,67 +236,6 @@ export default function DocsPage() {
     () => chapters.find((c) => c.id === active) ?? chapters[0],
     [active],
   );
-
-  const handleEditorMount: OnMount = useCallback((_editor, monaco) => {
-    if (
-      !monaco.languages
-        .getLanguages()
-        .some((l: languages.ILanguageExtensionPoint) => l.id === "fractal")
-    ) {
-      monaco.languages.register({ id: "fractal" });
-      monaco.languages.setMonarchTokensProvider("fractal", {
-        keywords: KEYWORDS,
-        typeKeywords: TYPES,
-        tokenizer: {
-          root: [
-            [/#.*$/, "comment"],
-            [/"[^"]*"/, "string"],
-            [/'[^']*'/, "string"],
-            [/::/, "delimiter"],
-            [
-              /[:!][a-zA-Z_]\w*/,
-              {
-                cases: {
-                  "@keywords": "keyword",
-                  "@typeKeywords": "type",
-                  "@default": "identifier",
-                },
-              },
-            ],
-            [/[+\-*/%=<>&|^~]+/, "operator"],
-            [/\d+/, "number"],
-          ],
-        },
-      });
-
-      monaco.editor.defineTheme("fractal-docs", {
-        base: "vs-dark",
-        inherit: true,
-        rules: [
-          { token: "keyword", foreground: "ff7b72", fontStyle: "bold" },
-          { token: "type", foreground: "79c0ff" },
-          { token: "identifier", foreground: "ffa657" },
-          { token: "number", foreground: "a5d6a7" },
-          { token: "string", foreground: "a5d6ff" },
-          { token: "comment", foreground: "6a7f9e", fontStyle: "italic" },
-          { token: "operator", foreground: "d2a8ff" },
-          { token: "delimiter", foreground: "d2a8ff" },
-        ],
-        colors: {
-          "editor.background": "#080b10",
-          "editor.foreground": "#e2e8f6",
-          "editor.lineHighlightBackground": "#0d1219",
-          "editorCursor.foreground": "#15ce43",
-          "editor.selectionBackground": "#252d4480",
-          "editorLineNumber.foreground": "#2a3348",
-          "editorLineNumber.activeForeground": "#4a5568",
-          "editorGutter.background": "#080b10",
-        },
-      });
-    }
-
-    monaco.editor.setTheme("fractal-docs");
-  }, []);
 
   const noteIcon = (kind: NoteKind) => {
     if (kind === "warning") return <AlertTriangle size={14} />;
@@ -265,9 +283,7 @@ export default function DocsPage() {
 
       {section.table && renderTable(section.table)}
 
-      {section.code && (
-        <CodeExample code={section.code} onMount={handleEditorMount} />
-      )}
+      {section.code && <CodeExample code={section.code} />}
 
       {section.note && (
         <div className={`${styles.note} ${noteClass(section.note.kind)}`}>
@@ -277,20 +293,14 @@ export default function DocsPage() {
       )}
 
       {section.subcontent && <p>{section.subcontent}</p>}
-      {section.code2 && (
-        <CodeExample code={section.code2} onMount={handleEditorMount} />
-      )}
+      {section.code2 && <CodeExample code={section.code2} />}
       {section.subcontent2 && <p>{section.subcontent2}</p>}
-      {section.code3 && (
-        <CodeExample code={section.code3} onMount={handleEditorMount} />
-      )}
+      {section.code3 && <CodeExample code={section.code3} />}
 
       {section.subsections?.map((sub, subIndex) => (
         <div key={subIndex} className={styles.subsection}>
           <h3>{sub.title}</h3>
-          {sub.code && (
-            <CodeExample code={sub.code} onMount={handleEditorMount} />
-          )}
+          {sub.code && <CodeExample code={sub.code} />}
         </div>
       ))}
     </div>

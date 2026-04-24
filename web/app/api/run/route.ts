@@ -8,6 +8,23 @@ const REPO = "Pixelrick420/Fractal";
 const CACHE_DIR = "/tmp/fractal_cache";
 const COMPILER_NAME = "fractal-compiler";
 
+// Strip ANSI escape codes from a string.
+function stripAnsi(str: string): string {
+  return str.replace(/[\x1b\u241b]\[[0-9;]*[a-zA-Z]/g, "");
+}
+
+// The Fractal compiler may prepend warning/diagnostic lines (with ANSI codes)
+// to stdout before the actual Rust source. Drop everything before the first
+// real Rust line so Godbolt doesn't choke on them.
+function extractRustSource(raw: string): string {
+  const cleaned = stripAnsi(raw);
+  const lines = cleaned.split("\n");
+  const firstCodeLine = lines.findIndex((l) =>
+    /^\s*(fn |use |struct |enum |impl |const |static |pub |#\[|\/\/)/.test(l),
+  );
+  return firstCodeLine >= 0 ? lines.slice(firstCodeLine).join("\n") : cleaned;
+}
+
 async function ensureCompiler() {
   const cacheDir = CACHE_DIR;
 
@@ -87,11 +104,7 @@ export async function POST(request: NextRequest) {
     compilerPath = await ensureCompiler();
   } catch (err: any) {
     return NextResponse.json(
-      {
-        output: "",
-        compiled: false,
-        error: err.message,
-      },
+      { output: "", compiled: false, error: err.message },
       { status: 500 },
     );
   }
@@ -102,34 +115,35 @@ export async function POST(request: NextRequest) {
     await writeFile(tempFile, code);
   } catch {
     return NextResponse.json(
-      {
-        output: "",
-        compiled: false,
-        error: "Cannot create temp file",
-      },
+      { output: "", compiled: false, error: "Cannot create temp file" },
       { status: 500 },
     );
   }
 
   const {
-    stdout: rustSource,
+    stdout: rawStdout,
     stderr: compileStderr,
     code: exitCode,
   } = await runProcess(compilerPath, ["--emit-rust", tempFile]);
 
   await unlink(tempFile).catch(() => {});
 
-  if (exitCode !== 0 || !rustSource.trim()) {
-    const match =
-      compileStderr.match(/✗.*$/m) || compileStderr.match(/error.*$/im);
+  if (exitCode !== 0 || !rawStdout.trim()) {
+    // Return stderr with ANSI intact — the browser terminal renders colors.
     return NextResponse.json({
       output: "",
       compiled: false,
-      error: match
-        ? match[0].trim()
-        : compileStderr.trim() || `Compilation failed (exit ${exitCode})`,
+      error: compileStderr.trim() || `Compilation failed (exit ${exitCode})`,
     });
   }
+
+  // Warnings land on stderr with ANSI codes — keep them to show in the
+  // browser terminal, but they must NOT go to Godbolt.
+  const warnings = compileStderr.trim();
+
+  // Strip ANSI and any diagnostic preamble the compiler wrote to stdout
+  // before the Rust source begins.
+  const cleanRustSource = extractRustSource(rawStdout);
 
   try {
     const godboltResp = await fetchImpl(
@@ -141,7 +155,7 @@ export async function POST(request: NextRequest) {
           Accept: "application/json",
         },
         body: JSON.stringify({
-          source: rustSource,
+          source: cleanRustSource,
           compiler: "r1880",
           options: {
             userArguments: "",
@@ -195,8 +209,13 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Prepend Fractal compiler warnings (with ANSI) above the program output.
+    const finalOutput = warnings
+      ? `${warnings}\n${stdout || "(no output)"}`
+      : stdout || "(no output)";
+
     return NextResponse.json({
-      output: stdout || "(no output)",
+      output: finalOutput,
       compiled: true,
       error: null,
     });

@@ -4,6 +4,7 @@ import Editor, { OnMount } from "@monaco-editor/react";
 import { Play, RotateCcw, Copy, Check, Terminal } from "lucide-react";
 import Navbar from "../../components/Navbar";
 import styles from "./demo.module.css";
+import { parseAnsi } from "../lib/ansi";
 
 const INITIAL_CODE = `!start
     :int x = 10;
@@ -364,7 +365,21 @@ export default function DemoPage() {
               <pre
                 className={`${styles.outputPre} ${isError ? styles.outputErr : styles.outputOk}`}
               >
-                {output}
+                {parseAnsi(output).map((span, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      color: span.color,
+                      backgroundColor: span.bgColor,
+                      fontWeight: span.bold ? "bold" : undefined,
+                      fontStyle: span.italic ? "italic" : undefined,
+                      opacity: span.dim ? 0.6 : undefined,
+                      textDecoration: span.underline ? "underline" : undefined,
+                    }}
+                  >
+                    {span.text}
+                  </span>
+                ))}
               </pre>
             ) : (
               <div className={styles.emptyState}>

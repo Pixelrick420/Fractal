@@ -2399,18 +2399,20 @@ impl CodeGen {
 
                     let parse_expr = match var_type {
                         SemType::Int => {
-                            "__toks.next().unwrap_or(\"\").parse::<i64>().unwrap_or(0_i64)"
+                            "{\n                                let __raw = __toks.next().unwrap_or(\"\");\n                                match __raw.parse::<i64>() {\n                                    Ok(v) => v,\n                                    Err(e) => panic!(\"invalid input for :int: '{}' is not a valid integer\", __raw),\n                                }\n                            }"
                         }
                         SemType::Float => {
-                            "__toks.next().unwrap_or(\"\").parse::<f64>().unwrap_or(0.0_f64)"
+                            "{\n                                let __raw = __toks.next().unwrap_or(\"\");\n                                match __raw.parse::<f64>() {\n                                    Ok(v) => v,\n                                    Err(e) => panic!(\"invalid input for :float: '{}' is not a valid number\", __raw),\n                                }\n                            }"
                         }
                         SemType::Char => {
                             "__toks.next().unwrap_or(\"\").chars().next().unwrap_or('\\0')"
                         }
                         SemType::Boolean => {
-                            "matches!(__toks.next().unwrap_or(\"\"), \"true\" | \"1\")"
+                            "{\n                            let __raw = __toks.next().unwrap_or(\"\");\n                            match __raw {\n                                \"true\" | \"1\" => true,\n                                \"false\" | \"0\" => false,\n                                _ => panic!(\"invalid input for :boolean: expected true/false/1/0, got '{}'\", __raw),\n                            }\n                        }"
                         }
-                        _ => "__toks.next().unwrap_or(\"\").parse::<i64>().unwrap_or(0_i64)",
+                        _ => {
+                            "{\n                                let __raw = __toks.next().unwrap_or(\"\");\n                                match __raw.parse::<i64>() {\n                                    Ok(v) => v,\n                                    Err(e) => panic!(\"invalid input for :int: '{}' is not a valid integer\", __raw),\n                                }\n                            }"
+                        }
                     };
                     stmts.push_str(&format!("{} = {}; ", var_name, parse_expr));
                 }

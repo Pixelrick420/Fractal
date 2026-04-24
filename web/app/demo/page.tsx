@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useCallback } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
-import { Play, RotateCcw, Copy, Check, Terminal, Zap } from "lucide-react";
+import { Play, RotateCcw, Copy, Check, Terminal } from "lucide-react";
 import Navbar from "../../components/Navbar";
 import styles from "./demo.module.css";
 
@@ -99,14 +99,11 @@ export default function DemoPage() {
   const [hasRun, setHasRun] = useState(false);
   const [isError, setIsError] = useState(false);
   const editorRef = useRef<any>(null);
-  const monacoRef = useRef<any>(null);
 
   const handleEditorMount: OnMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
-    monacoRef.current = monaco;
 
     monaco.languages.register({ id: "fractal" });
-
     monaco.languages.setMonarchTokensProvider("fractal", {
       keywords: KEYWORDS,
       typeKeywords: TYPES,
@@ -158,7 +155,6 @@ export default function DemoPage() {
     });
 
     monaco.editor.setTheme("fractal-dark");
-
     editor.updateOptions({
       dragAndDrop: false,
       cursorBlinking: "smooth",
@@ -211,16 +207,50 @@ export default function DemoPage() {
     <div className={styles.root}>
       <Navbar />
 
+      <div className={styles.mobileToolbar}>
+        <div className={styles.mobileLeft}>
+          <span className={styles.fileName}>demo.fr</span>
+        </div>
+        <div className={styles.actions}>
+          <button
+            className={styles.iconBtn}
+            onClick={handleCopy}
+            title="Copy code"
+          >
+            {copied ? (
+              <Check size={13} strokeWidth={2.5} />
+            ) : (
+              <Copy size={13} />
+            )}
+          </button>
+          <button
+            className={styles.iconBtn}
+            onClick={handleReset}
+            title="Reset"
+          >
+            <RotateCcw size={13} />
+          </button>
+          <button
+            className={styles.runBtn}
+            onClick={handleRun}
+            disabled={loading}
+          >
+            <Play
+              size={13}
+              strokeWidth={2.5}
+              fill={loading ? "transparent" : "currentColor"}
+            />
+            <span className={styles.runLabel}>
+              {loading ? "Running…" : "Run"}
+            </span>
+          </button>
+        </div>
+      </div>
+
       <div className={styles.workspace}>
-        {/* Editor pane */}
         <div className={styles.pane}>
           <div className={styles.paneHeader}>
             <div className={styles.paneHeaderLeft}>
-              <div className={styles.trafficLights}>
-                <span className={styles.tlRed} />
-                <span className={styles.tlYellow} />
-                <span className={styles.tlGreen} />
-              </div>
               <span className={styles.fileName}>demo.fr</span>
             </div>
             <div className={styles.actions}>
@@ -252,7 +282,9 @@ export default function DemoPage() {
                   strokeWidth={2.5}
                   fill={loading ? "transparent" : "currentColor"}
                 />
-                <span>{loading ? "Running…" : "Run"}</span>
+                <span className={styles.runLabel}>
+                  {loading ? "Running…" : "Run"}
+                </span>
               </button>
             </div>
           </div>
@@ -269,7 +301,7 @@ export default function DemoPage() {
               }
               options={{
                 minimap: { enabled: false },
-                fontSize: 13.5,
+                fontSize: 13,
                 fontFamily: '"DM Mono", "Fira Code", monospace',
                 lineNumbers: "on",
                 lineHeight: 22,
@@ -337,7 +369,7 @@ export default function DemoPage() {
             ) : (
               <div className={styles.emptyState}>
                 <div className={styles.emptyIcon}>
-                  <Play size={20} />
+                  <Play size={18} />
                 </div>
                 <p className={styles.emptyText}>
                   Hit <kbd>Run</kbd> to execute your code

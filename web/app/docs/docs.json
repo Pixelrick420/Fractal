@@ -1,0 +1,557 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "language": "Fractal",
+    "description": "Fractal programming language documentation"
+  },
+  "chapters": [
+    {
+      "id": "quick_reference",
+      "label": "Quick Reference",
+      "searchKeywords": "quick reference syntax cheat sheet keywords types operators !start !end !func !if !for !while :int :float :array :list",
+      "sections": [
+        {
+          "title": "Program Structure",
+          "description": "This page provides a quick syntax overview. Click chapters in the sidebar for detailed documentation.",
+          "code": "!start\n    # your code here\n!end"
+        },
+        {
+          "title": "Keywords",
+          "table": {
+            "headers": ["Keyword", "Description"],
+            "rows": [
+              ["!start / !end", "Program delimiters"],
+              ["!func", "Declare a function"],
+              ["!if / !elif / !else", "Conditional"],
+              ["!for", "Counted loop"],
+              ["!while", "Condition loop"],
+              ["!return", "Return from function"],
+              ["!break / !continue", "Loop control"],
+              ["!import", "Import another file"],
+              ["!module", "Define a module"],
+              ["!exit", "Terminate program"]
+            ]
+          }
+        },
+        {
+          "title": "Types",
+          "table": {
+            "headers": ["Type", "Description"],
+            "rows": [
+              [":int", "64-bit integer"],
+              [":float", "64-bit float"],
+              [":char", "Unicode character"],
+              [":boolean", "true or false"],
+              [":void", "Null type"],
+              [":array<T, N>", "Fixed array"],
+              [":list<T>", "Dynamic list"],
+              [":struct<Name>", "User struct"]
+            ]
+          }
+        },
+        {
+          "title": "Operators",
+          "table": {
+            "headers": ["Operator", "Description"],
+            "rows": [
+              ["+ - * / %", "Arithmetic"],
+              ["& | ^ ~", "Bitwise"],
+              ["!not !and !or", "Logical"],
+              ["== ~= > < >= <=", "Comparison"],
+              ["+= -= *= /= %=", "Compound assign"],
+              ["::", "Struct member"],
+              ["->", "Return type"]
+            ]
+          }
+        },
+        {
+          "title": "Type Casting",
+          "description": "Use :Type(expression) to convert between types:",
+          "code": ":int n = :int(3.99);    # 3\n:float f = :float(5);    # 5.0\n:char c = :char(65);     # 'A'"
+        },
+        {
+          "title": "Common Patterns",
+          "code": "# Function\n!func add(:int a, :int b) -> :int {\n    !return a + b;\n}\n\n# For loop\n!for (:int i, 0, 10, 1) {\n    print(\"{}\", i);\n}\n\n# Struct\n:struct<Point> {\n    :int x;\n    :int y;\n};"
+        },
+        {
+          "title": "Keyboard Shortcuts",
+          "table": {
+            "headers": ["Shortcut", "Action"],
+            "rows": [
+              ["Ctrl+S", "Save"],
+              ["Ctrl+O", "Open"],
+              ["Ctrl+N", "New tab"],
+              ["Ctrl+D", "Toggle docs"],
+              ["Ctrl+F", "Find"]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "getting_started",
+      "label": "Getting Started",
+      "searchKeywords": "getting started program structure !start !end comments # ### import keyboard shortcuts run compile Ctrl+S Ctrl+O terminal !exit exit code hello world philosophy design goals strongly typed compiled compiler errors",
+      "sections": [
+        {
+          "title": "Introduction",
+          "description": "Welcome to Fractal - a statically-typed, strongly-typed language designed for clarity and correctness."
+        },
+        {
+          "title": "Hello World",
+          "description": "Every program must begin with !start and end with !end.",
+          "code": "!start\n    print(\"Hello, World!\\n\");\n!end"
+        },
+        {
+          "title": "Variables & Functions",
+          "description": "A simple program with variables and a function:",
+          "code": "!start\n    :int x = 10;\n    :int y = 20;\n\n    !func sum(:int a, :int b) -> :int {\n        !return a + b;\n    }\n\n    print(\"{} + {} = {}\", x, y, sum(x, y));\n!end"
+        },
+        {
+          "title": "Loops & Conditionals",
+          "description": "Using !for loop and !if statement:",
+          "code": "!start\n    :int total = 0;\n\n    !for (:int i, 1, 6, 1) {\n        !if (i % 2 == 0) {\n            total = total + i;\n        }\n    }\n\n    print(\"Sum of evens 1-5: {}\", total);\n!end"
+        },
+        {
+          "title": "Why Fractal?",
+          "description": "Fractal was built around three principles:",
+          "table": {
+            "headers": ["Principle", "What it means"],
+            "rows": [
+              ["No implicit casts", "Every type conversion is explicit with :Type(expr)"],
+              ["Compile-time safety", "Type errors caught before running"],
+              ["Minimal syntax", "Keywords use ! prefix, never conflict with variables"]
+            ]
+          }
+        },
+        {
+          "title": "Comments",
+          "code": "# single-line comment\n\n###\n    multi-line\n    comment\n###"
+        },
+        {
+          "title": "Importing Files",
+          "code": "!import \"math\";\n!import \"./utils.fr\";"
+        },
+        {
+          "title": "Compiler Errors",
+          "description": "The compiler catches type errors at compile time:",
+          "code": "!start\n    :int a = 10;\n    :float b = 3.0;\n\n    # ERROR: cannot assign float to int\n    :int c = b;\n\n    # CORRECT: use explicit cast\n    :int d = :int(b);   # 3\n!end"
+        },
+        {
+          "title": "Keyboard Shortcuts",
+          "table": {
+            "headers": ["Shortcut", "Action"],
+            "rows": [
+              ["Ctrl+S", "Save and format"],
+              ["Ctrl+O", "Open file"],
+              ["Ctrl+N", "New tab"],
+              ["Ctrl+D", "Toggle docs"],
+              ["Ctrl+F", "Find in file"]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "types_variables",
+      "label": "Types & Variables",
+      "searchKeywords": "types variables int float char boolean void array list string declaration assignment default values literals binary hex octal decimal 0b 0x 0o 0d type casting :int :float :array :list strong typing static",
+      "sections": [
+        {
+          "title": "Overview",
+          "description": "Fractal is statically typed. Every variable must have an explicit type annotation."
+        },
+        {
+          "title": "Simple Types",
+          "table": {
+            "headers": ["Type", "Description", "Default"],
+            "rows": [
+              [":int", "64-bit signed integer", "0"],
+              [":float", "64-bit IEEE 754 float", "0.0"],
+              [":char", "Unicode character", "'\\0'"],
+              [":boolean", "true or false", "false"],
+              [":void", "Null type", "-"]
+            ]
+          }
+        },
+        {
+          "title": "Collection Types",
+          "table": {
+            "headers": ["Type", "Description"],
+            "rows": [
+              [":array<T, N>", "Fixed-size array of N elements"],
+              [":list<T>", "Dynamic list"]
+            ]
+          }
+        },
+        {
+          "title": "Integer Literals",
+          "table": {
+            "headers": ["Syntax", "Format"],
+            "rows": [
+              ["255", "Decimal"],
+              ["0xFF", "Hexadecimal"],
+              ["0b1111", "Binary"],
+              ["0o377", "Octal"]
+            ]
+          }
+        },
+        {
+          "title": "Float Literals",
+          "table": {
+            "headers": ["Syntax", "Format"],
+            "rows": [
+              ["1.5", "Plain"],
+              ["1.5e6", "Scientific"]
+            ]
+          }
+        },
+        {
+          "title": "Declarations",
+          "code": ":int     count = 42;\n:float   ratio = 0.618;\n:char    letter = 'F';\n:boolean flag = true;\n\n# Default values\n:int zero;     # 0\n:float f;    # 0.0"
+        },
+        {
+          "title": "Type Casting",
+          "description": "Use :Type(expression) syntax:",
+          "table": {
+            "headers": ["Cast", "Effect"],
+            "rows": [
+              [":int(expr)", "Convert to int (truncates)"],
+              [":float(expr)", "Convert to float"],
+              [":char(expr)", "Convert to char"],
+              [":boolean(expr)", "Convert to boolean"]
+            ]
+          },
+          "code": ":float f = :float(42);    # 42.0\n:int n = :int(3.99);    # 3\n:char c = :char(65);    # 'A'"
+        },
+        {
+          "title": "Indexing",
+          "code": ":int first = arr[0];\n:int i = 2;\n:int val = arr[i];"
+        }
+      ]
+    },
+    {
+      "id": "operators",
+      "label": "Operators",
+      "searchKeywords": "operators arithmetic unary binary plus minus multiply divide modulo bitwise NOT AND OR XOR shift left right logical !not !and !or comparison greater less equal not-equal ~= assignment += -= *= /= precedence",
+      "sections": [
+        {
+          "title": "Overview",
+          "description": "Fractal uses ~= for not-equal and ! prefix for logical operators."
+        },
+        {
+          "title": "Arithmetic",
+          "table": {
+            "headers": ["Operator", "Description"],
+            "rows": [
+              ["+ -", "Unary plus/negate"],
+              ["+", "Addition"],
+              ["-", "Subtraction"],
+              ["*", "Multiplication"],
+              ["/", "Division"],
+              ["%", "Modulo (int only)"]
+            ]
+          }
+        },
+        {
+          "title": "Bitwise (int only)",
+          "table": {
+            "headers": ["Operator", "Description"],
+            "rows": [
+              ["~", "NOT"],
+              ["&", "AND"],
+              ["|", "OR"],
+              ["^", "XOR"],
+              ["<< >>", "Shift"]
+            ]
+          }
+        },
+        {
+          "title": "Logical (boolean)",
+          "table": {
+            "headers": ["Operator", "Description"],
+            "rows": [
+              ["!not", "NOT"],
+              ["!and", "AND"],
+              ["!or", "OR"]
+            ]
+          },
+          "code": ":boolean a = true;\n:boolean b = false;\n:boolean c = !not a;        # false\n:boolean d = a !and b;      # false\n:boolean e = a !or b;       # true"
+        },
+        {
+          "title": "Comparison",
+          "table": {
+            "headers": ["Operator", "Description"],
+            "rows": [
+              [">", "Greater than"],
+              ["<", "Less than"],
+              [">=", "> or equal"],
+              ["<=", "< or equal"],
+              ["==", "Equal"],
+              ["~=", "Not equal"]
+            ]
+          },
+          "note": {
+            "kind": "info",
+            "text": "Fractal uses ~= for not-equal, not !="
+          }
+        },
+        {
+          "title": "Assignment",
+          "table": {
+            "headers": ["Operator", "Equivalent"],
+            "rows": [
+              ["=", "Assign"],
+              ["+=", "a = a + b"],
+              ["-=", "a = a - b"],
+              ["*=", "a = a * b"],
+              ["/=", "a = a / b"]
+            ]
+          }
+        },
+        {
+          "title": "Precedence",
+          "description": "Operators evaluated in this order (highest to lowest):",
+          "code": "1. unary: - ~ !not\n2. * / %\n3. + -\n4. << >>\n5. &\n6. ^\n7. |\n8. == ~= > < >= <=\n9. !and\n10. !or"
+        }
+      ]
+    },
+    {
+      "id": "functions_control",
+      "label": "Control Flow",
+      "searchKeywords": "functions !func return !return control flow !if !elif !else !for !while !break !continue conditionals loops for loop while recursion factorial",
+      "sections": [
+        {
+          "title": "Overview",
+          "description": "Fractal has !func, !if, !for, and !while. All blocks use curly braces."
+        },
+        {
+          "title": "Functions",
+          "code": "!func add(:int a, :int b) -> :int {\n    !return a + b;\n}\n\n!func greet(:char name) -> :void {\n    print(\"Hello {}\\n\", name);\n}",
+          "note": {
+            "kind": "info",
+            "text": "!func definitions must appear at the top level, not inside any block."
+          }
+        },
+        {
+          "title": "Conditionals",
+          "code": "!if (x > 0) {\n    print(\"positive\\n\");\n}\n!elif (x < 0) {\n    print(\"negative\\n\");\n}\n!else {\n    print(\"zero\\n\");\n}",
+          "note": {
+            "kind": "warning",
+            "text": "The opening { must be on the same line as the condition."
+          }
+        },
+        {
+          "title": "For Loop",
+          "code": "# Count 0 to 9\n!for (:int i, 0, 10, 1) {\n    print(\"{}\", i);\n}\n\n# Nested loops\n!for (:int r, 0, 3, 1) {\n    !for (:int c, 0, 3, 1) {\n        print(\"({},{})\", r, c);\n    }\n}",
+          "note": {
+            "kind": "info",
+            "text": "The loop variable must be :int and must not shadow outer variables."
+          }
+        },
+        {
+          "title": "While Loop",
+          "code": ":int n = 10;\n!while (n > 0) {\n    print(\"{}\", n);\n    n = n - 1;\n}"
+        },
+        {
+          "title": "Break & Continue",
+          "code": "!for (:int i, 0, 100, 1) {\n    !if (i == 42) { !break; }\n}\n\n!for (:int i, 0, 10, 1) {\n    !if (i % 2 == 0) { !continue; }\n    print(\"{}\", i);  # prints 1,3,5,7,9\n}"
+        },
+        {
+          "title": "Recursion",
+          "description": "Functions can call themselves:",
+          "code": "!func factorial(:int n) -> :int {\n    !if (n <= 1) { !return 1; }\n    !return n * factorial(n - 1);\n}\n\nprint(\"{}\", factorial(5));  # 120"
+        },
+        {
+          "title": "Variable Scope",
+          "code": ":int global = 10;\n\n!if (true) {\n    :int local = 20;\n    global = local;\n}\n# local is out of scope here"
+        }
+      ]
+    },
+    {
+      "id": "structs",
+      "label": "Structs",
+      "searchKeywords": "structs struct user defined types :struct member access :: fields nested struct fixed size Vec2 Vec3 Rect Particle initialise self-referential",
+      "sections": [
+        {
+          "title": "Overview",
+          "description": "User-defined types that group related fields. Members accessed with ::."
+        },
+        {
+          "title": "Defining Structs",
+          "code": ":struct<Vec2> {\n    :float x;\n    :float y;\n};\n\n:struct<Rect> {\n    :float x;\n    :float y;\n    :float w;\n    :float h;\n};"
+        },
+        {
+          "title": "Nested Structs",
+          "code": ":struct<Particle> {\n    :struct<Vec2> pos;\n    :struct<Vec2> vel;\n    :float mass;\n};"
+        },
+        {
+          "title": "Initialisation",
+          "code": ":struct<Vec2> origin = { x = 0.0, y = 0.0 };\n:struct<Vec2> p = { x = 3.0, y = 4.0 };"
+        },
+        {
+          "title": "Member Access",
+          "code": ":float x = p::x;\n:float y = p::y;"
+        },
+        {
+          "title": "Structs in Functions",
+          "code": "!func distance(:struct<Vec2> a, :struct<Vec2> b) -> :float {\n    :float dx = b::x - a::x;\n    :float dy = b::y - a::y;\n    !return :float(dx * dx + dy * dy);\n}"
+        },
+        {
+          "title": "Self-Referential",
+          "description": "Structs can reference themselves for linked structures:",
+          "code": ":struct<Node> {\n    :int value;\n    :struct<Node> next;\n};\n\n# Create a linked list\n:struct<Node> head = { value = 1, next = !null };\nhead::next = { value = 2, next = !null };",
+          "note": {
+            "kind": "warning",
+            "text": "Declaring a struct without an initializer produces a warning - structs have no default value."
+          }
+        }
+      ]
+    },
+    {
+      "id": "modules",
+      "label": "Modules",
+      "searchKeywords": "modules !module !import file organization cross-file namespace scope Constants helper functions library",
+      "sections": [
+        {
+          "title": "Overview",
+          "description": "Modules organize code across files. Use !module to define, !import to use."
+        },
+        {
+          "title": "Defining a Module",
+          "description": "A module wraps related code:",
+          "code": "!module Math {\n    :float pi = 3.14159;\n\n    !func square(:int n) -> :int {\n        !return n * n;\n    }\n}"
+        },
+        {
+          "title": "Importing Files",
+          "description": "Use !import to bring in another file:",
+          "code": "!import \"./math.fr\";\n!import \"utils\";"
+        },
+        {
+          "title": "Module Example",
+          "description": "File: constants.fr",
+          "code": "!start\n    :float golden_ratio = 1.618;\n    :float e = 2.718;\n!end",
+          "subcontent": "File: math.fr that imports constants:",
+          "code2": "!import \"./constants.fr\";\n\n!start\n    !func add(:int a, :int b) -> :int {\n        !return a + b;\n}\n!end",
+          "subcontent2": "Using in main.fr:",
+          "code3": "!import \"./math.fr\";\n\n!start\n    print(\"{}\", math::add(3, 4));\n!end"
+        },
+        {
+          "title": "Best Practices",
+          "table": {
+            "headers": ["Tip", "Description"],
+            "rows": [
+              ["One module per file", "Keep related code together"],
+              ["Meaningful names", "Use descriptive module names"],
+              ["Clear boundaries", "Group related functions"]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "stdlib",
+      "label": "Standard Library",
+      "searchKeywords": "standard library print input append pop insert delete find len array list io format string placeholder math import abs sqrt pow floor ceil min max",
+      "sections": [
+        {
+          "title": "Overview",
+          "description": "Built-in functions for I/O and collections."
+        },
+        {
+          "title": "I/O Functions",
+          "subsections": [
+            {
+              "title": "print",
+              "code": "print(\"Value: {}\", 42);\nprint(\"{} + {} = {}\", 1, 2, 3);"
+            },
+            {
+              "title": "input",
+              "code": ":int n;\ninput(\"{}\", n);"
+            }
+          ]
+        },
+        {
+          "title": "List Functions",
+          "table": {
+            "headers": ["Function", "Description", "Returns"],
+            "rows": [
+              ["append(lst, v)", "Add to end", ":void"],
+              ["pop(lst)", "Remove last", "T"],
+              ["insert(lst, idx, v)", "Insert value at index", ":void"],
+              ["delete(lst, idx)", "Delete at index", ":void"],
+              ["find(lst, v)", "Find index", ":int"],
+              ["len(lst)", "Get length", ":int"]
+            ]
+          },
+          "code": ":list<:int> nums = [1, 2, 3];\nappend(nums, 4);\n:int last = pop(nums);            # 4\n:int idx = find(nums, 2);        # 1\ninsert(nums, 0, 99);              # insert 99 at index 0\ndelete(nums, 0);                  # delete index 0"
+        },
+        {
+          "title": "Array Functions",
+          "table": {
+            "headers": ["Function", "Description", "Returns"],
+            "rows": [
+              ["find(arr, v)", "Find index", ":int"],
+              ["len(arr)", "Array length (fixed)", ":int"]
+            ]
+          }
+        },
+        {
+          "title": "Math Functions",
+          "table": {
+            "headers": ["Function", "Description", "Returns"],
+            "rows": [
+              ["abs(n)", "Absolute value", "int/float"],
+              ["sqrt(n)", "Square root", ":float"],
+              ["pow(a, b)", "a raised to b", ":float"],
+              ["floor(n)", "Floor", ":int"],
+              ["ceil(n)", "Ceiling", ":int"],
+              ["min(a, b)", "Minimum", "int/float"],
+              ["max(a, b)", "Maximum", "int/float"]
+            ]
+          },
+          "code": ":int a = abs(-5);           # 5\n:float s = sqrt(16.0);        # 4.0\n:float p = pow(2.0, 3.0);     # 8.0\n:int f = floor(3.9);         # 3\n:int c = ceil(3.1);          # 4"
+        },
+        {
+          "title": "Full Example",
+          "code": "!start\n    :list<:int> evens = [];\n\n    !for (:int i, 1, 10, 1) {\n        !if (i % 2 == 0) {\n            append(evens, i);\n        }\n    }\n\n    :int count = len(evens);\n    print(\"Found {} evens\", count);\n!end"
+        }
+      ]
+    },
+    {
+      "id": "common_patterns",
+      "label": "Common Patterns",
+      "searchKeywords": "common patterns code recipes stack queue BST linked list sorting bubble sort merge sort data structures algorithms",
+      "sections": [
+        {
+          "title": "Overview",
+          "description": "Code recipes for common data structures and algorithms."
+        },
+        {
+          "title": "Stack",
+          "code": ":struct<Stack> {\n    :list<:int> data;\n    :int top;\n};\n\n!func make_stack() -> :struct<Stack> {\n    :struct<Stack> s;\n    s::data = [];\n    s::top = -1;\n    !return s;\n}\n\n!func push(:struct<Stack> s, :int v) -> :void {\n    append(s::data, v);\n    s::top = s::top + 1;\n}\n\n!func stack_pop(:struct<Stack> s) -> :int {\n    !if (s::top < 0) { !return -1; }\n    :int val = s::data[s::top];\n    s::top = s::top - 1;\n    !return val;\n}"
+        },
+        {
+          "title": "Queue",
+          "code": ":struct<Queue> {\n    :list<:int> data;\n    :int head;\n    :int tail;\n};\n\n!func make_queue() -> :struct<Queue> {\n    :struct<Queue> q;\n    q::data = [];\n    q::head = 0;\n    q::tail = 0;\n    !return q;\n}\n\n!func enqueue(:struct<Queue> q, :int v) -> :void {\n    append(q::data, v);\n    q::tail = q::tail + 1;\n}\n\n!func dequeue(:struct<Queue> q) -> :int {\n    !if (q::head >= q::tail) { !return -1; }\n    :int val = q::data[q::head];\n    q::head = q::head + 1;\n    !return val;\n}"
+        },
+        {
+          "title": "Binary Search Tree",
+          "code": ":struct<BSTNode> {\n    :int value;\n    :int left;\n    :int right;\n};\n\n!func insert(:int val, :list<:struct<BSTNode>> nodes, :int root) -> :void {\n    :int cur = root;\n    !for (:int i, 0, 1000, 1) {\n        :struct<BSTNode> n = nodes[cur];\n        !if (val < n::value) {\n            !if (n::left == -1) { n::left = val; !break; }\n            cur = n::left;\n        } !else {\n            !if (n::right == -1) { n::right = val; !break; }\n            cur = n::right;\n        }\n    }\n}"
+        },
+        {
+          "title": "Bubble Sort",
+          "code": "!func bubble_sort(:list<:int> arr) -> :void {\n    :int n = len(arr);\n\n    !for (:int i, 0, n, 1) {\n        !for (:int j, 0, n - i - 1, 1) {\n            !if (arr[j] > arr[j + 1]) {\n                :int tmp = arr[j];\n                arr[j] = arr[j + 1];\n                arr[j + 1] = tmp;\n            }\n        }\n    }\n}"
+        },
+        {
+          "title": "Merge Sort",
+          "code": "!func merge(:list<:int> a, :list<:int> b) -> :list<:int> {\n    :list<:int> result = [];\n    :int i = 0;\n    :int j = 0;\n\n    !while (i < len(a) !and j < len(b)) {\n        !if (a[i] <= b[j]) {\n            append(result, a[i]);\n            i = i + 1;\n        } !else {\n            append(result, b[j]);\n            j = j + 1;\n        }\n    }\n\n    !while (i < len(a)) {\n        append(result, a[i]);\n        i = i + 1;\n    }\n\n    !while (j < len(b)) {\n        append(result, b[j]);\n        j = j + 1;\n    }\n\n    !return result;\n}"
+        },
+        {
+          "title": "Linked List",
+          "code": ":struct<Node> {\n    :int value;\n    :struct<Node> next;\n};\n\n# Traverse list\n!func traverse(:struct<Node> head) -> :void {\n    :struct<Node> cur = head;\n    !while (cur ~= !null) {\n        print(\"{}\", cur::value);\n        cur = cur::next;\n    }\n}"
+        }
+      ]
+    }
+  ]
+}

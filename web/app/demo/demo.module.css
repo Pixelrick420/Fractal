@@ -5,53 +5,21 @@
     display: flex;
     flex-direction: column;
     background: var(--bg);
+    overflow: hidden;
 }
 
-/* ── Hero strip ─────────────────────────────────────────── */
+/* ── Mobile toolbar (hidden on desktop) ──────────────────── */
 
-.hero {
-    padding: 2.5rem 2rem 2rem;
-    border-bottom: 1px solid var(--border);
-    background: linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%);
-}
-
-.heroInner {
-    max-width: 900px;
-    margin: 0 auto;
-}
-
-.heroBadge {
-    display: inline-flex;
+.mobileToolbar {
+    display: none;
     align-items: center;
-    gap: 0.35rem;
-    padding: 0.3rem 0.7rem;
-    border-radius: 99px;
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-    color: var(--accent);
-    font-family: var(--mono);
-    font-size: 0.7rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    margin-bottom: 0.9rem;
-}
-
-.heroTitle {
-    font-family: var(--display);
-    font-size: clamp(1.6rem, 4vw, 2.4rem);
-    font-weight: 800;
-    color: var(--text);
-    margin: 0 0 0.4rem;
-    line-height: 1.1;
-    letter-spacing: -0.02em;
-}
-
-.heroSub {
-    font-size: 0.9rem;
-    color: var(--text-muted);
-    margin: 0;
-    line-height: 1.6;
+    justify-content: space-between;
+    padding: 0 0.75rem;
+    height: 42px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: 0.5rem;
 }
 
 /* ── Workspace grid ──────────────────────────────────────── */
@@ -60,9 +28,9 @@
     flex: 1;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0;
     overflow: hidden;
     min-height: 0;
+    height: calc(100vh - var(--navbar-height, 52px));
 }
 
 /* ── Shared pane ─────────────────────────────────────────── */
@@ -71,7 +39,9 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    min-width: 0;
     border-right: 1px solid var(--border);
+    overflow: hidden;
 }
 
 .pane:last-child {
@@ -82,35 +52,30 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 1rem;
+    padding: 0 0.75rem;
     height: 42px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
-    gap: 0.75rem;
+    gap: 0.5rem;
+    min-width: 0;
 }
 
 .paneHeaderLeft {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.5rem;
     min-width: 0;
-}
-
-/* Traffic lights */
-.trafficLights {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    flex-shrink: 0;
+    flex-shrink: 1;
+    overflow: hidden;
 }
 
 .tlRed,
 .tlYellow,
 .tlGreen {
     display: block;
-    width: 10px;
-    height: 10px;
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
 }
 
@@ -131,7 +96,7 @@
 
 .fileName {
     font-family: var(--mono);
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 500;
     color: var(--text-muted);
     white-space: nowrap;
@@ -142,13 +107,14 @@
 /* Status badge */
 .statusBadge {
     font-family: var(--mono);
-    font-size: 0.65rem;
+    font-size: 0.62rem;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.07em;
     text-transform: uppercase;
-    padding: 0.2rem 0.55rem;
+    padding: 0.18rem 0.45rem;
     border-radius: 4px;
     flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .statusOk {
@@ -168,7 +134,7 @@
 .actions {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 0.3rem;
     flex-shrink: 0;
 }
 
@@ -176,8 +142,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     background: none;
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -187,6 +153,7 @@
         background 0.12s,
         color 0.12s,
         border-color 0.12s;
+    flex-shrink: 0;
 }
 
 .iconBtn:hover {
@@ -198,15 +165,15 @@
 .runBtn {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0 0.85rem;
-    height: 28px;
+    gap: 0.35rem;
+    padding: 0 0.7rem;
+    height: 26px;
     background: var(--accent);
     border: none;
     border-radius: 6px;
     color: #000;
     font-family: var(--mono);
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 700;
     cursor: pointer;
     transition:
@@ -214,7 +181,8 @@
         transform 0.12s,
         box-shadow 0.12s;
     letter-spacing: 0.02em;
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 40%, transparent);
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .runBtn:hover:not(:disabled) {
@@ -239,6 +207,7 @@
     overflow: hidden;
     position: relative;
     background: #080b10;
+    min-height: 0;
 }
 
 .editorLoading {
@@ -248,7 +217,7 @@
     height: 100%;
     color: var(--text-muted);
     font-family: var(--mono);
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     background: #080b10;
 }
 
@@ -261,10 +230,7 @@
     background: #070a0f;
     overflow: hidden;
     position: relative;
-}
-
-.terminalLoading {
-    background: #070a0f;
+    min-height: 0;
 }
 
 /* Empty state */
@@ -274,14 +240,14 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.75rem;
-    padding: 2rem;
+    gap: 0.65rem;
+    padding: 1.5rem;
 }
 
 .emptyIcon {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
     background: var(--surface);
     border: 1px solid var(--border);
     display: flex;
@@ -292,20 +258,21 @@
 
 .emptyText {
     font-family: var(--mono);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     color: var(--text-muted);
     margin: 0;
     text-align: center;
+    line-height: 1.6;
 }
 
 .emptyText kbd {
     display: inline-block;
-    padding: 0.1rem 0.4rem;
+    padding: 0.1rem 0.35rem;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 4px;
     font-family: var(--mono);
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: var(--text-dim);
 }
 
@@ -316,14 +283,14 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 1.25rem;
-    padding: 2rem;
+    gap: 1rem;
+    padding: 1.5rem;
 }
 
 .spinner {
     position: relative;
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
 }
 
 .spinnerRing {
@@ -345,12 +312,12 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.35rem;
 }
 
 .loadingTitle {
     font-family: var(--mono);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     color: var(--text-muted);
     letter-spacing: 0.03em;
 }
@@ -393,10 +360,9 @@
 .outputPre {
     flex: 1;
     margin: 0;
-    padding: 1.25rem 1.5rem;
+    padding: 1rem 1.25rem;
     font-family: var(--mono);
-    font-size: 0.85rem;
-    font-weight: 400;
+    font-size: 0.82rem;
     line-height: 1.75;
     white-space: pre-wrap;
     overflow: auto;
@@ -406,17 +372,18 @@
 .outputOk {
     color: #b8c8e8;
 }
-
 .outputErr {
     color: #ff7a7a;
 }
 
 /* ── Responsive ──────────────────────────────────────────── */
 
-@media (max-width: 860px) {
+/* Tablet: stack vertically */
+@media (max-width: 700px) {
     .workspace {
         grid-template-columns: 1fr;
         grid-template-rows: 55vh 45vh;
+        height: calc(100vh - var(--navbar-height, 52px) - 42px);
     }
 
     .pane {
@@ -428,27 +395,42 @@
         border-bottom: none;
     }
 
-    .hero {
-        padding: 1.5rem 1.25rem 1.25rem;
-    }
-
-    .heroTitle {
-        font-size: 1.5rem;
-    }
-}
-
-@media (max-width: 480px) {
-    .trafficLights {
+    /* Hide per-pane header on editor pane, show mobile toolbar instead */
+    .pane:first-child .paneHeader {
         display: none;
     }
 
-    .runBtn span {
+    .mobileToolbar {
+        display: flex;
+    }
+}
+
+/* Small phones */
+@media (max-width: 400px) {
+    .runLabel {
         display: none;
     }
 
     .runBtn {
-        width: 28px;
+        width: 26px;
         padding: 0;
         justify-content: center;
+    }
+}
+
+/* Very small: 300px */
+@media (max-width: 340px) {
+    .iconBtn {
+        width: 24px;
+        height: 24px;
+    }
+
+    .runBtn {
+        width: 24px;
+        height: 24px;
+    }
+
+    .statusBadge {
+        display: none;
     }
 }

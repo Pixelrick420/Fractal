@@ -324,14 +324,10 @@
     color: var(--accent);
 }
 
-/* ── Code editor area ────────────────────────────────────── */
-
 .codeSection {
-    flex: 1;
     display: flex;
     flex-direction: column;
     padding: 1.5rem 2.5rem 2rem;
-    min-height: 320px;
 }
 
 .codeHeader {
@@ -365,12 +361,10 @@
 }
 
 .editorWrapper {
-    flex: 1;
     border: 1px solid var(--border);
     border-top: none;
     border-radius: 0 0 8px 8px;
     overflow: hidden;
-    min-height: 260px;
 }
 
 .loading {

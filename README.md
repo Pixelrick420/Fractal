@@ -47,10 +47,11 @@ sudo cp target/release/fractal-compiler target/release/fractal-editor /usr/bin/
 1. Install [Rust](https://rustup.rs/) (MSVC toolchain)
 2. Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with C++ workload
 3. Build:
+
 ```powershell
 git clone https://github.com/Pixelrick420/Fractal.git
 cd Fractal
-cargo build --release
+cargo run --release --bin fractal-compiler </path/to/file.fr>
 ```
 
 ## Usage
@@ -70,6 +71,7 @@ fractal-compiler --emit-rust path/to/file.fr  # output Rust source
 ```
 
 Or with Cargo:
+
 ```bash
 cargo run --bin fractal-editor
 cargo run --bin fractal-compiler -- path/to/file.fr
@@ -88,22 +90,22 @@ cargo run --bin fractal-compiler -- path/to/file.fr
 
 ## Built-in Functions
 
-| Function | Description |
-|----------|-------------|
-| `print(format, args...)` | Print formatted output |
-| `input(prompt, var, ...)` | Read user input into variable(s) |
-| `append(list, value)` | Add to list |
-| `pop(list)` | Remove last element |
-| `insert(list, index, value)` | Insert at position |
-| `delete(list, index)` | Remove at position |
-| `len(collection)` | Get length |
-| `find(collection, value)` | Find index |
-| `abs(number)` | Absolute value |
-| `sqrt(float)` | Square root |
-| `pow(float, float)` | Power |
-| `floor(float)` / `ceil(float)` | Round |
-| `min(a, b)` / `max(a, b)` | Compare |
-| `to_int/to_float/to_str` | Convert type |
+| Function                       | Description                      |
+| ------------------------------ | -------------------------------- |
+| `print(format, args...)`       | Print formatted output           |
+| `input(prompt, var, ...)`      | Read user input into variable(s) |
+| `append(list, value)`          | Add to list                      |
+| `pop(list)`                    | Remove last element              |
+| `insert(list, index, value)`   | Insert at position               |
+| `delete(list, index)`          | Remove at position               |
+| `len(collection)`              | Get length                       |
+| `find(collection, value)`      | Find index                       |
+| `abs(number)`                  | Absolute value                   |
+| `sqrt(float)`                  | Square root                      |
+| `pow(float, float)`            | Power                            |
+| `floor(float)` / `ceil(float)` | Round                            |
+| `min(a, b)` / `max(a, b)`      | Compare                          |
+| `to_int/to_float/to_str`       | Convert type                     |
 
 ## Project Structure
 

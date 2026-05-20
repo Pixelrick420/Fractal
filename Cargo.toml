@@ -7,7 +7,7 @@ edition = "2021"
 eframe = { version = "0.33", default-features = false, features = ["glow", "x11", "wayland"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 egui = "0.33"
-egui_term = { git = "https://github.com/Harzu/egui_term", branch = "main" }
+egui_term = { git = "https://github.com/Harzu/egui_term", rev = "4112ffe" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "5"

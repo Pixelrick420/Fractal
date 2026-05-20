@@ -58,6 +58,7 @@ pub fn sem_type_from_btype(bt: &BType) -> SemType {
 
 #[derive(Debug, Clone)]
 pub struct Symbol {
+    pub id: usize,
     pub name: String,
     pub kind: SymbolKind,
     pub sem_type: SemType,
@@ -330,6 +331,7 @@ struct Analyzer {
 
     loop_depth: usize,
     current_origin: String,
+    next_id: usize,
 }
 
 impl Analyzer {
@@ -338,6 +340,7 @@ impl Analyzer {
 
         for b in ALL_BUILTINS {
             scopes.define(Symbol {
+                id: 0,
                 name: b.name.to_string(),
                 kind: SymbolKind::Function {
                     params: b.params.iter().map(sem_type_from_btype).collect(),
@@ -356,6 +359,7 @@ impl Analyzer {
             current_return_type: None,
             loop_depth: 0,
             current_origin: "global".to_string(),
+            next_id: 1,
         }
     }
 
@@ -378,25 +382,20 @@ impl Analyzer {
         self.scopes.scopes.len().saturating_sub(1)
     }
 
-    fn declare_sym(&mut self, sym: Symbol) {
+    fn declare_sym(&mut self, mut sym: Symbol) {
         if self.scopes.defined_in_current(&sym.name) {
             return;
         }
-        let mut sym = sym;
         sym.use_count = 0;
+        sym.id = self.next_id;
+        self.next_id += 1;
         self.all_symbols.push(sym.clone());
         self.scopes.define(sym);
     }
 
     fn add_usage(&mut self, name: &str) {
-        let info = self
-            .scopes
-            .lookup(name)
-            .map(|sym| (sym.scope_depth, sym.origin.clone()));
-        if let Some((scope_depth, origin)) = info {
-            if let Some(sym) = self.all_symbols.iter_mut().find(|s| {
-                s.name == name && s.scope_depth == scope_depth && s.origin == origin
-            }) {
+        if let Some(id) = self.scopes.lookup(name).map(|s| s.id) {
+            if let Some(sym) = self.all_symbols.iter_mut().find(|s| s.id == id) {
                 sym.use_count += 1;
             }
         }
@@ -505,24 +504,30 @@ impl Analyzer {
             ParseNode::BoolLit(_, _) => SemType::Boolean,
             ParseNode::Null(_) => SemType::Unknown,
 
-            ParseNode::Identifier(name, line) => match self.scopes.lookup(name) {
-                Some(sym) => sym.sem_type.clone(),
-                None => {
-                    let suggestion = suggest_similar(name, self.scopes.all_names());
-                    let msg = match suggestion {
-                        Some(ref s) => format!(
-                            "undefined variable `{}`\nhint: a variable named `{}` is in scope - did you mean `{}`?",
-                            name, s, s
-                        ),
-                        None => format!(
-                            "undefined variable `{}`\nnote: the variable must be declared before use with e.g. `:int {} = ...;`",
-                            name, name
-                        ),
-                    };
-                    self.error_at(*line, msg);
-                    SemType::Unknown
+            ParseNode::Identifier(name, line) => {
+                let resolved = self.scopes.lookup(name).map(|s| s.sem_type.clone());
+                match resolved {
+                    Some(ty) => {
+                        self.add_usage(name);
+                        ty
+                    }
+                    None => {
+                        let suggestion = suggest_similar(name, self.scopes.all_names());
+                        let msg = match suggestion {
+                            Some(ref s) => format!(
+                                "undefined variable `{}`\nhint: a variable named `{}` is in scope - did you mean `{}`?",
+                                name, s, s
+                            ),
+                            None => format!(
+                                "undefined variable `{}`\nnote: the variable must be declared before use with e.g. `:int {} = ...;`",
+                                name, name
+                            ),
+                        };
+                        self.error_at(*line, msg);
+                        SemType::Unknown
+                    }
                 }
-            },
+            }
 
             ParseNode::AccessChain { base, steps, line } => {
                 let qualified_key: Option<String> =
@@ -1698,6 +1703,7 @@ let is_len = func_name == "len" || func_name.ends_with("::len");
                     }
                     if !had_field_error || !resolved_fields.is_empty() {
                         self.declare_sym(Symbol {
+                            id: 0,
                             name: name.clone(),
                             kind: SymbolKind::Struct {
                                 fields: resolved_fields,
@@ -1747,6 +1753,7 @@ let is_len = func_name == "len" || func_name.ends_with("::len");
                         .collect();
                     let ret = self.resolve_type_node(return_type);
                     self.declare_sym(Symbol {
+                        id: 0,
                         name: name.clone(),
                         kind: SymbolKind::Function {
                             params: param_types,
@@ -1775,6 +1782,7 @@ let is_len = func_name == "len" || func_name.ends_with("::len");
                             let qualified_kind = Self::qualify_symbol_kind(&sym.kind, name);
                             let qualified_sem_type = Self::qualify_struct_type(&sym.sem_type, name);
                             let qualified_sym = Symbol {
+                                id: 0,
                                 name: qualified.clone(),
                                 kind: qualified_kind,
                                 sem_type: qualified_sem_type,
@@ -1789,6 +1797,7 @@ let is_len = func_name == "len" || func_name.ends_with("::len");
 
                     if !self.scopes.defined_in_current(name) {
                         self.scopes.define(Symbol {
+                            id: 0,
                             name: name.clone(),
                             kind: SymbolKind::Variable,
                             sem_type: SemType::Unknown,
@@ -1831,6 +1840,7 @@ let is_len = func_name == "len" || func_name.ends_with("::len");
                     let qualified_kind = Self::qualify_symbol_kind(&sym.kind, name);
                     let qualified_sem_type = Self::qualify_struct_type(&sym.sem_type, name);
                     let qualified_sym = Symbol {
+                        id: 0,
                         name: qualified.clone(),
                         kind: qualified_kind,
                         sem_type: qualified_sem_type,
@@ -1898,6 +1908,7 @@ let is_len = func_name == "len" || func_name.ends_with("::len");
                             ));
                         } else {
                             self.declare_sym(Symbol {
+                                id: 0,
                                 name: pname.clone(),
                                 kind: SymbolKind::Variable,
                                 sem_type: pt,
@@ -1965,6 +1976,7 @@ let is_len = func_name == "len" || func_name.ends_with("::len");
                     ));
                 } else {
                     self.declare_sym(Symbol {
+                        id: 0,
                         name: name.clone(),
                         kind: SymbolKind::Variable,
                         sem_type: decl_ty.clone(),
@@ -2147,6 +2159,7 @@ let is_len = func_name == "len" || func_name.ends_with("::len");
                     );
                 } else {
                     self.declare_sym(Symbol {
+                        id: 0,
                         name: var_name.clone(),
                         kind: SymbolKind::Variable,
                         sem_type: sem_ty,
@@ -2443,11 +2456,12 @@ let is_len = func_name == "len" || func_name.ends_with("::len");
                 }
 
                 self.declare_sym(Symbol {
+                    id: 0,
                     name: var_name.clone(),
                     kind: SymbolKind::Variable,
                     sem_type: vt,
                     scope_depth: self.scope_depth(),
-                    origin: "loop".to_string(),
+                    origin: self.current_origin.clone(),
                     use_count: 0,
                 });
                 self.loop_depth += 1;

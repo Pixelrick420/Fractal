@@ -199,7 +199,7 @@ impl Highlighter {
             if chars[i] == ':' && i + 1 < chars.len() && chars[i + 1] == ':' {
                 result.push(Token {
                     text: "::".to_string(),
-                    color: self.theme.operator,
+                    color: self.theme.fn_name,
                 });
                 i += 2;
                 continue;
@@ -258,7 +258,7 @@ impl Highlighter {
             if chars[i] == '-' && i + 1 < chars.len() && chars[i + 1] == '>' {
                 result.push(Token {
                     text: "->".to_string(),
-                    color: self.theme.operator,
+                    color: self.theme.fn_name,
                 });
                 i += 2;
                 continue;

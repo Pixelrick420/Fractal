@@ -389,8 +389,16 @@ impl Analyzer {
     }
 
     fn add_usage(&mut self, name: &str) {
-        if let Some(sym) = self.all_symbols.iter_mut().find(|s| s.name == name) {
-            sym.use_count += 1;
+        let info = self
+            .scopes
+            .lookup(name)
+            .map(|sym| (sym.scope_depth, sym.origin.clone()));
+        if let Some((scope_depth, origin)) = info {
+            if let Some(sym) = self.all_symbols.iter_mut().find(|s| {
+                s.name == name && s.scope_depth == scope_depth && s.origin == origin
+            }) {
+                sym.use_count += 1;
+            }
         }
     }
 

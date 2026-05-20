@@ -61,7 +61,7 @@ impl TreeViewWindow {
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new("⬡  Abstract Syntax Tree")
-                                    .size(12.5)
+                                    .size(14.0)
                                     .color(t.tab_active_fg)
                                     .strong(),
                             );
@@ -72,7 +72,7 @@ impl TreeViewWindow {
                                     let cur = session.cursor();
                                     ui.label(
                                         egui::RichText::new(format!("step {cur}/{total}"))
-                                            .size(10.5)
+                                            .size(12.0)
                                             .color(t.tab_inactive_fg),
                                     );
                                     ui.add_space(8.0);
@@ -80,7 +80,7 @@ impl TreeViewWindow {
                                         .add(
                                             egui::Button::new(
                                                 egui::RichText::new("⊟ Collapse all")
-                                                    .size(10.5)
+                                                    .size(12.0)
                                                     .color(t.tab_inactive_fg),
                                             )
                                             .fill(egui::Color32::TRANSPARENT)
@@ -148,8 +148,8 @@ impl TreeViewWindow {
     }
 }
 
-const INDENT_W: f32 = 20.0;
-const ROW_H: f32 = 24.0;
+const INDENT_W: f32 = 22.0;
+const ROW_H: f32 = 28.0;
 const TRUNK_X: f32 = 8.0;
 
 fn draw_subtree(
@@ -308,7 +308,7 @@ fn draw_subtree(
             toggle_rect.center(),
             egui::Align2::CENTER_CENTER,
             arrow,
-            egui::FontId::proportional(9.0),
+            egui::FontId::proportional(11.0),
             arrow_col,
         );
         if toggle_resp.clicked() {
@@ -334,9 +334,9 @@ fn draw_subtree(
     let badge_bg = node_badge_color(&node.label, t);
 
     if !badge.is_empty() {
-        let badge_w = (badge.len() as f32 * 6.5 + 8.0).max(34.0);
+        let badge_w = (badge.len() as f32 * 7.5 + 10.0).max(38.0);
         let badge_rect =
-            egui::Rect::from_min_size(egui::pos2(text_x, mid_y - 8.0), egui::vec2(badge_w, 16.0));
+            egui::Rect::from_min_size(egui::pos2(text_x, mid_y - 9.0), egui::vec2(badge_w, 18.0));
         ui.painter()
             .rect_filled(badge_rect, egui::CornerRadius::same(3), badge_bg);
 
@@ -344,13 +344,13 @@ fn draw_subtree(
             badge_rect.center(),
             egui::Align2::CENTER_CENTER,
             badge,
-            egui::FontId::monospace(9.0),
+            egui::FontId::monospace(10.5),
             t.editor_bg,
         );
-        text_x += badge_w + 6.0;
+        text_x += badge_w + 8.0;
     }
 
-    let label_font = egui::FontId::monospace(if is_active { 11.5 } else { 11.0 });
+    let label_font = egui::FontId::monospace(if is_active { 13.5 } else { 13.0 });
     let text_col = node_text_color(is_active, t, depth, has_children);
 
     let full_label = &node.label;
@@ -372,10 +372,10 @@ fn draw_subtree(
         let char_w = ui.fonts_mut(|f| f.glyph_width(&label_font, 'x')).max(1.0);
         let label_w = char_w * display_label.len() as f32;
         ui.painter().text(
-            egui::pos2(text_x + label_w + 4.0, mid_y),
+            egui::pos2(text_x + label_w + 6.0, mid_y),
             egui::Align2::LEFT_CENTER,
             format!("+{} hidden", node.children.len()),
-            egui::FontId::proportional(9.5),
+            egui::FontId::proportional(11.0),
             t.tab_inactive_fg,
         );
     }

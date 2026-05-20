@@ -58,11 +58,11 @@ impl VarViewWindow {
         let value_col = t.tab_active_fg;
 
         let changed_bg = if t.variant == crate::ui::theme::ThemeVariant::Dark {
-            egui::Color32::from_rgba_premultiplied(255, 200, 80, 140)
+            egui::Color32::from_rgba_premultiplied(255, 220, 100, 180)
         } else {
-            egui::Color32::from_rgba_premultiplied(255, 200, 80, 80)
+            egui::Color32::from_rgba_premultiplied(255, 200, 80, 120)
         };
-        let changed_fg = t.tab_dirty_dot;
+        let changed_fg = egui::Color32::from_rgb(255, 200, 80);
 
         let alt_row = {
             use crate::ui::theme::ThemeVariant;
@@ -111,13 +111,14 @@ impl VarViewWindow {
                             };
                             ui.label(
                                 egui::RichText::new(format!("▶  {}{}", frame.step_label, line_txt))
-                                    .size(11.0)
+                                    .size(14.0)
                                     .color(if t.variant == crate::ui::theme::ThemeVariant::Dark {
                                             egui::Color32::BLACK
                                         } else {
                                             t.accent
                                         })
-                                    .monospace(),
+                                    .monospace()
+                                    .strong(),
                             );
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -129,7 +130,7 @@ impl VarViewWindow {
                                     } else {
                                         ("running", t.struct_name)
                                     };
-                                    ui.label(egui::RichText::new(status).size(10.0).color(col));
+                                    ui.label(egui::RichText::new(status).size(12.0).color(col).strong());
                                 },
                             );
                         });
@@ -150,7 +151,7 @@ impl VarViewWindow {
 
                         if !frame.call_stack.is_empty() {
                             let (hdr_rect, hdr_resp) = ui.allocate_exact_size(
-                                egui::vec2(ui.available_width(), 20.0),
+                                egui::vec2(ui.available_width(), 24.0),
                                 egui::Sense::click(),
                             );
                             if hdr_resp.clicked() {
@@ -173,14 +174,14 @@ impl VarViewWindow {
                                 egui::pos2(hdr_rect.left() + 10.0, hdr_rect.center().y),
                                 egui::Align2::LEFT_CENTER,
                                 toggle_arrow,
-                                egui::FontId::proportional(10.0),
+                                egui::FontId::proportional(12.0),
                                 muted_text,
                             );
                             ui.painter().text(
-                                egui::pos2(hdr_rect.left() + 22.0, hdr_rect.center().y),
+                                egui::pos2(hdr_rect.left() + 24.0, hdr_rect.center().y),
                                 egui::Align2::LEFT_CENTER,
                                 "call stack",
-                                egui::FontId::proportional(10.0),
+                                egui::FontId::proportional(12.0),
                                 muted_text,
                             );
 
@@ -189,12 +190,12 @@ impl VarViewWindow {
                                 egui::pos2(hdr_rect.right() - 10.0, hdr_rect.center().y),
                                 egui::Align2::RIGHT_CENTER,
                                 badge,
-                                egui::FontId::monospace(9.5),
+                                egui::FontId::monospace(11.0),
                                 muted_text,
                             );
 
                             if new_stack_expanded {
-                                ui.add_space(2.0);
+                                ui.add_space(4.0);
 
                                 let stack = &frame.call_stack;
                                 let stack_len = stack.len();
@@ -207,7 +208,7 @@ impl VarViewWindow {
                                     let is_selected = scope_idx == effective_scope;
 
                                     let (row_rect, row_resp) = ui.allocate_exact_size(
-                                        egui::vec2(ui.available_width(), 22.0),
+                                        egui::vec2(ui.available_width(), 24.0),
                                         egui::Sense::click(),
                                     );
 
@@ -244,7 +245,7 @@ impl VarViewWindow {
                                         muted_text
                                     };
 
-                                    let depth_indent = visual_idx as f32 * 8.0;
+                                    let depth_indent = visual_idx as f32 * 12.0;
                                     let arrow = if is_selected { "▶ " } else { "  " };
 
                                     ui.painter().text(
@@ -254,11 +255,11 @@ impl VarViewWindow {
                                         ),
                                         egui::Align2::LEFT_CENTER,
                                         format!("{}{}", arrow, name),
-                                        egui::FontId::monospace(11.0),
+                                        egui::FontId::monospace(12.5),
                                         col,
                                     );
                                 }
-                                ui.add_space(4.0);
+                                ui.add_space(6.0);
                             }
 
                             let (cs_sep, _) = ui.allocate_exact_size(
@@ -267,7 +268,7 @@ impl VarViewWindow {
                             );
                             ui.painter()
                                 .rect_filled(cs_sep, egui::CornerRadius::ZERO, t.border);
-                            ui.add_space(6.0);
+                            ui.add_space(8.0);
                         }
 
                         if frame.scopes.is_empty() {
@@ -275,9 +276,9 @@ impl VarViewWindow {
                                 ui.add_space(12.0);
                                 ui.label(
                                     egui::RichText::new("No variables yet")
-                                        .size(11.5)
-                                        .color(muted_text)
-                                        .italics(),
+                                    .size(13.5)
+                                    .color(muted_text)
+                                    .italics(),
                                 );
                             });
                         } else {
@@ -299,14 +300,14 @@ impl VarViewWindow {
                                 };
                                 ui.label(
                                     egui::RichText::new(hdr_text)
-                                        .size(10.5)
+                                        .size(12.5)
                                         .color(label_col)
                                         .strong(),
                                 );
                                 if effective_scope > 0 {
                                     ui.label(
                                         egui::RichText::new("(paused)")
-                                            .size(9.5)
+                                            .size(11.5)
                                             .color(muted_text)
                                             .italics(),
                                     );
@@ -338,7 +339,7 @@ impl VarViewWindow {
                                                 "⚠ shadows outer: {}",
                                                 names
                                             ))
-                                            .size(9.5)
+                                            .size(11.0)
                                             .color(t.tab_dirty_dot)
                                             .italics(),
                                         );
@@ -352,7 +353,7 @@ impl VarViewWindow {
                                     ui.add_space(16.0);
                                     ui.label(
                                         egui::RichText::new("(no variables)")
-                                            .size(11.0)
+                                            .size(12.5)
                                             .color(muted_text)
                                             .italics(),
                                     );
@@ -361,7 +362,7 @@ impl VarViewWindow {
                                 ui.add_space(2.0);
                                 let indent = egui::Frame::new().inner_margin(egui::Margin {
                                     left: 8,
-                                    right: 4,
+                                    right: 6,
                                     top: 0,
                                     bottom: 0,
                                 });
@@ -384,7 +385,7 @@ impl VarViewWindow {
                         }
 
                         if let Some(err) = &frame.error {
-                            ui.add_space(8.0);
+                            ui.add_space(10.0);
                             egui::Frame::new()
                                 .fill(egui::Color32::from_rgba_premultiplied(
                                     t.terminal_error.r(),
@@ -393,48 +394,48 @@ impl VarViewWindow {
                                     40,
                                 ))
                                 .stroke(egui::Stroke::new(1.0, t.terminal_error))
-                                .inner_margin(egui::Margin::symmetric(10, 6))
+                                .inner_margin(egui::Margin::symmetric(10, 8))
                                 .show(ui, |ui| {
                                     ui.set_min_width(ui.available_width());
                                     ui.label(
                                         egui::RichText::new(format!("⚠  {}", err))
-                                            .size(11.0)
+                                            .size(12.5)
                                             .color(t.terminal_error),
                                     );
                                 });
                         }
 
                         if !output.is_empty() {
-                            ui.add_space(8.0);
+                            ui.add_space(10.0);
                             let (o_sep, _) = ui.allocate_exact_size(
                                 egui::vec2(ui.available_width(), 1.0),
                                 egui::Sense::hover(),
                             );
                             ui.painter()
                                 .rect_filled(o_sep, egui::CornerRadius::ZERO, t.border);
-                            ui.add_space(6.0);
+                            ui.add_space(8.0);
 
                             ui.horizontal(|ui| {
                                 ui.add_space(10.0);
                                 ui.label(
                                     egui::RichText::new("output so far")
-                                        .size(10.0)
+                                        .size(12.0)
                                         .color(muted_text)
                                         .strong(),
                                 );
                             });
-                            ui.add_space(4.0);
+                            ui.add_space(6.0);
 
                             egui::Frame::new()
                                 .fill(t.editor_bg)
                                 .stroke(egui::Stroke::new(1.0, t.border))
                                 .corner_radius(egui::CornerRadius::same(4))
-                                .inner_margin(egui::Margin::same(8))
+                                .inner_margin(egui::Margin::same(10))
                                 .show(ui, |ui| {
                                     ui.set_min_width(ui.available_width());
                                     ui.label(
                                         egui::RichText::new(&output)
-                                            .size(11.0)
+                                            .size(12.5)
                                             .color(t.terminal_fg)
                                             .monospace(),
                                     );
@@ -467,22 +468,22 @@ fn draw_var_table(
     is_paused_frame: bool,
 ) {
     let available_w = ui.available_width().max(160.0);
-    let col_name_w = (available_w * 0.30).min(100.0).max(52.0);
-    let col_type_w = (available_w * 0.20).min(70.0).max(44.0);
+    let col_name_w = (available_w * 0.30).min(110.0).max(60.0);
+    let col_type_w = (available_w * 0.22).min(80.0).max(50.0);
     let col_val_w = (available_w - col_name_w - col_type_w).max(40.0);
-    let row_h = 22.0_f32;
+    let row_h = 24.0_f32;
 
-    let (hdr_rect, _) = ui.allocate_exact_size(egui::vec2(available_w, 17.0), egui::Sense::hover());
+    let (hdr_rect, _) = ui.allocate_exact_size(egui::vec2(available_w, 20.0), egui::Sense::hover());
     ui.painter().rect_filled(
         hdr_rect,
         egui::CornerRadius::same(3),
         egui::Color32::from_rgba_premultiplied(border_col.r(), border_col.g(), border_col.b(), 130),
     );
-    let hfont = egui::FontId::proportional(9.5);
+    let hfont = egui::FontId::proportional(11.0);
     for (x, lbl) in [
-        (hdr_rect.left() + 6.0, "NAME"),
-        (hdr_rect.left() + col_name_w + 6.0, "TYPE"),
-        (hdr_rect.left() + col_name_w + col_type_w + 6.0, "VALUE"),
+        (hdr_rect.left() + 8.0, "NAME"),
+        (hdr_rect.left() + col_name_w + 8.0, "TYPE"),
+        (hdr_rect.left() + col_name_w + col_type_w + 8.0, "VALUE"),
     ] {
         ui.painter().text(
             egui::pos2(x, hdr_rect.center().y),
@@ -493,27 +494,27 @@ fn draw_var_table(
         );
     }
 
-    let font = egui::FontId::monospace(10.5);
+    let font = egui::FontId::monospace(12.0);
 
     for (idx, row) in vars.iter().enumerate() {
         let (row_rect, _) =
             ui.allocate_exact_size(egui::vec2(available_w, row_h), egui::Sense::hover());
 
-        let show_changed = row.changed && !is_paused_frame;
+    let show_changed = row.changed && !is_paused_frame;
     let text_col = if show_changed {
-            egui::Color32::BLACK
+            egui::Color32::from_rgb(30, 20, 0)
         } else {
             text_col
         };
 
         let type_col_final = if show_changed {
-            egui::Color32::BLACK
+            text_col
         } else {
             type_col
         };
 
         let value_col_final = if show_changed {
-            egui::Color32::BLACK
+            text_col
         } else {
             value_col
         };
@@ -528,37 +529,38 @@ fn draw_var_table(
         let display_name = row.name.strip_prefix("fractal_").unwrap_or(&row.name);
 
         ui.painter().text(
-            egui::pos2(row_rect.left() + 6.0, row_rect.center().y),
+            egui::pos2(row_rect.left() + 8.0, row_rect.center().y),
             egui::Align2::LEFT_CENTER,
-            clip_str(display_name, col_name_w - 10.0, &font, ui),
+            clip_str(display_name, col_name_w - 12.0, &font, ui),
             font.clone(),
             text_col,
         );
 
         ui.painter().text(
-            egui::pos2(row_rect.left() + col_name_w + 6.0, row_rect.center().y),
+            egui::pos2(row_rect.left() + col_name_w + 8.0, row_rect.center().y),
             egui::Align2::LEFT_CENTER,
-            clip_str(&row.type_label, col_type_w - 10.0, &font, ui),
+            clip_str(&row.type_label, col_type_w - 12.0, &font, ui),
             font.clone(),
             type_col_final,
         );
 
- 
+
+
         ui.painter().text(
             egui::pos2(
-                row_rect.left() + col_name_w + col_type_w + 6.0,
+                row_rect.left() + col_name_w + col_type_w + 8.0,
                 row_rect.center().y,
             ),
             egui::Align2::LEFT_CENTER,
-            clip_str(&row.value, col_val_w - 14.0, &font, ui),
+            clip_str(&row.value, col_val_w - 16.0, &font, ui),
             font.clone(),
             value_col_final,
         );
 
         if show_changed {
             ui.painter().circle_filled(
-                egui::pos2(row_rect.right() - 5.0, row_rect.center().y),
-                3.0,
+                egui::pos2(row_rect.right() - 6.0, row_rect.center().y),
+                4.0,
                 changed_fg,
             );
         }

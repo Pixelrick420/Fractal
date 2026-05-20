@@ -729,6 +729,32 @@ impl Analyzer {
                                     );
                                 }
 
+                                if variadic && param_types.len() == 1
+                                    && matches!(param_types[0], SemType::Unknown)
+                                {
+                                    let needs_exactly_one = matches!(
+                                        func_name.as_str(),
+                                        "pop" | "len" | "abs"
+                                            | "to_int" | "to_float" | "to_str"
+                                    ) || func_name.ends_with("::pop")
+                                        || func_name.ends_with("::len")
+                                        || func_name.ends_with("::abs")
+                                        || func_name.ends_with("::to_int")
+                                        || func_name.ends_with("::to_float")
+                                        || func_name.ends_with("::to_str");
+
+                                    if needs_exactly_one && arg_types.len() != 1 {
+                                        self.error_at(
+                                            *line,
+                                            format!(
+                                                "function `{}` expects exactly 1 argument, got {}",
+                                                func_name,
+                                                arg_types.len()
+                                            ),
+                                        );
+                                    }
+                                }
+
                                 if !variadic {
                                     for (i, (pt, at)) in
                                         param_types.iter().zip(arg_types.iter()).enumerate()
@@ -846,7 +872,16 @@ impl Analyzer {
 
                                 let is_print = func_name == "print";
                                 if is_print {
-                                    if let Some(first_arg) = args.first() {
+                                    if arg_types.is_empty() {
+                                        self.error_at(
+                                            *line,
+                                            "`print` requires at least one argument \
+                                             (the format string)\n\
+                                             hint: use `print(\"\");` to print nothing, \
+                                             or `print(\"Hello\\n\");` to print a message"
+                                                .to_string(),
+                                        );
+                                    } else if let Some(first_arg) = args.first() {
                                         if !matches!(first_arg, ParseNode::StringLit(_, _)) {
                                             self.error_at(*line,
                                                 "first argument to `print` must be a string literal; \

@@ -2364,17 +2364,19 @@ impl CodeGen {
                 ))
             }
             ("input", _) => {
+                let prompt = &a[0];
                 let vars = &args[1..];
                 if vars.is_empty() {
-                    return Some(
-                        "{ let mut __ln = String::new(); \
+                    return Some(format!(
+                        "{{ print!(\"{{}}\", {prompt}); io::stdout().flush().unwrap(); \
+                         let mut __ln = String::new(); \
                          io::stdin().lock().read_line(&mut __ln).unwrap(); \
-                         panic!(\"input() requires at least one variable to fill\"); }"
-                            .into(),
-                    );
+                         panic!(\"input() requires at least one variable to fill\"); }}"
+                    ));
                 }
-                let mut stmts = String::from(
-                    "{ let mut __ln = String::new(); \
+                let mut stmts = format!(
+                    "{{ print!(\"{{}}\", {prompt}); io::stdout().flush().unwrap(); \
+                     let mut __ln = String::new(); \
                      io::stdin().lock().read_line(&mut __ln).unwrap(); \
                      let mut __toks = __ln.trim().split_whitespace(); ",
                 );

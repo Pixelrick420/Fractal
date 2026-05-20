@@ -852,7 +852,8 @@ impl eframe::App for FractalEditor {
         self.profile.save();
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+	let ctx = ui.ctx().clone();
         if let Some(path) = self.pending_debug_source.take() {
             self.tabs[self.active_tab].is_running = true;
             self.launch_compile(path, true, ctx);
@@ -867,7 +868,7 @@ impl eframe::App for FractalEditor {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 
-        let close_requested = ctx.input(|i| i.viewport().close_requested());
+        let close_requested = ctx.input(|i: &egui::InputState| i.viewport().close_requested());
         if close_requested && !self.allow_quit {
             let dirty: Vec<String> = self
                 .tabs

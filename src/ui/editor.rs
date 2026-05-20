@@ -72,7 +72,7 @@ impl CodeEditor {
                         .code_editor()
                         .desired_width(f32::INFINITY)
                         .desired_rows(40)
-                        .frame(false)
+                        .frame(egui::Frame::NONE)
                         .layouter(&mut layouter);
 
                     let mut output = text_edit.show(ui);

@@ -130,7 +130,7 @@ impl Terminal {
                             .map_or(false, |p| panel_rect.contains(p))
                     });
 
-                    let scroll_delta = ui.input(|i| i.raw_scroll_delta);
+                    let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
                     if pointer_in_panel && scroll_delta.y.abs() > 0.5 {
                         let lines = ((scroll_delta.y.abs() / 8.0) * 3.0).max(1.0) as i32;
                         if scroll_delta.y > 0.0 {

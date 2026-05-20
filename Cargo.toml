@@ -4,14 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-eframe = { version = "0.33", default-features = false, features = ["glow", "x11", "wayland"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
-egui = "0.33"
+eframe = { version = "=0.34.0", default-features = false, features = ["glow"] }
+egui = "=0.34.2"
+egui-phosphor = { path = "vendor/egui-phosphor", features = ["regular"] }
 egui_term = { git = "https://github.com/Harzu/egui_term", branch = "main" }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "5"
-egui-phosphor = { version = "0.11", features = ["regular"] }
+
 
 [profile.release]
 opt-level = "z"

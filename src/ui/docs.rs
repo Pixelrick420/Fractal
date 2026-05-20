@@ -208,7 +208,7 @@ impl DocsWindow {
                             egui::TextEdit::singleline(&mut self.search_query)
                                 .id(search_id)
                                 .hint_text("Search docs...")
-                                .frame(false)
+                                .frame(egui::Frame::NONE)
                                 .desired_width(f32::INFINITY)
                                 .font(egui::TextStyle::Small),
                         );

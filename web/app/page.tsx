@@ -14,10 +14,8 @@ import {
   BookOpen,
   Settings,
   Monitor,
-  Package,
   CheckCircle,
   XCircle,
-  ArrowRight,
   Play,
   X,
 } from "lucide-react";
@@ -259,15 +257,9 @@ function Pill({ label }: { label: string }) {
 
 const REPO = "Pixelrick420/Fractal";
 
-type ReleaseAsset = {
-  name: string;
-  browser_download_url: string;
-  size: number;
-};
 type Release = {
   tag_name: string;
   published_at: string;
-  assets: ReleaseAsset[];
 };
 
 function useLatestRelease() {
@@ -294,17 +286,6 @@ type LucideIcon = React.FC<{
   strokeWidth?: number;
   style?: React.CSSProperties;
 }>;
-
-const BINARY_META: Record<string, { Icon: LucideIcon; desc: string }> = {
-  "fractal-compiler": {
-    Icon: Settings as LucideIcon,
-    desc: "Compile .fr files from the command line",
-  },
-  "fractal-editor": {
-    Icon: Monitor as LucideIcon,
-    desc: "Full GUI editor with syntax highlighting & terminal",
-  },
-};
 
 const EDITOR_FEATURES: { Icon: LucideIcon; title: string; desc: string }[] = [
   {
@@ -385,57 +366,185 @@ function MobileMenuIcon({ open }: { open: boolean }) {
     >
       {open ? (
         <>
-          <line
-            x1="4"
-            y1="4"
-            x2="18"
-            y2="18"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          />
-          <line
-            x1="18"
-            y1="4"
-            x2="4"
-            y2="18"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          />
+          <line x1="4" y1="4" x2="18" y2="18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <line x1="18" y1="4" x2="4" y2="18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
         </>
       ) : (
         <>
-          <line
-            x1="3"
-            y1="6"
-            x2="19"
-            y2="6"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          />
-          <line
-            x1="3"
-            y1="11"
-            x2="19"
-            y2="11"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          />
-          <line
-            x1="3"
-            y1="16"
-            x2="19"
-            y2="16"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          />
+          <line x1="3" y1="6" x2="19" y2="6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <line x1="3" y1="11" x2="19" y2="11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <line x1="3" y1="16" x2="19" y2="16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
         </>
       )}
     </svg>
+  );
+}
+
+/* ── Download section ─────────────────────────────────────────────────────── */
+function DownloadSection({ release, error }: { release: Release | null; error: boolean }) {
+  const [activeTab, setActiveTab] = useState<"windows" | "linux">("windows");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const copy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text).then(() => setCopiedId(id)).catch(() => {});
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const CopyBtn = ({ text, id }: { text: string; id: string }) => (
+    <button className={styles.installCopyBtn} onClick={() => copy(text, id)}>
+      {copiedId === id ? (
+        <>
+          <CheckCircle size={13} style={{ display: "inline", verticalAlign: "middle", marginRight: 5 }} />
+          Copied
+        </>
+      ) : (
+        "Copy"
+      )}
+    </button>
+  );
+
+  return (
+    <section id="download" className={styles.dlSection}>
+      <div className={styles.sectionLabel}>// DOWNLOAD</div>
+      <h2 className={styles.sectionTitle}>Start writing Fractal today.</h2>
+      <p className={styles.sectionSubtitle}>
+        Pick your platform and follow the steps below.
+      </p>
+
+      {/* Release badge */}
+      <div className={styles.releaseBadge}>
+        {release ? (
+          <>
+            <span className={styles.releaseDot} />
+            <span className={styles.releaseTag}>{release.tag_name}</span>
+            <span className={styles.releaseDate}>
+              · released{" "}
+              {new Date(release.published_at).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              })}
+            </span>
+          </>
+        ) : error ? (
+          <span className={styles.releaseErr}>Could not fetch release info</span>
+        ) : (
+          <span className={styles.releaseFetching}>fetching latest release…</span>
+        )}
+      </div>
+
+      {/* OS tab switcher */}
+      <div className={styles.osTabs}>
+        <button
+          className={`${styles.osTab} ${activeTab === "windows" ? styles.osTabActive : ""}`}
+          onClick={() => setActiveTab("windows")}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801" />
+          </svg>
+          Windows
+        </button>
+        <button
+          className={`${styles.osTab} ${activeTab === "linux" ? styles.osTabActive : ""}`}
+          onClick={() => setActiveTab("linux")}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="4 17 10 11 4 5" />
+            <line x1="12" y1="19" x2="20" y2="19" />
+          </svg>
+          Linux
+        </button>
+      </div>
+
+      {/* ── Windows ── */}
+      {activeTab === "windows" && (
+        <div className={styles.tabPanel}>
+          <div className={styles.dlStepsVertical}>
+
+            <div className={styles.dlStepCard}>
+              <div className={styles.dlStepN}>01</div>
+              <div className={styles.dlStepBody}>
+                <strong>Install Rust</strong>
+                <p>
+                  Fractal is built in Rust. Download the installer from{" "}
+                  <a href="https://rust-lang.org/tools/install/" target="_blank" rel="noreferrer" className={styles.stepLink}>
+                    rustup.rs →
+                  </a>{" "}
+                  — it sets up <code>rustc</code> and <code>cargo</code> automatically.
+                </p>
+              </div>
+            </div>
+
+            <div className={styles.dlStepCard}>
+              <div className={styles.dlStepN}>02</div>
+              <div className={styles.dlStepBody}>
+                <strong>Install Git &amp; Git Bash</strong>
+                <p>
+                  Download Git for Windows from{" "}
+                  <a href="https://git-scm.com/download/win" target="_blank" rel="noreferrer" className={styles.stepLink}>
+                    git-scm.com →
+                  </a>{" "}
+                  — the installer includes Git Bash, which you&apos;ll use to run Fractal.
+                </p>
+              </div>
+            </div>
+
+            <div className={styles.dlStepCard}>
+              <div className={styles.dlStepN}>03</div>
+              <div className={styles.dlStepBody}>
+                <strong>Clone the repository</strong>
+                <p>Open Git Bash and run:</p>
+                <div className={styles.installBlock}>
+                  <code className={styles.installCmd}>
+                    git clone https://github.com/Pixelrick420/Fractal.git
+                  </code>
+                  <CopyBtn text="git clone https://github.com/Pixelrick420/Fractal.git" id="clone" />
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ── Linux ── */}
+      {activeTab === "linux" && (
+        <div className={styles.tabPanel}>
+          <div className={styles.dlStepsVertical}>
+
+            <div className={styles.dlStepCard}>
+              <div className={styles.dlStepN}>01</div>
+              <div className={styles.dlStepBody}>
+                <strong>Run the installer</strong>
+                <p>
+                  Paste this into your terminal. Requires <code>wget</code> and <code>sudo</code> access.
+                </p>
+                <div className={styles.installBlock}>
+                  <code className={styles.installCmd}>
+                    wget -O install.sh https://raw.githubusercontent.com/Pixelrick420/Fractal/main/executable/install.sh &amp;&amp; sudo bash install.sh
+                  </code>
+                  <CopyBtn
+                    text="wget -O install.sh https://raw.githubusercontent.com/Pixelrick420/Fractal/main/executable/install.sh && sudo bash install.sh"
+                    id="linux-install"
+                  />
+                </div>
+              </div>
+            </div>
+
+          
+          </div>
+        </div>
+      )}
+
+      <a
+        href={`https://github.com/${REPO}/releases`}
+        target="_blank"
+        rel="noreferrer"
+        className={styles.allReleases}
+      >
+        All releases on GitHub →
+      </a>
+    </section>
   );
 }
 
@@ -443,7 +552,6 @@ function MobileMenuIcon({ open }: { open: boolean }) {
 export default function Home() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const { release, error } = useLatestRelease();
 
   useEffect(() => {
@@ -570,35 +678,20 @@ export default function Home() {
         aria-modal="true"
         aria-label="Navigation menu"
       >
-        <a href="#why" onClick={closeMenu}>
-          Why Fractal
-        </a>
-        <a href="#syntax" onClick={closeMenu}>
-          Syntax
-        </a>
-        <a href="#errors" onClick={closeMenu}>
-          Errors
-        </a>
-        <a href="#editor" onClick={closeMenu}>
-          Editor
-        </a>
-        <a href="/demo" onClick={closeMenu}>
-          Demo
-        </a>
-        <a href="/docs" onClick={closeMenu}>
-          Docs
-        </a>
-        <a href="#download" onClick={closeMenu} className="cta">
-          Download
-        </a>
+        <a href="#why" onClick={closeMenu}>Why Fractal</a>
+        <a href="#syntax" onClick={closeMenu}>Syntax</a>
+        <a href="#errors" onClick={closeMenu}>Errors</a>
+        <a href="#editor" onClick={closeMenu}>Editor</a>
+        <a href="/demo" onClick={closeMenu}>Demo</a>
+        <a href="/docs" onClick={closeMenu}>Docs</a>
+        <a href="#download" onClick={closeMenu} className="cta">Download</a>
       </div>
 
       {/* ── Hero ── */}
       <section className={styles.hero}>
         <div className={styles.heroLeft}>
           <div className={styles.heroEyebrow}>
-            <span className={styles.eyebrowDot} />A programming language for
-            learners
+            <span className={styles.eyebrowDot} />A programming language for learners
           </div>
           <h1 className={styles.heroTitle}>
             Learn to think
@@ -617,15 +710,8 @@ export default function Home() {
             <Pill label="Built-in Editor" />
           </div>
           <div className={styles.heroCta}>
-            <a href="#download" className={styles.btnPrimary}>
-              Download Fractal
-            </a>
-            <a
-              href="https://github.com/Pixelrick420/Fractal"
-              target="_blank"
-              rel="noreferrer"
-              className={styles.btnGhost}
-            >
+            <a href="#download" className={styles.btnPrimary}>Download Fractal</a>
+            <a href="https://github.com/Pixelrick420/Fractal" target="_blank" rel="noreferrer" className={styles.btnGhost}>
               View on GitHub →
             </a>
           </div>
@@ -634,8 +720,7 @@ export default function Home() {
           <AnimatedCode />
           <div className={styles.heroCodeNote}>
             <span className={styles.heroCodeNoteKw}>:int</span> and
-            <span className={styles.heroCodeNoteKw}> :float</span> - types you
-            can&apos;t miss
+            <span className={styles.heroCodeNoteKw}> :float</span> - types you can&apos;t miss
           </div>
         </div>
       </section>
@@ -649,23 +734,17 @@ export default function Home() {
           there&apos;s a gap.
         </h2>
         <p className={styles.sectionSubtitle}>
-          Python hides too much. C explains too little. Fractal sits exactly in
-          the middle.
+          Python hides too much. C explains too little. Fractal sits exactly in the middle.
         </p>
         <div className={styles.problemGrid}>
           {PROBLEM_CARDS.map(({ Icon, name, body, tag, tagColor, center }) => (
-            <div
-              key={name}
-              className={`${styles.problemCard} ${center ? styles.problemCardCenter : ""}`}
-            >
+            <div key={name} className={`${styles.problemCard} ${center ? styles.problemCardCenter : ""}`}>
               <div className={styles.problemIcon}>
                 <Icon size={28} strokeWidth={1.5} />
               </div>
               <h3>{name}</h3>
               <p>{body}</p>
-              <div className={styles.problemTag} style={{ color: tagColor }}>
-                {tag}
-              </div>
+              <div className={styles.problemTag} style={{ color: tagColor }}>{tag}</div>
             </div>
           ))}
         </div>
@@ -676,8 +755,7 @@ export default function Home() {
         <div className={styles.sectionLabel}>// SYNTAX</div>
         <h2 className={styles.sectionTitle}>Built to be readable.</h2>
         <p className={styles.sectionSubtitle}>
-          Every keyword stands out visually. You can glance at any line and know
-          exactly what&apos;s happening.
+          Every keyword stands out visually. You can glance at any line and know exactly what&apos;s happening.
         </p>
         <div className={styles.syntaxLayout}>
           <div className={styles.syntaxExplainer}>
@@ -694,16 +772,14 @@ export default function Home() {
               <span className={styles.syn_type}>:float</span> &nbsp;
               <span className={styles.syn_type}>:string</span>
               <p>
-                Types always start with <code>:</code>. You always know what a
-                variable holds - no guessing.
+                Types always start with <code>:</code>. You always know what a variable holds - no guessing.
               </p>
             </div>
             <div className={styles.syntaxRule}>
               <span className={styles.syn_type}>:int</span>
               <span className={styles.syn_op}>(value)</span>
               <p>
-                Explicit casting. Converting types is intentional and visible,
-                not silent.
+                Explicit casting. Converting types is intentional and visible, not silent.
               </p>
             </div>
           </div>
@@ -718,28 +794,15 @@ export default function Home() {
         <div className={styles.sectionLabel}>// ERROR MESSAGES</div>
         <h2 className={styles.sectionTitle}>Errors that teach, not punish.</h2>
         <p className={styles.sectionSubtitle}>
-          When something goes wrong, Fractal explains what happened and shows
-          you how to fix it - in plain language.
+          When something goes wrong, Fractal explains what happened and shows you how to fix it - in plain language.
         </p>
         <div className={styles.errorLayout}>
           <ErrorDemo />
           <div className={styles.errorPoints}>
             {[
-              {
-                n: "01",
-                title: "Plain language first",
-                body: "No error codes. No pointer arithmetic jargon. Just a sentence that describes the mistake.",
-              },
-              {
-                n: "02",
-                title: "Always a suggestion",
-                body: "Every error message ends with at least one concrete fix you can copy and try immediately.",
-              },
-              {
-                n: "03",
-                title: "Line and column",
-                body: "Errors point exactly to where the problem is - no hunting through your whole file.",
-              },
+              { n: "01", title: "Plain language first", body: "No error codes. No pointer arithmetic jargon. Just a sentence that describes the mistake." },
+              { n: "02", title: "Always a suggestion", body: "Every error message ends with at least one concrete fix you can copy and try immediately." },
+              { n: "03", title: "Line and column", body: "Errors point exactly to where the problem is - no hunting through your whole file." },
             ].map(({ n, title, body }) => (
               <div key={n} className={styles.errorPoint}>
                 <span className={styles.errorPointNum}>{n}</span>
@@ -758,8 +821,7 @@ export default function Home() {
         <div className={styles.sectionLabel}>// THE EDITOR</div>
         <h2 className={styles.sectionTitle}>Everything in one window.</h2>
         <p className={styles.sectionSubtitle}>
-          The Fractal editor is built for beginners. No setup, no extensions to
-          install, no configuration files.
+          The Fractal editor is built for beginners. No setup, no extensions to install, no configuration files.
         </p>
         <div className={styles.editorFeatures}>
           {EDITOR_FEATURES.map(({ Icon, title, desc }) => (
@@ -775,89 +837,7 @@ export default function Home() {
       </section>
 
       {/* ── Download ── */}
-      <section id="download" className={styles.dlSection}>
-        <div className={styles.sectionLabel}>// DOWNLOAD</div>
-        <h2 className={styles.sectionTitle}>Start writing Fractal today.</h2>
-        <p className={styles.sectionSubtitle}>
-          One command. No manual steps. The installer handles everything for
-          you.
-        </p>
-
-        <div className={styles.releaseBadge}>
-          {release ? (
-            <>
-              <span className={styles.releaseDot} />
-              <span className={styles.releaseTag}>{release.tag_name}</span>
-              <span className={styles.releaseDate}>
-                · released{" "}
-                {new Date(release.published_at).toLocaleDateString("en-US", {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                })}
-              </span>
-            </>
-          ) : error ? (
-            <span className={styles.releaseErr}>
-              Could not fetch release info
-            </span>
-          ) : (
-            <span className={styles.releaseFetching}>
-              fetching latest release…
-            </span>
-          )}
-        </div>
-
-        <div className={styles.installBlock}>
-          <code className={styles.installCmd}>
-            wget -O install.sh
-            https://raw.githubusercontent.com/Pixelrick420/Fractal/main/executable/install.sh
-            &amp;&amp; sudo bash install.sh
-          </code>
-          <button
-            className={styles.installCopyBtn}
-            onClick={() => {
-              navigator.clipboard
-                .writeText(
-                  "wget -O install.sh https://raw.githubusercontent.com/Pixelrick420/Fractal/main/executable/install.sh && sudo bash install.sh",
-                )
-                .then(() => setCopied(true))
-                .catch(() => {});
-              setTimeout(() => setCopied(false), 2000);
-            }}
-          >
-            {copied ? (
-              <>
-                <CheckCircle
-                  size={13}
-                  style={{
-                    display: "inline",
-                    verticalAlign: "middle",
-                    marginRight: 5,
-                  }}
-                />
-                Copied
-              </>
-            ) : (
-              "Copy"
-            )}
-          </button>
-        </div>
-
-        <p className={styles.installNote}>
-          Paste this into your terminal. Requires <code>wget</code> and{" "}
-          <code>sudo</code> access.
-        </p>
-
-        <a
-          href={`https://github.com/${REPO}/releases`}
-          target="_blank"
-          rel="noreferrer"
-          className={styles.allReleases}
-        >
-          All releases on GitHub →
-        </a>
-      </section>
+      <DownloadSection release={release} error={error} />
 
       {/* ── Footer ── */}
       <footer className={styles.footer}>
@@ -865,32 +845,12 @@ export default function Home() {
           <span className={styles.logo}>
             <span className={styles.logoKw}>!</span>fractal
           </span>
-          <span className={styles.footerTagline}>
-            A beginner-friendly compiled language
-          </span>
+          <span className={styles.footerTagline}>A beginner-friendly compiled language</span>
         </div>
         <div className={styles.footerRight}>
-          <a
-            href="https://github.com/Pixelrick420/Fractal"
-            target="_blank"
-            rel="noreferrer"
-          >
-            GitHub
-          </a>
-          <a
-            href="https://github.com/Pixelrick420/Fractal/blob/main/src/compiler/GRAMMAR.md"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Grammar
-          </a>
-          <a
-            href="https://github.com/Pixelrick420/Fractal/releases"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Releases
-          </a>
+          <a href="https://github.com/Pixelrick420/Fractal" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="https://github.com/Pixelrick420/Fractal/blob/main/src/compiler/GRAMMAR.md" target="_blank" rel="noreferrer">Grammar</a>
+          <a href="https://github.com/Pixelrick420/Fractal/releases" target="_blank" rel="noreferrer">Releases</a>
         </div>
       </footer>
     </div>

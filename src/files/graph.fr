@@ -1,7 +1,5 @@
 !start
 
-    !import "math";
-
     :struct<Edge> {
         :int to;
         :int weight;
@@ -46,28 +44,28 @@
 
     !func bfs(:struct<Graph> g, :int start) -> :void {
 
-        :array<:boolean, 100> visited;
+        :array<:boolean, 10> visited;
         :list<:int> queue = [];
 
         append(queue, start);
         visited[start] = true;
 
-        !while (find(queue, start) ~= - 1) {
+        !while (len(queue) > 0) {
 
             :int current = pop(queue);
-            print("visit {}", current);
+            print("visit {}\n", current);
 
             :struct<Node> node = g::nodes[current];
 
             !for (:int i, 0, 10, 1) {
 
-                !if (i >= len(node::edges)){
+                !if (i >= len(node::edges)) {
                     !break;
                 }
 
                 :struct<Edge> e = node::edges[i];
 
-                !if (!not visited[e::to]) {
+                !if (visited[e::to] == false) {
                     visited[e::to] = true;
                     append(queue, e::to);
                 }
